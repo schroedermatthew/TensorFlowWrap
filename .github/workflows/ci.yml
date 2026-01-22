@@ -523,6 +523,48 @@ jobs:
           
           echo "✓ All real TensorFlow tests passed"
 
+      - name: Build and run main tests with real TF
+        run: |
+          TF_INCLUDE="tensorflow_c/include"
+          TF_LIB="tensorflow_c/lib"
+          
+          g++-12 -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -I"$TF_INCLUDE" \
+            ${{ env.TEST_DIR }}/test_main.cpp \
+            -L"$TF_LIB" \
+            -ltensorflow \
+            -Wl,-rpath,"$TF_LIB" \
+            -pthread \
+            -o test_main_real
+          
+          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
+          ./test_main_real
+          
+          echo "✓ Main tests passed with real TensorFlow"
+
+      - name: Build and run edge case tests with real TF
+        run: |
+          TF_INCLUDE="tensorflow_c/include"
+          TF_LIB="tensorflow_c/lib"
+          
+          g++-12 -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -I"$TF_INCLUDE" \
+            ${{ env.TEST_DIR }}/test_edge_cases.cpp \
+            -L"$TF_LIB" \
+            -ltensorflow \
+            -Wl,-rpath,"$TF_LIB" \
+            -pthread \
+            -o test_edge_cases_real
+          
+          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
+          ./test_edge_cases_real
+          
+          echo "✓ Edge case tests passed with real TensorFlow"
+
       - name: Build and run simple integration test
         run: |
           TF_INCLUDE="tensorflow_c/include"

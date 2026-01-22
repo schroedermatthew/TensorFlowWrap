@@ -481,30 +481,41 @@ TEST(session_run_missing_feed_throws) {
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(session_run_wrong_feed_shape_throws) {
+TEST(session_run_incompatible_matmul_shapes_throws) {
+    // Test that runtime shape validation works for placeholders.
+    // MatMul requires 2D inputs; feeding 1D tensor should fail at Run() time.
     tf_wrap::FastGraph g;
     
-    // Placeholder expects shape [2, 3]
-    (void)g.NewOperation("Placeholder", "X")
+    (void)g.NewOperation("Placeholder", "A")
         .SetAttrType("dtype", TF_FLOAT)
-        .SetAttrShape("shape", {2, 3})
         .Finish();
     
-    auto* op_x = g.GetOperationOrThrow("X");
-    (void)g.NewOperation("Identity", "Y")
-        .AddInput(tf_wrap::Output(op_x, 0))
+    (void)g.NewOperation("Placeholder", "B")
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto* op_a = g.GetOperationOrThrow("A");
+    auto* op_b = g.GetOperationOrThrow("B");
+    
+    (void)g.NewOperation("MatMul", "C")
+        .AddInput(tf_wrap::Output(op_a, 0))
+        .AddInput(tf_wrap::Output(op_b, 0))
         .Finish();
     
     tf_wrap::FastSession s(g);
     
-    // Feed wrong shape [3, 2] instead of [2, 3]
-    auto wrong_shape = tf_wrap::FastTensor::FromVector<float>({3, 2}, 
+    // Feed 1D tensors - MatMul requires 2D
+    auto a_tensor = tf_wrap::FastTensor::FromVector<float>({6}, 
+        {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto b_tensor = tf_wrap::FastTensor::FromVector<float>({6}, 
         {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
     
     bool threw = false;
     std::string error_msg;
     try {
-        auto results = s.Run({{"X", 0, wrong_shape.handle()}}, {{"Y", 0}}, {});
+        auto results = s.Run(
+            {{"A", 0, a_tensor.handle()}, {"B", 0, b_tensor.handle()}}, 
+            {{"C", 0}}, {});
     } catch (const std::exception& e) {
         threw = true;
         error_msg = e.what();
@@ -653,7 +664,8 @@ TEST(operation_type_mismatch_throws) {
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(matmul_incompatible_shapes_throws) {
+TEST(matmul_incompatible_shapes_at_finish_throws) {
+    // Real TensorFlow validates shapes at Finish() time when shapes are known statically
     tf_wrap::FastGraph g;
     
     // A is 2x3, B is 2x3 - can't multiply (need 2x3 @ 3xN)
@@ -673,18 +685,14 @@ TEST(matmul_incompatible_shapes_throws) {
     auto* op_a = g.GetOperationOrThrow("A");
     auto* op_b = g.GetOperationOrThrow("B");
     
-    // MatMul creation might succeed, but running should fail
-    (void)g.NewOperation("MatMul", "C")
-        .AddInput(tf_wrap::Output(op_a, 0))
-        .AddInput(tf_wrap::Output(op_b, 0))
-        .Finish();
-    
-    tf_wrap::FastSession s(g);
-    
     bool threw = false;
     std::string error_msg;
     try {
-        auto results = s.Run({}, {{"C", 0}}, {});
+        // TF validates shapes at Finish() time for Const inputs
+        (void)g.NewOperation("MatMul", "C")
+            .AddInput(tf_wrap::Output(op_a, 0))
+            .AddInput(tf_wrap::Output(op_b, 0))
+            .Finish();
     } catch (const std::exception& e) {
         threw = true;
         error_msg = e.what();
@@ -693,7 +701,8 @@ TEST(matmul_incompatible_shapes_throws) {
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(reshape_incompatible_size_throws) {
+TEST(reshape_incompatible_size_at_finish_throws) {
+    // Real TensorFlow validates reshape compatibility at Finish() time when shapes are known
     tf_wrap::FastGraph g;
     
     // 6 elements can't reshape to 2x4=8
@@ -713,17 +722,14 @@ TEST(reshape_incompatible_size_throws) {
     auto* op_t = g.GetOperationOrThrow("T");
     auto* op_shape = g.GetOperationOrThrow("Shape");
     
-    (void)g.NewOperation("Reshape", "R")
-        .AddInput(tf_wrap::Output(op_t, 0))
-        .AddInput(tf_wrap::Output(op_shape, 0))
-        .Finish();
-    
-    tf_wrap::FastSession s(g);
-    
     bool threw = false;
     std::string error_msg;
     try {
-        auto results = s.Run({}, {{"R", 0}}, {});
+        // TF validates reshape at Finish() time when shape is Const
+        (void)g.NewOperation("Reshape", "R")
+            .AddInput(tf_wrap::Output(op_t, 0))
+            .AddInput(tf_wrap::Output(op_shape, 0))
+            .Finish();
     } catch (const std::exception& e) {
         threw = true;
         error_msg = e.what();

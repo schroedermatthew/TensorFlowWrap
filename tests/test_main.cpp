@@ -627,10 +627,15 @@ TF_TEST_CASE("Graph ToGraphDef serializes graph") {
     auto graph_def = graph.ToGraphDef();
     TF_REQUIRE(!graph_def.empty());
     
+#ifdef TF_WRAPPER_TF_STUB_ENABLED
     // In the stub, we get a text representation
     std::string content(graph_def.begin(), graph_def.end());
     TF_REQUIRE(content.find("STUB_GRAPH_DEF") != std::string::npos);
     TF_REQUIRE(content.find("num_operations: 2") != std::string::npos);
+#else
+    // In real TF, we get a protobuf binary - just check it's non-empty
+    TF_REQUIRE(graph_def.size() > 10);  // Should be more than a few bytes
+#endif
 }
 
 TF_TEST_CASE("Graph GetPlaceholders finds placeholder ops") {
