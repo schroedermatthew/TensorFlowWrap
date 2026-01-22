@@ -456,7 +456,8 @@ public:
         
         // H1 FIX: Acquire read lock for thread safety
         // Without this lock, concurrent writes could produce torn/corrupted data
-        auto guard = state_->policy.scoped_shared();
+        // Note: [[maybe_unused]] because NoLock policy has empty guard
+        [[maybe_unused]] auto guard = state_->policy.scoped_shared();
         
         const auto dt = dtype();
         const auto& sh = shape();

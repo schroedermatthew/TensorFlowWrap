@@ -255,12 +255,12 @@ TEST_CASE("SafeGraph all methods work") {
     auto t1 = tf_wrap::FastTensor::FromScalar<float>(1.0f);
     auto t2 = tf_wrap::FastTensor::FromScalar<float>(2.0f);
     
-    auto op1 = g.NewOperation("Const", "const1")
+    (void)g.NewOperation("Const", "const1")
         .SetAttrTensor("value", t1.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    auto op2 = g.NewOperation("Const", "const2")
+    (void)g.NewOperation("Const", "const2")
         .SetAttrTensor("value", t2.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
