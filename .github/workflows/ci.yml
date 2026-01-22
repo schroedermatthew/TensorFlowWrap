@@ -4,7 +4,7 @@
 # CI workflow for TensorFlowWrap - C++20 Wrapper for TensorFlow C API
 #
 # Directory structure:
-#   Headers:    include/tf/*.hpp
+#   Headers:    include/tf_wrap/*.hpp
 #   Tests:      tests/test_*.cpp
 #   Stub:       third_party/tf_stub/
 #
@@ -388,7 +388,7 @@ jobs:
           success=0
           failed=0
           
-          for header in ${{ env.INCLUDE_DIR }}/tf/*.hpp; do
+          for header in ${{ env.INCLUDE_DIR }}/tf_wrap/*.hpp; do
             basename=$(basename "$header")
             
             # Create test file that includes only this header
@@ -478,11 +478,20 @@ jobs:
       - name: Download TensorFlow C library
         run: |
           echo "Downloading TensorFlow C library..."
-          TF_VERSION="2.16.1"
+          TF_VERSION="2.14.0"
           TF_URL="https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-linux-x86_64-${TF_VERSION}.tar.gz"
           
           mkdir -p tensorflow_c
-          curl -L "$TF_URL" | tar -xz -C tensorflow_c
+          
+          # Download with retry and verbose output
+          echo "Fetching from: $TF_URL"
+          curl -fSL --retry 3 "$TF_URL" -o tf.tar.gz
+          
+          # Verify it's a valid gzip file
+          file tf.tar.gz
+          
+          # Extract
+          tar -xzf tf.tar.gz -C tensorflow_c
           
           echo "TensorFlow C library contents:"
           ls -la tensorflow_c/

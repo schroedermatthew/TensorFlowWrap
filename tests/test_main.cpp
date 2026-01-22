@@ -444,23 +444,39 @@ TF_TEST_CASE("SharedMutex allows concurrent readers") {
     tf_wrap::policy::SharedMutex m;
     std::atomic<int> readers{0};
     std::atomic<int> max_readers{0};
+    std::atomic<bool> start{false};
 
     auto reader = [&]() {
-        for (int i = 0; i < 50; ++i) {
+        // Wait for all threads to be ready
+        while (!start) std::this_thread::yield();
+        
+        for (int i = 0; i < 100; ++i) {
             auto guard = m.scoped_shared();
             int current = ++readers;
-            max_readers = std::max(max_readers.load(), current);
-            std::this_thread::yield();
+            
+            // Update max - use compare_exchange to be safe
+            int expected = max_readers.load();
+            while (current > expected) {
+                if (max_readers.compare_exchange_weak(expected, current)) break;
+            }
+            
+            // Hold the lock long enough for other threads to also acquire it
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
             --readers;
         }
     };
 
     std::thread t1(reader), t2(reader), t3(reader), t4(reader);
+    
+    // Release all threads at once
+    start = true;
+    
     t1.join();
     t2.join();
     t3.join();
     t4.join();
 
+    // With 4 threads, 100 iterations, and 100us sleep, we expect concurrent readers
     TF_REQUIRE(max_readers > 1);
 }
 
