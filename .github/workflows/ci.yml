@@ -17,7 +17,7 @@
 #   - linux-gcc: GCC 12/13 build + tests
 #   - linux-clang: Clang 15/16 build + tests
 #   - windows-msvc: MSVC build + tests
-#   - macos: Apple Clang on Intel (macos-13) and ARM (macos-14)
+#   - macos: Apple Clang on ARM (macos-14)
 #   - sanitizer-asan: AddressSanitizer
 #   - sanitizer-ubsan: UndefinedBehaviorSanitizer
 #   - sanitizer-tsan: ThreadSanitizer
@@ -593,7 +593,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-13, macos-14]  # Intel and ARM
+        os: [macos-14]  # ARM only (macos-13 deprecated)
 
     steps:
       - uses: actions/checkout@v4
