@@ -66,19 +66,22 @@ public:
         }
     }
     
-    /// Destructor - cleans up if not finished, logs warning in debug builds
+    /// Destructor - logs warning if not finished
+    /// Note: TensorFlow C API doesn't provide TF_DeleteOperationDescription,
+    /// so we can only warn about abandoned operations, not clean them up.
     ~OperationBuilder() noexcept {
         if (!finished_ && desc_) {
-            // Operation was never finished - clean up the description
-            // This can happen during exception unwinding, so we must not throw/assert
-            TF_DeleteOperationDescription(desc_);
-            
+            // Operation was never finished - this is a resource leak in real TF
+            // but we can't clean it up as there's no public API to do so.
             // In debug builds, log to stderr (safe during unwinding)
             #ifndef NDEBUG
             std::fprintf(stderr, 
-                "[tf_wrapper WARNING] OperationBuilder destroyed without Finish() - "
-                "operation was discarded\n");
+                "[TensorFlowWrap WARNING] OperationBuilder destroyed without Finish() - "
+                "operation was discarded (potential resource leak)\n");
             #endif
+            
+            // Mark as finished to prevent double-warning if moved-from
+            // (The actual TF_OperationDescription leaks, but that's TF's limitation)
         }
     }
     
