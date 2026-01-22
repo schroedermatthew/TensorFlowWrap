@@ -462,6 +462,24 @@ jobs:
         timeout-minutes: 5
         run: ./test_stress --stress
 
+      - name: Build comprehensive bug tests
+        run: |
+          g++-13 -std=c++20 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -O2 \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            -DNDEBUG \
+            -pthread \
+            ${{ env.TEST_DIR }}/test_comprehensive_bugs.cpp \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            -o test_comprehensive
+
+      - name: Run comprehensive bug tests (including SafeGraph/SafeTensor)
+        timeout-minutes: 5
+        run: ./test_comprehensive --all
+
   # ===========================================================================
   # Real TensorFlow Integration Test (Multiple Versions)
   # ===========================================================================

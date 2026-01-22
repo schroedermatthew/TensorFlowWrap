@@ -610,13 +610,23 @@ public:
     }
     
     /// Print graph summary to a string (for debugging)
+    /// @note Thread-safe with all locking policies (H2 FIX)
     [[nodiscard]] std::string DebugString() const {
         [[maybe_unused]] auto guard = policy_.scoped_shared();
         
-        std::string result;
-        result += "Graph with " + std::to_string(num_operations()) + " operations:\n";
-        
+        // H2 FIX: Count operations inline instead of calling num_operations()
+        // Calling num_operations() would try to acquire the same lock again,
+        // which deadlocks with policy::Mutex (non-recursive mutex).
+        std::size_t count = 0;
         std::size_t pos = 0;
+        while (TF_GraphNextOperation(graph_, &pos) != nullptr) {
+            ++count;
+        }
+        pos = 0;  // Reset position for the iteration below
+        
+        std::string result;
+        result += "Graph with " + std::to_string(count) + " operations:\n";
+        
         TF_Operation* op;
         
         while ((op = TF_GraphNextOperation(graph_, &pos)) != nullptr) {

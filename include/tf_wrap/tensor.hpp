@@ -448,22 +448,28 @@ public:
     /// Deep copy this tensor (returns new tensor with copied data)
     /// @returns A new Tensor with identical dtype, shape, and data
     /// @note Returns empty tensor if this tensor is empty
+    /// @note Thread-safe: acquires read lock during copy (H1 FIX)
     [[nodiscard]] Tensor Clone() const {
         if (!state_->tensor) {
             return Tensor{};  // Clone of empty is empty
         }
         
+        // H1 FIX: Acquire read lock for thread safety
+        // Without this lock, concurrent writes could produce torn/corrupted data
+        auto guard = state_->policy.scoped_shared();
+        
         const auto dt = dtype();
         const auto& sh = shape();
         const auto bytes = byte_size();
+        const void* src = TF_TensorData(state_->tensor);  // Capture ptr under lock
         
         return create_tensor_alloc_(
             dt,
             sh,
             bytes,
-            [this](void* dst, std::size_t len) {
+            [src](void* dst, std::size_t len) {  // Capture src, NOT this
                 if (len != 0) {
-                    std::memcpy(dst, TF_TensorData(state_->tensor), len);
+                    std::memcpy(dst, src, len);
                 }
             });
     }
