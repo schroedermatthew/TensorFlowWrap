@@ -453,6 +453,351 @@ TEST(dtype_mismatch_throws) {
     REQUIRE(threw);
 }
 
+TEST(session_run_missing_feed_throws) {
+    // Create graph with placeholder but don't feed it
+    tf_wrap::FastGraph g;
+    
+    (void)g.NewOperation("Placeholder", "X")
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto* op_x = g.GetOperationOrThrow("X");
+    (void)g.NewOperation("Identity", "Y")
+        .AddInput(tf_wrap::Output(op_x, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    bool threw = false;
+    std::string error_msg;
+    try {
+        // Run without feeding X - should fail
+        auto results = s.Run({}, {{"Y", 0}}, {});
+    } catch (const std::exception& e) {
+        threw = true;
+        error_msg = e.what();
+    }
+    REQUIRE(threw);
+    std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
+}
+
+TEST(session_run_wrong_feed_shape_throws) {
+    tf_wrap::FastGraph g;
+    
+    // Placeholder expects shape [2, 3]
+    (void)g.NewOperation("Placeholder", "X")
+        .SetAttrType("dtype", TF_FLOAT)
+        .SetAttrShape("shape", {2, 3})
+        .Finish();
+    
+    auto* op_x = g.GetOperationOrThrow("X");
+    (void)g.NewOperation("Identity", "Y")
+        .AddInput(tf_wrap::Output(op_x, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    // Feed wrong shape [3, 2] instead of [2, 3]
+    auto wrong_shape = tf_wrap::FastTensor::FromVector<float>({3, 2}, 
+        {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    
+    bool threw = false;
+    std::string error_msg;
+    try {
+        auto results = s.Run({{"X", 0, wrong_shape.handle()}}, {{"Y", 0}}, {});
+    } catch (const std::exception& e) {
+        threw = true;
+        error_msg = e.what();
+    }
+    REQUIRE(threw);
+    std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
+}
+
+TEST(session_run_wrong_feed_dtype_throws) {
+    tf_wrap::FastGraph g;
+    
+    // Placeholder expects float
+    (void)g.NewOperation("Placeholder", "X")
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto* op_x = g.GetOperationOrThrow("X");
+    (void)g.NewOperation("Identity", "Y")
+        .AddInput(tf_wrap::Output(op_x, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    // Feed int32 instead of float
+    auto wrong_dtype = tf_wrap::FastTensor::FromVector<int32_t>({3}, {1, 2, 3});
+    
+    bool threw = false;
+    std::string error_msg;
+    try {
+        auto results = s.Run({{"X", 0, wrong_dtype.handle()}}, {{"Y", 0}}, {});
+    } catch (const std::exception& e) {
+        threw = true;
+        error_msg = e.what();
+    }
+    REQUIRE(threw);
+    std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
+}
+
+TEST(fetch_nonexistent_operation_throws) {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    bool threw = false;
+    std::string error_msg;
+    try {
+        // Fetch operation that doesn't exist
+        auto results = s.Run({}, {{"NonExistent", 0}}, {});
+    } catch (const std::exception& e) {
+        threw = true;
+        error_msg = e.what();
+    }
+    REQUIRE(threw);
+    std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
+}
+
+TEST(invalid_output_index_throws) {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    bool threw = false;
+    std::string error_msg;
+    try {
+        // Const has only output 0, try to fetch output 99
+        auto results = s.Run({}, {{"X", 99}}, {});
+    } catch (const std::exception& e) {
+        threw = true;
+        error_msg = e.what();
+    }
+    REQUIRE(threw);
+    std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
+}
+
+TEST(operation_with_wrong_input_count_throws) {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto* op_x = g.GetOperationOrThrow("X");
+    
+    bool threw = false;
+    std::string error_msg;
+    try {
+        // AddV2 requires 2 inputs, only provide 1
+        (void)g.NewOperation("AddV2", "Bad")
+            .AddInput(tf_wrap::Output(op_x, 0))
+            .Finish();
+    } catch (const std::exception& e) {
+        threw = true;
+        error_msg = e.what();
+    }
+    REQUIRE(threw);
+    std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
+}
+
+TEST(operation_type_mismatch_throws) {
+    tf_wrap::FastGraph g;
+    
+    // Create float and int tensors
+    auto f = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto i = tf_wrap::FastTensor::FromScalar<int32_t>(2);
+    
+    (void)g.NewOperation("Const", "F")
+        .SetAttrTensor("value", f.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    (void)g.NewOperation("Const", "I")
+        .SetAttrTensor("value", i.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    
+    auto* op_f = g.GetOperationOrThrow("F");
+    auto* op_i = g.GetOperationOrThrow("I");
+    
+    bool threw = false;
+    std::string error_msg;
+    try {
+        // AddV2 with mismatched types should fail
+        (void)g.NewOperation("AddV2", "Bad")
+            .AddInput(tf_wrap::Output(op_f, 0))
+            .AddInput(tf_wrap::Output(op_i, 0))
+            .Finish();
+    } catch (const std::exception& e) {
+        threw = true;
+        error_msg = e.what();
+    }
+    REQUIRE(threw);
+    std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
+}
+
+TEST(matmul_incompatible_shapes_throws) {
+    tf_wrap::FastGraph g;
+    
+    // A is 2x3, B is 2x3 - can't multiply (need 2x3 @ 3xN)
+    auto a = tf_wrap::FastTensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto b = tf_wrap::FastTensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", a.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    (void)g.NewOperation("Const", "B")
+        .SetAttrTensor("value", b.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto* op_a = g.GetOperationOrThrow("A");
+    auto* op_b = g.GetOperationOrThrow("B");
+    
+    // MatMul creation might succeed, but running should fail
+    (void)g.NewOperation("MatMul", "C")
+        .AddInput(tf_wrap::Output(op_a, 0))
+        .AddInput(tf_wrap::Output(op_b, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    bool threw = false;
+    std::string error_msg;
+    try {
+        auto results = s.Run({}, {{"C", 0}}, {});
+    } catch (const std::exception& e) {
+        threw = true;
+        error_msg = e.what();
+    }
+    REQUIRE(threw);
+    std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
+}
+
+TEST(reshape_incompatible_size_throws) {
+    tf_wrap::FastGraph g;
+    
+    // 6 elements can't reshape to 2x4=8
+    auto t = tf_wrap::FastTensor::FromVector<float>({6}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto bad_shape = tf_wrap::FastTensor::FromVector<int32_t>({2}, {2, 4});
+    
+    (void)g.NewOperation("Const", "T")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    (void)g.NewOperation("Const", "Shape")
+        .SetAttrTensor("value", bad_shape.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    
+    auto* op_t = g.GetOperationOrThrow("T");
+    auto* op_shape = g.GetOperationOrThrow("Shape");
+    
+    (void)g.NewOperation("Reshape", "R")
+        .AddInput(tf_wrap::Output(op_t, 0))
+        .AddInput(tf_wrap::Output(op_shape, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    bool threw = false;
+    std::string error_msg;
+    try {
+        auto results = s.Run({}, {{"R", 0}}, {});
+    } catch (const std::exception& e) {
+        threw = true;
+        error_msg = e.what();
+    }
+    REQUIRE(threw);
+    std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
+}
+
+TEST(duplicate_operation_name_throws) {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    bool threw = false;
+    std::string error_msg;
+    try {
+        // Try to create another op with same name
+        (void)g.NewOperation("Const", "X")
+            .SetAttrTensor("value", t.handle())
+            .SetAttrType("dtype", TF_FLOAT)
+            .Finish();
+    } catch (const std::exception& e) {
+        threw = true;
+        error_msg = e.what();
+    }
+    REQUIRE(threw);
+    std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
+}
+
+TEST(error_messages_are_helpful) {
+    // Test that error messages contain useful info
+    tf_wrap::FastGraph g;
+    
+    std::string error_msg;
+    try {
+        g.GetOperationOrThrow("my_missing_op");
+    } catch (const std::exception& e) {
+        error_msg = e.what();
+    }
+    
+    // Error should mention the operation name
+    REQUIRE(error_msg.find("my_missing_op") != std::string::npos);
+}
+
+TEST(toscalar_multielement_throws) {
+    auto t = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    
+    bool threw = false;
+    try {
+        t.ToScalar<float>(); // 3 elements, not 1
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    REQUIRE(threw);
+}
+
+TEST(fromvector_shape_mismatch_throws) {
+    bool threw = false;
+    try {
+        // Shape says 10 elements, but vector has 5
+        std::vector<int64_t> shape = {10};
+        std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+        auto t = tf_wrap::FastTensor::FromVector<float>(shape, data);
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    REQUIRE(threw);
+}
+
 // =============================================================================
 // Stress Tests
 // =============================================================================

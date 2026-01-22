@@ -158,6 +158,15 @@ public:
                                      std::span<const std::int64_t> dims) && {
         return std::move(SetAttrShape(name, dims));
     }
+    OperationBuilder& SetAttrShape(const char* name,
+                                    std::initializer_list<std::int64_t> dims) & {
+        TF_SetAttrShape(desc_, name, dims.begin(), static_cast<int>(dims.size()));
+        return *this;
+    }
+    OperationBuilder&& SetAttrShape(const char* name,
+                                     std::initializer_list<std::int64_t> dims) && {
+        return std::move(SetAttrShape(name, dims));
+    }
     
     /// Set integer attribute
     OperationBuilder& SetAttrInt(const char* name, std::int64_t value) & {
