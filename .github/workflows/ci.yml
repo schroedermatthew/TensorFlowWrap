@@ -17,13 +17,15 @@
 #   - linux-gcc: GCC 12/13 build + tests
 #   - linux-clang: Clang 15/16 build + tests
 #   - windows-msvc: MSVC build + tests
+#   - macos: Apple Clang on Intel (macos-13) and ARM (macos-14)
 #   - sanitizer-asan: AddressSanitizer
 #   - sanitizer-ubsan: UndefinedBehaviorSanitizer
 #   - sanitizer-tsan: ThreadSanitizer
 #   - header-check: Verify headers compile standalone
 #   - stress-test: Run stress/fuzz tests
 #   - strict-warnings: Extra warning flags
-#   - real-tensorflow: Integration test with real TensorFlow C library
+#   - real-tensorflow: Comprehensive tests with real TensorFlow C library
+#                      (TF 2.14.0, 2.15.0 - includes 30s soak test)
 #   - ci-success: Gate job
 # =============================================================================
 
@@ -461,11 +463,15 @@ jobs:
         run: ./test_stress --stress
 
   # ===========================================================================
-  # Real TensorFlow Integration Test
+  # Real TensorFlow Integration Test (Multiple Versions)
   # ===========================================================================
   real-tensorflow:
-    name: Real TensorFlow Integration
+    name: Real TensorFlow ${{ matrix.tf_version }}
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        tf_version: ["2.14.0", "2.15.0"]
 
     steps:
       - uses: actions/checkout@v4
@@ -477,32 +483,48 @@ jobs:
 
       - name: Download TensorFlow C library
         run: |
-          echo "Downloading TensorFlow C library..."
-          TF_VERSION="2.14.0"
-          TF_URL="https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-linux-x86_64-${TF_VERSION}.tar.gz"
+          echo "Downloading TensorFlow C library v${{ matrix.tf_version }}..."
+          TF_URL="https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-linux-x86_64-${{ matrix.tf_version }}.tar.gz"
           
           mkdir -p tensorflow_c
           
-          # Download with retry and verbose output
           echo "Fetching from: $TF_URL"
           curl -fSL --retry 3 "$TF_URL" -o tf.tar.gz
           
-          # Verify it's a valid gzip file
           file tf.tar.gz
-          
-          # Extract
           tar -xzf tf.tar.gz -C tensorflow_c
           
           echo "TensorFlow C library contents:"
-          ls -la tensorflow_c/
-          ls -la tensorflow_c/lib/ || true
-          ls -la tensorflow_c/include/ || true
+          ls -la tensorflow_c/lib/
 
-      - name: Build integration test with real TensorFlow
+      - name: Build and run comprehensive real TF test suite
+        timeout-minutes: 10
         run: |
-          echo "Building integration test with real TensorFlow..."
+          echo "Building comprehensive test suite with real TensorFlow..."
           
-          # TensorFlow C library paths
+          TF_INCLUDE="tensorflow_c/include"
+          TF_LIB="tensorflow_c/lib"
+          
+          g++-12 -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -I"$TF_INCLUDE" \
+            ${{ env.TEST_DIR }}/test_real_tf.cpp \
+            -L"$TF_LIB" \
+            -ltensorflow \
+            -Wl,-rpath,"$TF_LIB" \
+            -pthread \
+            -o test_real_tf
+          
+          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
+          
+          echo "Running comprehensive test suite (includes 30-second soak test)..."
+          ./test_real_tf
+          
+          echo "✓ All real TensorFlow tests passed"
+
+      - name: Build and run simple integration test
+        run: |
           TF_INCLUDE="tensorflow_c/include"
           TF_LIB="tensorflow_c/lib"
           
@@ -516,51 +538,10 @@ jobs:
             -Wl,-rpath,"$TF_LIB" \
             -o test_integration
           
-          echo "✓ Build successful"
-
-      - name: Run integration test with real TensorFlow
-        run: |
-          echo "Running integration test with real TensorFlow..."
-          
-          # Set library path
           export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
-          
-          # Verify library is found
-          ldd ./test_integration | grep -i tensor || echo "Warning: libtensorflow not shown in ldd"
-          
-          # Run the test
           ./test_integration
           
-          echo "✓ Integration test passed with real TensorFlow"
-
-      - name: Run main tests with real TensorFlow (optional)
-        run: |
-          echo "Building main tests with real TensorFlow..."
-          echo "Note: Some tests may fail because they check for stub-specific behavior"
-          
-          TF_INCLUDE="tensorflow_c/include"
-          TF_LIB="tensorflow_c/lib"
-          
-          # Build test_main without the stub
-          g++-12 -std=c++20 \
-            -Wall -Wextra -Wpedantic \
-            -I${{ env.INCLUDE_DIR }} \
-            -I"$TF_INCLUDE" \
-            ${{ env.TEST_DIR }}/test_main.cpp \
-            -L"$TF_LIB" \
-            -ltensorflow \
-            -Wl,-rpath,"$TF_LIB" \
-            -pthread \
-            -o test_main_real || echo "Build failed (expected if stub-only functions used)"
-          
-          # Run if build succeeded - don't fail CI if some tests fail
-          # (some tests check stub-specific behavior)
-          if [ -f test_main_real ]; then
-            export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
-            ./test_main_real || echo "Some tests failed (expected for stub-specific tests)"
-          fi
-          
-          echo "✓ Real TensorFlow test step completed"
+          echo "✓ Integration test passed"
 
   # ===========================================================================
   # Strict Warnings
@@ -604,6 +585,51 @@ jobs:
         run: ./test_strict
 
   # ===========================================================================
+  # macOS (Apple Clang)
+  # ===========================================================================
+  macos:
+    name: macOS ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-13, macos-14]  # Intel and ARM
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run tests
+        run: |
+          echo "Compiler version:"
+          clang++ --version
+          
+          echo "Building test_main..."
+          clang++ -std=c++20 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.TEST_DIR }}/test_main.cpp \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            -o test_main
+          
+          echo "Running tests..."
+          ./test_main
+
+      - name: Build and run edge case tests
+        run: |
+          clang++ -std=c++20 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.TEST_DIR }}/test_edge_cases.cpp \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            -o test_edge_cases
+          
+          ./test_edge_cases
+
+  # ===========================================================================
   # CI Success Gate
   # ===========================================================================
   ci-success:
@@ -613,6 +639,7 @@ jobs:
       - linux-gcc
       - linux-clang
       - windows-msvc
+      - macos
       - sanitizer-asan
       - sanitizer-ubsan
       - sanitizer-tsan
@@ -629,6 +656,7 @@ jobs:
           echo "  linux-gcc:        ${{ needs.linux-gcc.result }}"
           echo "  linux-clang:      ${{ needs.linux-clang.result }}"
           echo "  windows-msvc:     ${{ needs.windows-msvc.result }}"
+          echo "  macos:            ${{ needs.macos.result }}"
           echo "  sanitizer-asan:   ${{ needs.sanitizer-asan.result }}"
           echo "  sanitizer-ubsan:  ${{ needs.sanitizer-ubsan.result }}"
           echo "  sanitizer-tsan:   ${{ needs.sanitizer-tsan.result }}"
@@ -640,6 +668,7 @@ jobs:
           if [ "${{ needs.linux-gcc.result }}" != "success" ] || \
              [ "${{ needs.linux-clang.result }}" != "success" ] || \
              [ "${{ needs.windows-msvc.result }}" != "success" ] || \
+             [ "${{ needs.macos.result }}" != "success" ] || \
              [ "${{ needs.sanitizer-asan.result }}" != "success" ] || \
              [ "${{ needs.sanitizer-ubsan.result }}" != "success" ] || \
              [ "${{ needs.sanitizer-tsan.result }}" != "success" ] || \
