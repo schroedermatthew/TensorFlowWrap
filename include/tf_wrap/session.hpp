@@ -352,6 +352,62 @@ private:
 };
 
 // ============================================================================
+// PartialRunHandle - RAII wrapper for partial run handle
+// ============================================================================
+//
+// Partial runs allow executing a graph in multiple steps, feeding different
+// inputs at each step. This is useful for:
+// - Streaming data processing
+// - Incremental computation where some inputs arrive later
+// - Avoiding redundant computation
+//
+// Usage:
+//   auto handle = session.PartialRunSetup(inputs, outputs);
+//   auto result1 = session.PartialRun(handle, {{"a", tensor_a}}, {{"r1", 0}});
+//   auto result2 = session.PartialRun(handle, {{"b", tensor_b}}, {{"r2", 0}});
+// ============================================================================
+
+class PartialRunHandle {
+public:
+    PartialRunHandle() = default;
+    
+    explicit PartialRunHandle(const char* h) : handle_(h ? h : "") {}
+    
+    ~PartialRunHandle() {
+        if (!handle_.empty()) {
+            TF_DeletePRunHandle(handle_.c_str());
+        }
+    }
+    
+    // Move-only
+    PartialRunHandle(const PartialRunHandle&) = delete;
+    PartialRunHandle& operator=(const PartialRunHandle&) = delete;
+    
+    PartialRunHandle(PartialRunHandle&& other) noexcept
+        : handle_(std::move(other.handle_))
+    {
+        other.handle_.clear();
+    }
+    
+    PartialRunHandle& operator=(PartialRunHandle&& other) noexcept {
+        if (this != &other) {
+            if (!handle_.empty()) {
+                TF_DeletePRunHandle(handle_.c_str());
+            }
+            handle_ = std::move(other.handle_);
+            other.handle_.clear();
+        }
+        return *this;
+    }
+    
+    [[nodiscard]] bool valid() const noexcept { return !handle_.empty(); }
+    [[nodiscard]] const char* c_str() const noexcept { return handle_.c_str(); }
+    
+private:
+    std::string handle_;
+};
+
+// ============================================================================
 // Session - RAII wrapper for TF_Session
 // ============================================================================
 
@@ -599,6 +655,138 @@ public:
     /// Run single fetch by name
     [[nodiscard]] Tensor<> Run(const std::string& fetch_name, int index = 0) const {
         return Run(Fetch{fetch_name, index});
+    }
+    
+    // ─────────────────────────────────────────────────────────────────
+    // Partial runs (incremental execution)
+    // ─────────────────────────────────────────────────────────────────
+    
+    /// Set up a partial run with specified inputs and outputs
+    /// 
+    /// @param inputs All inputs that will be fed across all PartialRun calls
+    /// @param outputs All outputs that will be fetched across all PartialRun calls
+    /// @return Handle for use with PartialRun
+    /// 
+    /// Example:
+    ///   auto handle = session.PartialRunSetup({{"a", 0}, {"b", 0}}, {{"r1", 0}, {"r2", 0}});
+    ///   auto r1 = session.PartialRun(handle, {{"a", tensor_a}}, {{"r1", 0}});
+    ///   auto r2 = session.PartialRun(handle, {{"b", tensor_b}}, {{"r2", 0}});
+    [[nodiscard]] PartialRunHandle PartialRunSetup(
+        std::span<const Fetch> inputs,
+        std::span<const Fetch> outputs) const
+    {
+        if (!session_) {
+            throw std::runtime_error("Session::PartialRunSetup(): session is null");
+        }
+        
+        // Convert inputs to TF_Output
+        std::vector<TF_Output> tf_inputs;
+        tf_inputs.reserve(inputs.size());
+        for (const auto& input : inputs) {
+            TF_Operation* op = TF_GraphOperationByName(graph_handle_, input.op_name.c_str());
+            if (!op) {
+                throw std::runtime_error(tf_wrap::detail::format(
+                    "PartialRunSetup: operation '{}' not found", input.op_name));
+            }
+            tf_inputs.push_back({op, input.index});
+        }
+        
+        // Convert outputs to TF_Output
+        std::vector<TF_Output> tf_outputs;
+        tf_outputs.reserve(outputs.size());
+        for (const auto& output : outputs) {
+            TF_Operation* op = TF_GraphOperationByName(graph_handle_, output.op_name.c_str());
+            if (!op) {
+                throw std::runtime_error(tf_wrap::detail::format(
+                    "PartialRunSetup: operation '{}' not found", output.op_name));
+            }
+            tf_outputs.push_back({op, output.index});
+        }
+        
+        const char* handle = nullptr;
+        Status st;
+        
+        TF_SessionPRunSetup(
+            session_,
+            tf_inputs.data(), static_cast<int>(tf_inputs.size()),
+            tf_outputs.data(), static_cast<int>(tf_outputs.size()),
+            nullptr, 0,  // No target operations
+            &handle,
+            st.get());
+        
+        st.throw_if_error("TF_SessionPRunSetup");
+        
+        return PartialRunHandle(handle);
+    }
+    
+    /// Execute a partial run step
+    /// 
+    /// @param handle Handle from PartialRunSetup
+    /// @param feeds Inputs to feed in this step (subset of setup inputs)
+    /// @param fetches Outputs to fetch in this step (subset of setup outputs)
+    /// @return Vector of output tensors
+    [[nodiscard]] std::vector<Tensor<>> PartialRun(
+        const PartialRunHandle& handle,
+        std::span<const Feed> feeds,
+        std::span<const Fetch> fetches) const
+    {
+        if (!session_) {
+            throw std::runtime_error("Session::PartialRun(): session is null");
+        }
+        if (!handle.valid()) {
+            throw std::runtime_error("Session::PartialRun(): invalid handle");
+        }
+        
+        // Convert feeds to TF_Output/TF_Tensor arrays
+        std::vector<TF_Output> input_ops;
+        std::vector<TF_Tensor*> input_tensors;
+        input_ops.reserve(feeds.size());
+        input_tensors.reserve(feeds.size());
+        
+        for (const auto& feed : feeds) {
+            TF_Operation* op = TF_GraphOperationByName(graph_handle_, feed.op_name.c_str());
+            if (!op) {
+                throw std::runtime_error(tf_wrap::detail::format(
+                    "PartialRun: operation '{}' not found", feed.op_name));
+            }
+            input_ops.push_back({op, feed.index});
+            input_tensors.push_back(feed.tensor);
+        }
+        
+        // Convert fetches to TF_Output
+        std::vector<TF_Output> output_ops;
+        output_ops.reserve(fetches.size());
+        for (const auto& fetch : fetches) {
+            TF_Operation* op = TF_GraphOperationByName(graph_handle_, fetch.op_name.c_str());
+            if (!op) {
+                throw std::runtime_error(tf_wrap::detail::format(
+                    "PartialRun: operation '{}' not found", fetch.op_name));
+            }
+            output_ops.push_back({op, fetch.index});
+        }
+        
+        // Allocate output tensor array
+        std::vector<TF_Tensor*> output_tensors(fetches.size(), nullptr);
+        
+        Status st;
+        TF_SessionPRun(
+            session_,
+            handle.c_str(),
+            input_ops.data(), input_tensors.data(), static_cast<int>(input_ops.size()),
+            output_ops.data(), output_tensors.data(), static_cast<int>(output_ops.size()),
+            nullptr, 0,  // No target operations
+            st.get());
+        
+        st.throw_if_error("TF_SessionPRun");
+        
+        // Wrap outputs
+        std::vector<Tensor<>> results;
+        results.reserve(fetches.size());
+        for (auto* t : output_tensors) {
+            results.push_back(t ? Tensor<>::FromRaw(t) : Tensor<>());
+        }
+        
+        return results;
     }
     
     // ─────────────────────────────────────────────────────────────────

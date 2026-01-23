@@ -262,6 +262,59 @@ TF_Session* TF_LoadSessionFromSavedModel(
     TF_Buffer* meta_graph_def,
     TF_Status* status);
 
+// ----------------------------------------------------------------------------
+// Partial runs
+// ----------------------------------------------------------------------------
+
+void TF_SessionPRunSetup(
+    TF_Session* session,
+    const TF_Output* inputs, int ninputs,
+    const TF_Output* outputs, int noutputs,
+    const TF_Operation* const* target_opers, int ntargets,
+    const char** handle,
+    TF_Status* status);
+
+void TF_SessionPRun(
+    TF_Session* session, const char* handle,
+    const TF_Output* inputs, TF_Tensor* const* input_values, int ninputs,
+    const TF_Output* outputs, TF_Tensor** output_values, int noutputs,
+    const TF_Operation* const* target_opers, int ntargets,
+    TF_Status* status);
+
+void TF_DeletePRunHandle(const char* handle);
+
+// ----------------------------------------------------------------------------
+// Graph functions (for While loops, map/reduce, etc.)
+// ----------------------------------------------------------------------------
+
+typedef struct TF_Function TF_Function;
+typedef struct TF_FunctionOptions TF_FunctionOptions;
+
+TF_Function* TF_GraphToFunction(
+    const TF_Graph* fn_body,
+    const char* fn_name,
+    unsigned char append_hash_to_fn_name,
+    int num_opers,
+    const TF_Operation* const* opers,
+    int ninputs, const TF_Output* inputs,
+    int noutputs, const TF_Output* outputs,
+    const char* const* output_names,
+    const TF_FunctionOptions* opts,
+    const char* description,
+    TF_Status* status);
+
+typedef struct TF_FunctionOptions TF_FunctionOptions;
+
+void TF_GraphCopyFunction(
+    TF_Graph* g,
+    const TF_Function* func,
+    const TF_Function* grad,
+    TF_Status* status);
+
+void TF_DeleteFunction(TF_Function* func);
+
+const char* TF_FunctionName(const TF_Function* func);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

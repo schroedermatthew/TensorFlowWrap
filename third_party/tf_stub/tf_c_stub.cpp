@@ -1043,3 +1043,95 @@ const char* TF_TString_GetDataPointer(const TF_TString* tstr) {
 size_t TF_TString_GetSize(const TF_TString* tstr) {
     return tstr ? tstr->size : 0;
 }
+
+// ----------------------------------------------------------------------------
+// Partial run stubs
+// ----------------------------------------------------------------------------
+
+static int g_prun_handle_counter = 0;
+static std::string g_last_prun_handle;
+
+void TF_SessionPRunSetup(
+    TF_Session*,
+    const TF_Output*, int,
+    const TF_Output*, int,
+    const TF_Operation* const*, int,
+    const char** handle,
+    TF_Status* status)
+{
+    // Generate a unique handle
+    g_last_prun_handle = "prun_handle_" + std::to_string(++g_prun_handle_counter);
+    *handle = g_last_prun_handle.c_str();
+    set_status(status, TF_OK, "");
+}
+
+void TF_SessionPRun(
+    TF_Session*,
+    const char*,
+    const TF_Output*, TF_Tensor* const*, int,
+    const TF_Output* outputs, TF_Tensor** output_values, int noutputs,
+    const TF_Operation* const*, int,
+    TF_Status* status)
+{
+    // In stub mode, just return scalar 0.0f for each output
+    for (int i = 0; i < noutputs; ++i) {
+        int64_t dims[] = {};
+        output_values[i] = TF_AllocateTensor(TF_FLOAT, dims, 0, sizeof(float));
+        if (output_values[i]) {
+            *static_cast<float*>(TF_TensorData(output_values[i])) = 0.0f;
+        }
+    }
+    set_status(status, TF_OK, "");
+}
+
+void TF_DeletePRunHandle(const char*) {
+    // No-op in stub
+}
+
+// ----------------------------------------------------------------------------
+// Graph function stubs
+// ----------------------------------------------------------------------------
+
+struct TF_Function {
+    std::string name;
+};
+
+struct TF_FunctionOptions {
+    // Empty for stub
+};
+
+TF_Function* TF_GraphToFunction(
+    const TF_Graph*,
+    const char* fn_name,
+    unsigned char,
+    int,
+    const TF_Operation* const*,
+    int, const TF_Output*,
+    int, const TF_Output*,
+    const char* const*,
+    const TF_FunctionOptions*,
+    const char*,
+    TF_Status* status)
+{
+    auto* func = new TF_Function();
+    func->name = fn_name ? fn_name : "anonymous_function";
+    set_status(status, TF_OK, "");
+    return func;
+}
+
+void TF_GraphCopyFunction(
+    TF_Graph*,
+    const TF_Function*,
+    const TF_Function*,
+    TF_Status* status)
+{
+    set_status(status, TF_OK, "");
+}
+
+void TF_DeleteFunction(TF_Function* func) {
+    delete func;
+}
+
+const char* TF_FunctionName(const TF_Function* func) {
+    return func ? func->name.c_str() : nullptr;
+}

@@ -719,6 +719,128 @@ private:
 };
 
 // ============================================================================
+// GraphFunction - RAII wrapper for TF_Function
+// ============================================================================
+//
+// Graph functions allow creating reusable subgraphs that can be called from
+// other graphs. Used for:
+// - While loops
+// - Map/reduce operations  
+// - Conditional execution
+// - Code reuse
+//
+// Usage:
+//   // Create function from subgraph
+//   auto func = GraphFunction::FromGraph(subgraph, "my_func", inputs, outputs);
+//   
+//   // Copy function to main graph for use
+//   main_graph.CopyFunction(func);
+//   
+//   // Use with SetAttrFuncName
+//   builder.SetAttrFuncName("body", func.name());
+// ============================================================================
+
+class GraphFunction {
+public:
+    GraphFunction() = default;
+    
+    ~GraphFunction() {
+        if (func_) {
+            TF_DeleteFunction(func_);
+        }
+    }
+    
+    // Move-only
+    GraphFunction(const GraphFunction&) = delete;
+    GraphFunction& operator=(const GraphFunction&) = delete;
+    
+    GraphFunction(GraphFunction&& other) noexcept
+        : func_(other.func_)
+    {
+        other.func_ = nullptr;
+    }
+    
+    GraphFunction& operator=(GraphFunction&& other) noexcept {
+        if (this != &other) {
+            if (func_) TF_DeleteFunction(func_);
+            func_ = other.func_;
+            other.func_ = nullptr;
+        }
+        return *this;
+    }
+    
+    /// Create a function from a graph
+    /// 
+    /// @param graph The graph containing the function body
+    /// @param name Function name
+    /// @param inputs Input operations (in order)
+    /// @param outputs Output operations (in order)
+    /// @param description Optional description
+    template<policy::LockPolicy Policy>
+    [[nodiscard]] static GraphFunction FromGraph(
+        const Graph<Policy>& graph,
+        const std::string& name,
+        std::span<const TF_Output> inputs,
+        std::span<const TF_Output> outputs,
+        const std::string& description = "")
+    {
+        Status st;
+        
+        TF_Function* func = TF_GraphToFunction(
+            graph.handle(),
+            name.c_str(),
+            0,  // Don't append hash
+            -1, // Use all operations
+            nullptr,
+            static_cast<int>(inputs.size()),
+            inputs.data(),
+            static_cast<int>(outputs.size()),
+            outputs.data(),
+            nullptr,  // No output names
+            nullptr,  // No options
+            description.empty() ? nullptr : description.c_str(),
+            st.get());
+        
+        st.throw_if_error("TF_GraphToFunction");
+        
+        GraphFunction result;
+        result.func_ = func;
+        return result;
+    }
+    
+    [[nodiscard]] bool valid() const noexcept { return func_ != nullptr; }
+    [[nodiscard]] TF_Function* handle() const noexcept { return func_; }
+    
+    [[nodiscard]] const char* name() const {
+        if (!func_) return "";
+        return TF_FunctionName(func_);
+    }
+    
+    /// Copy this function into a graph for use with SetAttrFuncName
+    /// 
+    /// @param graph Target graph to copy into
+    /// @param grad Optional gradient function
+    template<policy::LockPolicy Policy>
+    void CopyTo(Graph<Policy>& graph, const GraphFunction* grad = nullptr) const {
+        if (!func_) {
+            throw std::runtime_error("GraphFunction::CopyTo: function is null");
+        }
+        
+        Status st;
+        TF_GraphCopyFunction(
+            graph.handle(),
+            func_,
+            grad ? grad->handle() : nullptr,
+            st.get());
+        
+        st.throw_if_error("TF_GraphCopyFunction");
+    }
+    
+private:
+    TF_Function* func_{nullptr};
+};
+
+// ============================================================================
 // Type aliases
 // ============================================================================
 

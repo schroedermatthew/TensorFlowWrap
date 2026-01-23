@@ -5666,6 +5666,141 @@ TEST(tensor_scalar_all_dtypes) {
     }
 }
 
+TEST(partial_run_setup_and_execute) {
+    // Test partial runs - incremental graph execution
+    // Build graph: a + 2 = plus2, plus2 + b = result
+    tf_wrap::FastGraph g;
+    
+    auto a = g.NewOperation("Placeholder", "a")
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto b = g.NewOperation("Placeholder", "b")
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto two = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    auto const_two = g.NewOperation("Const", "two")
+        .SetAttrTensor("value", two.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto plus2 = g.NewOperation("AddV2", "plus2")
+        .AddInput({a, 0})
+        .AddInput({const_two, 0})
+        .Finish();
+    
+    auto result = g.NewOperation("AddV2", "result")
+        .AddInput({plus2, 0})
+        .AddInput({b, 0})
+        .Finish();
+    
+    tf_wrap::FastSession session(g);
+    
+    // Set up partial run with all inputs and outputs
+    std::vector<tf_wrap::Fetch> all_inputs = {{"a", 0}, {"b", 0}};
+    std::vector<tf_wrap::Fetch> all_outputs = {{"plus2", 0}, {"result", 0}};
+    auto handle = session.PartialRunSetup(all_inputs, all_outputs);
+    
+    REQUIRE(handle.valid());
+    
+    // Step 1: Feed a, get a+2
+    auto tensor_a = tf_wrap::FastTensor::FromScalar<float>(3.0f);
+    std::vector<tf_wrap::Feed> feeds1 = {{"a", tensor_a.handle()}};
+    std::vector<tf_wrap::Fetch> fetches1 = {{"plus2", 0}};
+    auto results1 = session.PartialRun(handle, feeds1, fetches1);
+    
+    REQUIRE(results1.size() == 1);
+    REQUIRE(results1[0].ToScalar<float>() == 5.0f);  // 3 + 2 = 5
+    
+    // Step 2: Feed b, get final result
+    auto tensor_b = tf_wrap::FastTensor::FromScalar<float>(10.0f);
+    std::vector<tf_wrap::Feed> feeds2 = {{"b", tensor_b.handle()}};
+    std::vector<tf_wrap::Fetch> fetches2 = {{"result", 0}};
+    auto results2 = session.PartialRun(handle, feeds2, fetches2);
+    
+    REQUIRE(results2.size() == 1);
+    REQUIRE(results2[0].ToScalar<float>() == 15.0f);  // 5 + 10 = 15
+}
+
+TEST(partial_run_handle_move) {
+    // Test PartialRunHandle move semantics
+    tf_wrap::PartialRunHandle h1;
+    REQUIRE(!h1.valid());
+    
+    // Move construct
+    tf_wrap::PartialRunHandle h2(std::move(h1));
+    REQUIRE(!h2.valid());  // Source was empty
+    
+    // Can assign
+    h1 = std::move(h2);
+    REQUIRE(!h1.valid());
+}
+
+TEST(graph_function_create_and_copy) {
+    // Test GraphFunction creation from a subgraph
+    
+    // Create function body graph: input -> square -> output
+    tf_wrap::FastGraph func_body;
+    
+    auto input = func_body.NewOperation("Placeholder", "input")
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto squared = func_body.NewOperation("Square", "squared")
+        .AddInput({input, 0})
+        .Finish();
+    
+    // Create function from the subgraph
+    TF_Output inputs[] = {{input, 0}};
+    TF_Output outputs[] = {{squared, 0}};
+    
+    auto func = tf_wrap::GraphFunction::FromGraph(
+        func_body,
+        "my_square_func",
+        inputs,
+        outputs,
+        "Squares the input"
+    );
+    
+    REQUIRE(func.valid());
+    REQUIRE(std::string(func.name()) == "my_square_func");
+    
+    // Copy to main graph
+    tf_wrap::FastGraph main_graph;
+    func.CopyTo(main_graph);
+    
+    // The function is now registered in main_graph
+    // (We can't easily verify this without StatefulPartitionedCall, but the API works)
+    REQUIRE(main_graph.valid());
+}
+
+TEST(graph_function_move_semantics) {
+    // Test GraphFunction move semantics
+    tf_wrap::FastGraph g;
+    
+    auto input = g.NewOperation("Placeholder", "x")
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    TF_Output ins[] = {{input, 0}};
+    TF_Output outs[] = {{input, 0}};  // Identity function
+    
+    auto func1 = tf_wrap::GraphFunction::FromGraph(g, "f1", ins, outs);
+    REQUIRE(func1.valid());
+    
+    // Move construct
+    auto func2 = std::move(func1);
+    REQUIRE(func2.valid());
+    REQUIRE(!func1.valid());  // NOLINT - testing moved-from state
+    
+    // Move assign
+    tf_wrap::GraphFunction func3;
+    func3 = std::move(func2);
+    REQUIRE(func3.valid());
+    REQUIRE(!func2.valid());  // NOLINT - testing moved-from state
+}
+
 // =============================================================================
 // Main
 // =============================================================================
