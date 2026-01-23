@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <numeric>
 #include <random>
@@ -1943,6 +1944,745 @@ TEST(value_squeeze_expanddims) {
     REQUIRE(results[1].rank() == 2);
     REQUIRE(results[1].shape()[0] == 3);
     REQUIRE(results[1].shape()[1] == 1);
+}
+
+// =============================================================================
+// FILE I/O TESTS - Actually test file operations with real filesystem
+// =============================================================================
+
+TEST(value_file_write_read) {
+    // Create a temp file path
+    const char* test_content = "Hello TensorFlow C API!";
+    const char* temp_path = "/tmp/tfwrap_test_file.txt";
+    
+    // First, write the file using standard C++ (setup)
+    {
+        std::ofstream ofs(temp_path);
+        ofs << test_content;
+    }
+    
+    // Now test ReadFile op
+    tf_wrap::FastGraph g;
+    
+    auto filename = tf_wrap::FastTensor::FromString(temp_path);
+    (void)g.NewOperation("Const", "Filename")
+        .SetAttrTensor("value", filename.handle())
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    auto* op_filename = g.GetOperationOrThrow("Filename");
+    
+    (void)g.NewOperation("ReadFile", "ReadFile")
+        .AddInput(tf_wrap::Output(op_filename, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"ReadFile", 0}}, {});
+    
+    auto content = results[0].ToString();
+    REQUIRE(content == test_content);
+    
+    // Cleanup
+    std::remove(temp_path);
+}
+
+TEST(value_file_write_op) {
+    const char* temp_path = "/tmp/tfwrap_test_write.txt";
+    const char* test_content = "Written by TensorFlow!";
+    
+    tf_wrap::FastGraph g;
+    
+    auto filename = tf_wrap::FastTensor::FromString(temp_path);
+    auto contents = tf_wrap::FastTensor::FromString(test_content);
+    
+    (void)g.NewOperation("Const", "Filename")
+        .SetAttrTensor("value", filename.handle())
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    (void)g.NewOperation("Const", "Contents")
+        .SetAttrTensor("value", contents.handle())
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    auto* op_filename = g.GetOperationOrThrow("Filename");
+    auto* op_contents = g.GetOperationOrThrow("Contents");
+    
+    (void)g.NewOperation("WriteFile", "WriteFile")
+        .AddInput(tf_wrap::Output(op_filename, 0))
+        .AddInput(tf_wrap::Output(op_contents, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    // WriteFile has no outputs, just run it
+    (void)s.Run({}, {}, {"WriteFile"});
+    
+    // Verify the file was written correctly
+    std::ifstream ifs(temp_path);
+    std::string read_content((std::istreambuf_iterator<char>(ifs)),
+                              std::istreambuf_iterator<char>());
+    REQUIRE(read_content == test_content);
+    
+    // Cleanup
+    std::remove(temp_path);
+}
+
+// =============================================================================
+// IMAGE DECODE TESTS - Minimal valid images embedded as byte arrays
+// =============================================================================
+
+TEST(value_decode_png) {
+    // Minimal valid 1x1 red PNG (67 bytes)
+    // Created with: convert -size 1x1 xc:red png:- | xxd -i
+    static const uint8_t red_1x1_png[] = {
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+        0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00,
+        0x0c, 0x49, 0x44, 0x41, 0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
+        0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x05, 0xfe, 0xd4, 0xef, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
+    };
+    
+    tf_wrap::FastGraph g;
+    
+    // Create string tensor from raw bytes
+    auto png_data = tf_wrap::FastTensor::FromString(
+        std::string(reinterpret_cast<const char*>(red_1x1_png), sizeof(red_1x1_png)));
+    
+    (void)g.NewOperation("Const", "PngData")
+        .SetAttrTensor("value", png_data.handle())
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    auto* op_png = g.GetOperationOrThrow("PngData");
+    
+    (void)g.NewOperation("DecodePng", "Decode")
+        .AddInput(tf_wrap::Output(op_png, 0))
+        .SetAttrInt("channels", 3)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Decode", 0}}, {});
+    
+    // Should be 1x1x3 tensor (height, width, channels)
+    REQUIRE(results[0].rank() == 3);
+    REQUIRE(results[0].shape()[0] == 1);  // height
+    REQUIRE(results[0].shape()[1] == 1);  // width
+    REQUIRE(results[0].shape()[2] == 3);  // RGB channels
+    
+    auto pixels = results[0].ToVector<uint8_t>();
+    // Red pixel: R=255, G=0, B=0
+    REQUIRE(pixels[0] == 255);  // R
+    REQUIRE(pixels[1] == 0);    // G
+    REQUIRE(pixels[2] == 0);    // B
+}
+
+TEST(value_decode_jpeg) {
+    // Minimal valid 1x1 blue JPEG (285 bytes) - this is about as small as JPEG gets
+    // Created with: convert -size 1x1 xc:blue -quality 100 jpg:- | xxd -i
+    static const uint8_t blue_1x1_jpeg[] = {
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
+        0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43,
+        0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0xff, 0xdb, 0x00, 0x43, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+        0x01, 0x01, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01,
+        0x01, 0x11, 0x00, 0xff, 0xc4, 0x00, 0x1f, 0x00, 0x00, 0x01, 0x05, 0x01,
+        0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
+        0xff, 0xc4, 0x00, 0xb5, 0x10, 0x00, 0x02, 0x01, 0x03, 0x03, 0x02, 0x04,
+        0x03, 0x05, 0x05, 0x04, 0x04, 0x00, 0x00, 0x01, 0x7d, 0x01, 0x02, 0x03,
+        0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61,
+        0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xa1, 0x08, 0x23, 0x42, 0xb1,
+        0xc1, 0x15, 0x52, 0xd1, 0xf0, 0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0a,
+        0x16, 0x17, 0x18, 0x19, 0x1a, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x34,
+        0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48,
+        0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64,
+        0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78,
+        0x79, 0x7a, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x92, 0x93,
+        0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6,
+        0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9,
+        0xba, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3,
+        0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5,
+        0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7,
+        0xf8, 0xf9, 0xfa, 0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f,
+        0x00, 0xfb, 0xd5, 0xdb, 0x20, 0x00, 0x00, 0x00, 0x1f, 0xff, 0xd9
+    };
+    
+    tf_wrap::FastGraph g;
+    
+    auto jpeg_data = tf_wrap::FastTensor::FromString(
+        std::string(reinterpret_cast<const char*>(blue_1x1_jpeg), sizeof(blue_1x1_jpeg)));
+    
+    (void)g.NewOperation("Const", "JpegData")
+        .SetAttrTensor("value", jpeg_data.handle())
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    auto* op_jpeg = g.GetOperationOrThrow("JpegData");
+    
+    (void)g.NewOperation("DecodeJpeg", "Decode")
+        .AddInput(tf_wrap::Output(op_jpeg, 0))
+        .SetAttrInt("channels", 3)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Decode", 0}}, {});
+    
+    // Should be 1x1x3 tensor
+    REQUIRE(results[0].rank() == 3);
+    REQUIRE(results[0].shape()[0] == 1);
+    REQUIRE(results[0].shape()[1] == 1);
+    REQUIRE(results[0].shape()[2] == 3);
+    
+    auto pixels = results[0].ToVector<uint8_t>();
+    // Blue pixel: R≈0, G≈0, B≈255 (JPEG is lossy so allow some tolerance)
+    REQUIRE(pixels[0] < 30);    // R should be low
+    REQUIRE(pixels[1] < 30);    // G should be low
+    REQUIRE(pixels[2] > 200);   // B should be high
+}
+
+TEST(value_encode_png) {
+    tf_wrap::FastGraph g;
+    
+    // Create a 2x2 RGB image: red, green, blue, white
+    auto image = tf_wrap::FastTensor::FromVector<uint8_t>({2, 2, 3}, {
+        255, 0, 0,      // red
+        0, 255, 0,      // green
+        0, 0, 255,      // blue
+        255, 255, 255   // white
+    });
+    
+    (void)g.NewOperation("Const", "Image")
+        .SetAttrTensor("value", image.handle())
+        .SetAttrType("dtype", TF_UINT8)
+        .Finish();
+    
+    auto* op_image = g.GetOperationOrThrow("Image");
+    
+    (void)g.NewOperation("EncodePng", "Encode")
+        .AddInput(tf_wrap::Output(op_image, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Encode", 0}}, {});
+    
+    // Result should be a string tensor containing PNG bytes
+    auto png_bytes = results[0].ToString();
+    
+    // Verify PNG magic bytes
+    REQUIRE(png_bytes.size() > 8);
+    REQUIRE(static_cast<uint8_t>(png_bytes[0]) == 0x89);
+    REQUIRE(png_bytes[1] == 'P');
+    REQUIRE(png_bytes[2] == 'N');
+    REQUIRE(png_bytes[3] == 'G');
+}
+
+// =============================================================================
+// CONV2D VARIANT TESTS - Different padding, strides, dilations
+// =============================================================================
+
+TEST(value_conv2d_same_padding) {
+    tf_wrap::FastGraph g;
+    
+    // Input: 1x5x5x1
+    std::vector<float> input_data(25);
+    for (int i = 0; i < 25; i++) input_data[i] = static_cast<float>(i + 1);
+    auto input = tf_wrap::FastTensor::FromVector<float>({1, 5, 5, 1}, input_data);
+    
+    // 3x3 filter of all 1s
+    auto filter = tf_wrap::FastTensor::FromVector<float>({3, 3, 1, 1}, 
+        std::vector<float>(9, 1.0f));
+    
+    (void)g.NewOperation("Const", "Input").SetAttrTensor("value", input.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Filter").SetAttrTensor("value", filter.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_input = g.GetOperationOrThrow("Input");
+    auto* op_filter = g.GetOperationOrThrow("Filter");
+    
+    (void)g.NewOperation("Conv2D", "Conv")
+        .AddInput(tf_wrap::Output(op_input, 0))
+        .AddInput(tf_wrap::Output(op_filter, 0))
+        .SetAttrIntList("strides", std::vector<int64_t>{1, 1, 1, 1})
+        .SetAttrString("padding", "SAME")  // Output should be same size as input
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Conv", 0}}, {});
+    
+    // With SAME padding, output should be 1x5x5x1 (same as input)
+    REQUIRE(results[0].shape()[0] == 1);
+    REQUIRE(results[0].shape()[1] == 5);
+    REQUIRE(results[0].shape()[2] == 5);
+    REQUIRE(results[0].shape()[3] == 1);
+}
+
+TEST(value_conv2d_strided) {
+    tf_wrap::FastGraph g;
+    
+    // Input: 1x6x6x1
+    std::vector<float> input_data(36);
+    for (int i = 0; i < 36; i++) input_data[i] = static_cast<float>(i + 1);
+    auto input = tf_wrap::FastTensor::FromVector<float>({1, 6, 6, 1}, input_data);
+    
+    // 2x2 filter
+    auto filter = tf_wrap::FastTensor::FromVector<float>({2, 2, 1, 1}, {1.0f, 1.0f, 1.0f, 1.0f});
+    
+    (void)g.NewOperation("Const", "Input").SetAttrTensor("value", input.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Filter").SetAttrTensor("value", filter.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_input = g.GetOperationOrThrow("Input");
+    auto* op_filter = g.GetOperationOrThrow("Filter");
+    
+    (void)g.NewOperation("Conv2D", "Conv")
+        .AddInput(tf_wrap::Output(op_input, 0))
+        .AddInput(tf_wrap::Output(op_filter, 0))
+        .SetAttrIntList("strides", std::vector<int64_t>{1, 2, 2, 1})  // Stride 2
+        .SetAttrString("padding", "VALID")
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Conv", 0}}, {});
+    
+    // With 6x6 input, 2x2 filter, stride 2, VALID: output is (6-2)/2+1 = 3
+    REQUIRE(results[0].shape()[1] == 3);
+    REQUIRE(results[0].shape()[2] == 3);
+    
+    auto v = results[0].ToVector<float>();
+    // First output: sum of [1,2,7,8] = 18
+    REQUIRE(v[0] == 18.0f);
+}
+
+TEST(value_conv2d_dilated) {
+    tf_wrap::FastGraph g;
+    
+    // Input: 1x7x7x1 (need larger input for dilated conv)
+    std::vector<float> input_data(49);
+    for (int i = 0; i < 49; i++) input_data[i] = static_cast<float>(i + 1);
+    auto input = tf_wrap::FastTensor::FromVector<float>({1, 7, 7, 1}, input_data);
+    
+    // 3x3 filter
+    auto filter = tf_wrap::FastTensor::FromVector<float>({3, 3, 1, 1}, std::vector<float>(9, 1.0f));
+    
+    (void)g.NewOperation("Const", "Input").SetAttrTensor("value", input.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Filter").SetAttrTensor("value", filter.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_input = g.GetOperationOrThrow("Input");
+    auto* op_filter = g.GetOperationOrThrow("Filter");
+    
+    (void)g.NewOperation("Conv2D", "Conv")
+        .AddInput(tf_wrap::Output(op_input, 0))
+        .AddInput(tf_wrap::Output(op_filter, 0))
+        .SetAttrIntList("strides", std::vector<int64_t>{1, 1, 1, 1})
+        .SetAttrString("padding", "VALID")
+        .SetAttrIntList("dilations", std::vector<int64_t>{1, 2, 2, 1})  // Dilation 2
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Conv", 0}}, {});
+    
+    // With 7x7 input, 3x3 filter with dilation 2: effective filter size is 5x5
+    // Output: (7-5)/1+1 = 3
+    REQUIRE(results[0].shape()[1] == 3);
+    REQUIRE(results[0].shape()[2] == 3);
+}
+
+TEST(value_depthwise_conv2d) {
+    tf_wrap::FastGraph g;
+    
+    // Input: 1x4x4x2 (2 channels)
+    auto input = tf_wrap::FastTensor::FromVector<float>({1, 4, 4, 2}, 
+        std::vector<float>(32, 1.0f));  // All ones
+    
+    // Depthwise filter: 2x2x2x1 (height, width, in_channels, channel_multiplier)
+    auto filter = tf_wrap::FastTensor::FromVector<float>({2, 2, 2, 1}, 
+        {1.0f, 1.0f, 1.0f, 1.0f,   // Filter for channel 0
+         2.0f, 2.0f, 2.0f, 2.0f}); // Filter for channel 1
+    
+    (void)g.NewOperation("Const", "Input").SetAttrTensor("value", input.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Filter").SetAttrTensor("value", filter.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_input = g.GetOperationOrThrow("Input");
+    auto* op_filter = g.GetOperationOrThrow("Filter");
+    
+    (void)g.NewOperation("DepthwiseConv2dNative", "DepthwiseConv")
+        .AddInput(tf_wrap::Output(op_input, 0))
+        .AddInput(tf_wrap::Output(op_filter, 0))
+        .SetAttrIntList("strides", std::vector<int64_t>{1, 1, 1, 1})
+        .SetAttrString("padding", "VALID")
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"DepthwiseConv", 0}}, {});
+    
+    // Output: 1x3x3x2
+    REQUIRE(results[0].shape()[0] == 1);
+    REQUIRE(results[0].shape()[1] == 3);
+    REQUIRE(results[0].shape()[2] == 3);
+    REQUIRE(results[0].shape()[3] == 2);
+    
+    auto v = results[0].ToVector<float>();
+    // Channel 0: sum of 4 ones with filter [1,1,1,1] = 4
+    // Channel 1: sum of 4 ones with filter [2,2,2,2] = 8
+    REQUIRE(v[0] == 4.0f);  // First output, channel 0
+    REQUIRE(v[1] == 8.0f);  // First output, channel 1
+}
+
+// =============================================================================
+// BATCHNORM TESTS - Both training and inference modes
+// =============================================================================
+
+TEST(value_batchnorm_inference) {
+    tf_wrap::FastGraph g;
+    
+    // Input: batch=2, height=1, width=1, channels=2
+    auto x = tf_wrap::FastTensor::FromVector<float>({2, 1, 1, 2}, 
+        {1.0f, 2.0f,   // Sample 1
+         3.0f, 4.0f}); // Sample 2
+    
+    // Scale (gamma) and offset (beta) per channel
+    auto scale = tf_wrap::FastTensor::FromVector<float>({2}, {1.0f, 1.0f});
+    auto offset = tf_wrap::FastTensor::FromVector<float>({2}, {0.0f, 0.0f});
+    
+    // Pre-computed mean and variance (inference mode uses these)
+    auto mean = tf_wrap::FastTensor::FromVector<float>({2}, {2.0f, 3.0f});
+    auto variance = tf_wrap::FastTensor::FromVector<float>({2}, {1.0f, 1.0f});
+    
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Scale").SetAttrTensor("value", scale.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Offset").SetAttrTensor("value", offset.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Mean").SetAttrTensor("value", mean.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Variance").SetAttrTensor("value", variance.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_x = g.GetOperationOrThrow("X");
+    auto* op_scale = g.GetOperationOrThrow("Scale");
+    auto* op_offset = g.GetOperationOrThrow("Offset");
+    auto* op_mean = g.GetOperationOrThrow("Mean");
+    auto* op_variance = g.GetOperationOrThrow("Variance");
+    
+    (void)g.NewOperation("FusedBatchNormV3", "BatchNorm")
+        .AddInput(tf_wrap::Output(op_x, 0))
+        .AddInput(tf_wrap::Output(op_scale, 0))
+        .AddInput(tf_wrap::Output(op_offset, 0))
+        .AddInput(tf_wrap::Output(op_mean, 0))
+        .AddInput(tf_wrap::Output(op_variance, 0))
+        .SetAttrFloat("epsilon", 0.001f)
+        .SetAttrBool("is_training", false)  // Inference mode
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"BatchNorm", 0}}, {});  // Output 0 is normalized x
+    
+    auto v = results[0].ToVector<float>();
+    // Normalized: (x - mean) / sqrt(variance + epsilon) * scale + offset
+    // Sample 1, channel 0: (1 - 2) / sqrt(1.001) ≈ -0.9995
+    // Sample 1, channel 1: (2 - 3) / sqrt(1.001) ≈ -0.9995
+    REQUIRE_APPROX(v[0], -0.9995f, 0.01f);
+    REQUIRE_APPROX(v[1], -0.9995f, 0.01f);
+}
+
+TEST(value_batchnorm_training) {
+    tf_wrap::FastGraph g;
+    
+    // Input: batch=4, height=1, width=1, channels=1
+    // Values chosen so mean=2.5, variance=1.25
+    auto x = tf_wrap::FastTensor::FromVector<float>({4, 1, 1, 1}, {1.0f, 2.0f, 3.0f, 4.0f});
+    
+    auto scale = tf_wrap::FastTensor::FromVector<float>({1}, {1.0f});
+    auto offset = tf_wrap::FastTensor::FromVector<float>({1}, {0.0f});
+    
+    // In training mode, mean/variance inputs are ignored (computed from batch)
+    auto mean = tf_wrap::FastTensor::FromVector<float>({1}, {0.0f});
+    auto variance = tf_wrap::FastTensor::FromVector<float>({1}, {1.0f});
+    
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Scale").SetAttrTensor("value", scale.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Offset").SetAttrTensor("value", offset.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Mean").SetAttrTensor("value", mean.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Variance").SetAttrTensor("value", variance.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_x = g.GetOperationOrThrow("X");
+    auto* op_scale = g.GetOperationOrThrow("Scale");
+    auto* op_offset = g.GetOperationOrThrow("Offset");
+    auto* op_mean = g.GetOperationOrThrow("Mean");
+    auto* op_variance = g.GetOperationOrThrow("Variance");
+    
+    (void)g.NewOperation("FusedBatchNormV3", "BatchNorm")
+        .AddInput(tf_wrap::Output(op_x, 0))
+        .AddInput(tf_wrap::Output(op_scale, 0))
+        .AddInput(tf_wrap::Output(op_offset, 0))
+        .AddInput(tf_wrap::Output(op_mean, 0))
+        .AddInput(tf_wrap::Output(op_variance, 0))
+        .SetAttrFloat("epsilon", 0.001f)
+        .SetAttrBool("is_training", true)  // Training mode
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    // Output 0: normalized y, Output 1: batch_mean, Output 2: batch_variance
+    auto results = s.Run({}, {{"BatchNorm", 0}, {"BatchNorm", 1}, {"BatchNorm", 2}}, {});
+    
+    auto y = results[0].ToVector<float>();
+    auto batch_mean = results[1].ToVector<float>();
+    auto batch_var = results[2].ToVector<float>();
+    
+    // Batch mean should be (1+2+3+4)/4 = 2.5
+    REQUIRE_APPROX(batch_mean[0], 2.5f, 0.01f);
+    
+    // Batch variance should be ((1-2.5)^2 + (2-2.5)^2 + (3-2.5)^2 + (4-2.5)^2)/4 = 1.25
+    REQUIRE_APPROX(batch_var[0], 1.25f, 0.01f);
+    
+    // Normalized values should have mean≈0, std≈1
+    float y_mean = (y[0] + y[1] + y[2] + y[3]) / 4.0f;
+    REQUIRE_APPROX(y_mean, 0.0f, 0.01f);
+}
+
+// =============================================================================
+// RANDOM OP TESTS - Statistical validation of distributions
+// =============================================================================
+
+TEST(value_random_uniform_distribution) {
+    tf_wrap::FastGraph g;
+    
+    // Generate 10000 random values
+    auto shape = tf_wrap::FastTensor::FromVector<int32_t>({1}, {10000});
+    
+    (void)g.NewOperation("Const", "Shape")
+        .SetAttrTensor("value", shape.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    
+    auto* op_shape = g.GetOperationOrThrow("Shape");
+    
+    (void)g.NewOperation("RandomUniform", "Random")
+        .AddInput(tf_wrap::Output(op_shape, 0))
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Random", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v.size() == 10000);
+    
+    // Compute statistics
+    float sum = 0.0f, sum_sq = 0.0f;
+    float min_val = v[0], max_val = v[0];
+    for (float x : v) {
+        sum += x;
+        sum_sq += x * x;
+        if (x < min_val) min_val = x;
+        if (x > max_val) max_val = x;
+    }
+    
+    float mean = sum / 10000.0f;
+    float variance = (sum_sq / 10000.0f) - (mean * mean);
+    
+    // Uniform[0,1] has mean=0.5, variance=1/12≈0.0833
+    REQUIRE_APPROX(mean, 0.5f, 0.02f);        // Mean should be ~0.5
+    REQUIRE_APPROX(variance, 0.0833f, 0.01f); // Variance should be ~1/12
+    REQUIRE(min_val >= 0.0f);                  // All values in [0,1)
+    REQUIRE(max_val < 1.0f);
+}
+
+TEST(value_random_normal_distribution) {
+    tf_wrap::FastGraph g;
+    
+    auto shape = tf_wrap::FastTensor::FromVector<int32_t>({1}, {10000});
+    
+    (void)g.NewOperation("Const", "Shape")
+        .SetAttrTensor("value", shape.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    
+    auto* op_shape = g.GetOperationOrThrow("Shape");
+    
+    (void)g.NewOperation("RandomStandardNormal", "Random")
+        .AddInput(tf_wrap::Output(op_shape, 0))
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Random", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    
+    // Compute statistics
+    float sum = 0.0f, sum_sq = 0.0f;
+    for (float x : v) {
+        sum += x;
+        sum_sq += x * x;
+    }
+    
+    float mean = sum / 10000.0f;
+    float variance = (sum_sq / 10000.0f) - (mean * mean);
+    
+    // Standard normal has mean=0, variance=1
+    REQUIRE_APPROX(mean, 0.0f, 0.05f);      // Mean should be ~0
+    REQUIRE_APPROX(variance, 1.0f, 0.1f);   // Variance should be ~1
+}
+
+TEST(value_truncated_normal_distribution) {
+    tf_wrap::FastGraph g;
+    
+    auto shape = tf_wrap::FastTensor::FromVector<int32_t>({1}, {10000});
+    
+    (void)g.NewOperation("Const", "Shape")
+        .SetAttrTensor("value", shape.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    
+    auto* op_shape = g.GetOperationOrThrow("Shape");
+    
+    (void)g.NewOperation("TruncatedNormal", "Random")
+        .AddInput(tf_wrap::Output(op_shape, 0))
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Random", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    
+    // Truncated normal: all values should be within [-2, 2] stddevs
+    float min_val = v[0], max_val = v[0];
+    for (float x : v) {
+        if (x < min_val) min_val = x;
+        if (x > max_val) max_val = x;
+    }
+    
+    REQUIRE(min_val >= -2.0f);
+    REQUIRE(max_val <= 2.0f);
+}
+
+TEST(value_random_shuffle) {
+    tf_wrap::FastGraph g;
+    
+    // Create a sequence 0-99
+    std::vector<int32_t> original(100);
+    for (int i = 0; i < 100; i++) original[i] = i;
+    
+    auto t = tf_wrap::FastTensor::FromVector<int32_t>({100}, original);
+    
+    (void)g.NewOperation("Const", "T")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    
+    auto* op_t = g.GetOperationOrThrow("T");
+    
+    (void)g.NewOperation("RandomShuffle", "Shuffle")
+        .AddInput(tf_wrap::Output(op_t, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Shuffle", 0}}, {});
+    
+    auto shuffled = results[0].ToVector<int32_t>();
+    
+    // Should have same size
+    REQUIRE(shuffled.size() == 100);
+    
+    // Should contain all original values (just reordered)
+    std::vector<int32_t> sorted_shuffled = shuffled;
+    std::sort(sorted_shuffled.begin(), sorted_shuffled.end());
+    REQUIRE(sorted_shuffled == original);
+    
+    // Should be different from original (extremely unlikely to be same)
+    REQUIRE(shuffled != original);
+}
+
+// =============================================================================
+// POOL VARIANT TESTS
+// =============================================================================
+
+TEST(value_maxpool_with_argmax) {
+    tf_wrap::FastGraph g;
+    
+    // Input: 1x4x4x1
+    auto input = tf_wrap::FastTensor::FromVector<float>({1, 4, 4, 1}, 
+        {1.0f, 2.0f, 3.0f, 4.0f,
+         5.0f, 9.0f, 7.0f, 8.0f,   // 9 is max in top-left 2x2
+         6.0f, 10.0f, 11.0f, 12.0f,
+         13.0f, 14.0f, 15.0f, 16.0f});
+    
+    (void)g.NewOperation("Const", "Input")
+        .SetAttrTensor("value", input.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto* op_input = g.GetOperationOrThrow("Input");
+    
+    (void)g.NewOperation("MaxPoolWithArgmax", "MaxPoolArgmax")
+        .AddInput(tf_wrap::Output(op_input, 0))
+        .SetAttrIntList("ksize", std::vector<int64_t>{1, 2, 2, 1})
+        .SetAttrIntList("strides", std::vector<int64_t>{1, 2, 2, 1})
+        .SetAttrString("padding", "VALID")
+        .SetAttrType("Targmax", TF_INT64)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    // Output 0: max values, Output 1: argmax indices
+    auto results = s.Run({}, {{"MaxPoolArgmax", 0}, {"MaxPoolArgmax", 1}}, {});
+    
+    auto maxvals = results[0].ToVector<float>();
+    auto argmax = results[1].ToVector<int64_t>();
+    
+    // Top-left 2x2: max is 9
+    REQUIRE(maxvals[0] == 9.0f);
+    // Top-right 2x2: max is 8
+    REQUIRE(maxvals[1] == 8.0f);
+    // Bottom-left 2x2: max is 14
+    REQUIRE(maxvals[2] == 14.0f);
+    // Bottom-right 2x2: max is 16
+    REQUIRE(maxvals[3] == 16.0f);
+    
+    // Argmax gives flattened index of max element
+    // 9 is at position 5 in flattened input
+    REQUIRE(argmax[0] == 5);
+}
+
+TEST(value_avgpool_same_padding) {
+    tf_wrap::FastGraph g;
+    
+    // Input: 1x5x5x1 (odd size to test SAME padding behavior)
+    std::vector<float> input_data(25);
+    for (int i = 0; i < 25; i++) input_data[i] = 1.0f;  // All ones
+    auto input = tf_wrap::FastTensor::FromVector<float>({1, 5, 5, 1}, input_data);
+    
+    (void)g.NewOperation("Const", "Input")
+        .SetAttrTensor("value", input.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto* op_input = g.GetOperationOrThrow("Input");
+    
+    (void)g.NewOperation("AvgPool", "AvgPool")
+        .AddInput(tf_wrap::Output(op_input, 0))
+        .SetAttrIntList("ksize", std::vector<int64_t>{1, 2, 2, 1})
+        .SetAttrIntList("strides", std::vector<int64_t>{1, 2, 2, 1})
+        .SetAttrString("padding", "SAME")
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"AvgPool", 0}}, {});
+    
+    // SAME padding with stride 2 on 5x5: ceil(5/2) = 3
+    REQUIRE(results[0].shape()[1] == 3);
+    REQUIRE(results[0].shape()[2] == 3);
+    
+    auto v = results[0].ToVector<float>();
+    // All inputs are 1, so average should be 1 everywhere
+    for (size_t i = 0; i < v.size(); i++) {
+        REQUIRE(v[i] == 1.0f);
+    }
 }
 
 TEST(toscalar_multielement_throws) {

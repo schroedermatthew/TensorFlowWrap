@@ -609,6 +609,17 @@ public:
         return FromVector<T>(shape_vec, vals, loc);
     }
 
+    /// FromVector overload accepting initializer_list for shape and vector for values
+    template<TensorScalar T>
+    [[nodiscard]] static Tensor FromVector(
+        std::initializer_list<std::int64_t> dims,
+        const std::vector<T>& values,
+        std::source_location loc = std::source_location::current())
+    {
+        std::vector<std::int64_t> shape_vec(dims);
+        return FromVector<T>(shape_vec, values, loc);
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // Factory: FromScalar - Creates true TensorFlow scalar (shape [])
     // ─────────────────────────────────────────────────────────────────
@@ -626,6 +637,57 @@ public:
                     std::memcpy(dst, &value, len);
                 }
             });
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Factory: FromString - Creates a scalar string tensor
+    // ─────────────────────────────────────────────────────────────────
+
+    [[nodiscard]] static Tensor FromString(const std::string& str) {
+        // String tensors require TF_TString, which is sizeof(TF_TString) bytes per element
+        // For a scalar string tensor: shape [], 1 element
+        TF_Tensor* tensor = TF_AllocateTensor(
+            TF_STRING,
+            nullptr,  // scalar - no dims
+            0,        // scalar - 0 dims
+            sizeof(TF_TString));
+        
+        if (!tensor) {
+            throw std::runtime_error("Tensor::FromString: TF_AllocateTensor failed");
+        }
+        
+        // Initialize the TF_TString and copy data
+        TF_TString* tstr = static_cast<TF_TString*>(TF_TensorData(tensor));
+        TF_TString_Init(tstr);
+        TF_TString_Copy(tstr, str.data(), str.size());
+        
+        return FromRaw(tensor);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // ToString - Extract string from a scalar string tensor
+    // ─────────────────────────────────────────────────────────────────
+
+    [[nodiscard]] std::string ToString() const {
+        ensure_tensor_("ToString");
+        
+        if (dtype() != TF_STRING) {
+            throw std::runtime_error(tf_wrap::detail::format(
+                "Tensor::ToString(): expected TF_STRING dtype, got {}",
+                dtype_name()));
+        }
+        
+        if (num_elements() != 1) {
+            throw std::runtime_error(tf_wrap::detail::format(
+                "Tensor::ToString(): expected scalar string tensor, got {} elements",
+                num_elements()));
+        }
+        
+        const TF_TString* tstr = static_cast<const TF_TString*>(TF_TensorData(state_->tensor));
+        const char* data = TF_TString_GetDataPointer(tstr);
+        std::size_t len = TF_TString_GetSize(tstr);
+        
+        return std::string(data, len);
     }
 
     // ─────────────────────────────────────────────────────────────────
