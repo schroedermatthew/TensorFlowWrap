@@ -607,7 +607,8 @@ TEST(fill_range_ops_compile) {
     TF_Output dims_out{dims, 0}, val_out{val, 0};
     TF_Output start_out{start, 0}, limit_out{limit, 0}, delta_out{delta, 0};
     
-    (void)Fill(graph, "fill", dims_out, val_out, TF_INT32, TF_FLOAT);
+    // Fill: T is the value type (FLOAT), index_type is the dims type (INT32)
+    (void)Fill(graph, "fill", dims_out, val_out, TF_FLOAT, TF_INT32);
     (void)Range(graph, "range", start_out, limit_out, delta_out, TF_FLOAT);
     
     REQUIRE(graph.num_operations() >= 7);
@@ -625,7 +626,7 @@ TEST(pad_ops_compile) {
     
     // Paddings: [[1, 1], [1, 1]] - pad 1 on each side
     auto pad_t = tf_wrap::FastTensor::FromVector<int32_t>({2, 2}, {1, 1, 1, 1});
-    auto pad = graph.NewOperation("Const", "pad")
+    auto paddings = graph.NewOperation("Const", "paddings")
         .SetAttrTensor("value", pad_t.handle())
         .SetAttrType("dtype", TF_INT32)
         .Finish();
@@ -639,7 +640,7 @@ TEST(pad_ops_compile) {
     
     using namespace tf_wrap::ops;
     
-    TF_Output data{c, 0}, pad_out{pad, 0}, const_out{const_val, 0};
+    TF_Output data{c, 0}, pad_out{paddings, 0}, const_out{const_val, 0};
     
     (void)Pad(graph, "pad", data, pad_out, TF_FLOAT, TF_INT32);
     (void)PadV2(graph, "padv2", data, pad_out, const_out, TF_FLOAT, TF_INT32);
@@ -726,8 +727,8 @@ TEST(reverse_where_ops_compile) {
 TEST(logical_reduce_ops_compile) {
     tf_wrap::FastGraph graph;
     
-    // Create boolean tensor - use scalar bool
-    auto t = tf_wrap::FastTensor::FromScalar<bool>(true);
+    // Create rank-1 boolean tensor (reduction requires at least rank 1)
+    auto t = tf_wrap::FastTensor::FromVector<bool>({4}, {true, true, false, true});
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_BOOL)
@@ -850,9 +851,10 @@ TEST(random_ops_compile) {
     
     TF_Output shape_out{shape, 0};
     
-    (void)RandomUniform(graph, "randuniform", shape_out, TF_INT32, TF_FLOAT);
-    (void)RandomStandardNormal(graph, "randnormal", shape_out, TF_INT32, TF_FLOAT);
-    (void)TruncatedNormal(graph, "truncnormal", shape_out, TF_INT32, TF_FLOAT);
+    // RandomUniform: dtype is output type (FLOAT), T is shape type (INT32)
+    (void)RandomUniform(graph, "randuniform", shape_out, TF_FLOAT, TF_INT32);
+    (void)RandomStandardNormal(graph, "randnormal", shape_out, TF_FLOAT, TF_INT32);
+    (void)TruncatedNormal(graph, "truncnormal", shape_out, TF_FLOAT, TF_INT32);
     
     REQUIRE(graph.num_operations() >= 4);
 }
@@ -880,21 +882,14 @@ TEST(linspace_zeros_ops_compile) {
         .SetAttrType("dtype", TF_INT32)
         .Finish();
     
-    // Shape for Zeros
-    auto shape_t = tf_wrap::FastTensor::FromVector<int32_t>({2}, {2, 3});
-    auto shape = graph.NewOperation("Const", "shape")
-        .SetAttrTensor("value", shape_t.handle())
-        .SetAttrType("dtype", TF_INT32)
-        .Finish();
-    
     using namespace tf_wrap::ops;
     
-    TF_Output start_out{start, 0}, stop_out{stop, 0}, num_out{num, 0}, shape_out{shape, 0};
+    TF_Output start_out{start, 0}, stop_out{stop, 0}, num_out{num, 0};
     
     (void)LinSpace(graph, "linspace", start_out, stop_out, num_out, TF_FLOAT, TF_INT32);
-    (void)Zeros(graph, "zeros", shape_out, TF_FLOAT);
+    // Note: "Zeros" op doesn't exist in TensorFlow C API. Use Fill or ZerosLike instead.
     
-    REQUIRE(graph.num_operations() >= 6);
+    REQUIRE(graph.num_operations() >= 4);
 }
 
 TEST(placeholder_const_ops_compile) {
@@ -1341,27 +1336,37 @@ TEST(conv2d_backprop_ops_compile) {
 }
 
 TEST(dropout_ops_compile) {
+    // Note: "Dropout" op doesn't exist in TensorFlow C API.
+    // Dropout is typically implemented as a combination of RandomUniform, Floor, Mul, etc.
+    // This test verifies Select which can be used in dropout-like implementations.
     tf_wrap::FastGraph graph;
     
     auto t_x = tf_wrap::FastTensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
-    auto t_rate = tf_wrap::FastTensor::FromScalar<float>(0.5f);
+    auto t_cond = tf_wrap::FastTensor::FromVector<bool>({4}, {true, false, true, false});
+    auto t_zeros = tf_wrap::FastTensor::FromVector<float>({4}, {0.0f, 0.0f, 0.0f, 0.0f});
     
     auto x = graph.NewOperation("Const", "x")
         .SetAttrTensor("value", t_x.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    auto rate = graph.NewOperation("Const", "rate")
-        .SetAttrTensor("value", t_rate.handle())
+    auto cond = graph.NewOperation("Const", "cond")
+        .SetAttrTensor("value", t_cond.handle())
+        .SetAttrType("dtype", TF_BOOL)
+        .Finish();
+    
+    auto zeros = graph.NewOperation("Const", "zeros")
+        .SetAttrTensor("value", t_zeros.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     using namespace tf_wrap::ops;
-    TF_Output x_out{x, 0}, rate_out{rate, 0};
+    TF_Output x_out{x, 0}, cond_out{cond, 0}, zeros_out{zeros, 0};
     
-    (void)Dropout(graph, "dropout", x_out, rate_out, TF_FLOAT);
+    // Select can be used to implement dropout masking
+    (void)SelectV2(graph, "dropout_select", cond_out, x_out, zeros_out, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 3);
+    REQUIRE(graph.num_operations() >= 4);
 }
 
 TEST(multinomial_randomshuffle_ops_compile) {
@@ -1577,7 +1582,8 @@ TEST(pack_ops_compile) {
     using namespace tf_wrap::ops;
     
     std::vector<TF_Output> values = {{c1, 0}, {c2, 0}};
-    (void)Pack(graph, "pack", values, TF_FLOAT, 0);
+    // Pack: last parameter is N (number of tensors), not axis
+    (void)Pack(graph, "pack", values, TF_FLOAT, 2);
     
     REQUIRE(graph.num_operations() >= 3);
 }
