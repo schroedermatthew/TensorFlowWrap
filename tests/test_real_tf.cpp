@@ -5080,6 +5080,25 @@ TEST(move_tensor_preserves_all_state) {
     REQUIRE(t2.ToVector<float>() == orig_data);
     REQUIRE(t2.rank() == 2);
     REQUIRE(t2.num_elements() == 6);
+    REQUIRE(t2.valid());
+    REQUIRE(!t2.empty());  // Has elements
+}
+
+TEST(tensor_valid_vs_empty_semantics) {
+    // Normal tensor: valid and not empty
+    auto t1 = tf_wrap::FastTensor::FromScalar<float>(42.0f);
+    REQUIRE(t1.valid());   // Has handle
+    REQUIRE(!t1.empty());  // Has elements
+    
+    // Zero-element tensor: valid but empty
+    auto t2 = tf_wrap::FastTensor::FromVector<float>({0}, {});
+    REQUIRE(t2.valid());   // Has handle
+    REQUIRE(t2.empty());   // No elements
+    
+    // Moved-from tensor: not valid and empty
+    auto t3 = std::move(t1);
+    REQUIRE(!t1.valid());  // No handle (moved-from)
+    REQUIRE(t1.empty());   // No elements (and no handle)
 }
 
 TEST(move_graph_preserves_all_state) {
@@ -5305,10 +5324,8 @@ TEST(tensor_zero_size_dimension) {
     REQUIRE(t.shape()[0] == 3);
     REQUIRE(t.shape()[1] == 0);
     REQUIRE(t.num_elements() == 0);
-    // Note: empty() checks if handle is null, not if num_elements is 0
-    // A zero-element tensor still has a valid handle
-    REQUIRE(!t.empty());  // Handle exists
-    REQUIRE(t.num_elements() == 0);  // But no elements
+    REQUIRE(t.valid());  // Handle exists
+    REQUIRE(t.empty());  // No elements (STL semantics)
 }
 
 TEST(tensor_zero_in_middle_of_shape) {

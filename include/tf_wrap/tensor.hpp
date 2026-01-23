@@ -398,12 +398,19 @@ public:
         return static_cast<std::size_t>(n);
     }
 
-    /// Check if tensor is empty/null
+    /// Check if tensor has no elements (STL-compatible semantics)
+    /// Note: A tensor with shape {3, 0} is empty (zero elements) but still valid
     [[nodiscard]] bool empty() const noexcept {
-        return state_->tensor == nullptr;
+        if (!state_->tensor) return true;
+        return num_elements() == 0;
+    }
+    
+    /// Check if tensor is in a valid (non-moved-from) state
+    [[nodiscard]] bool valid() const noexcept {
+        return state_->tensor != nullptr;
     }
 
-    /// Explicit bool conversion
+    /// Explicit bool conversion (true if valid/non-null)
     [[nodiscard]] explicit operator bool() const noexcept {
         return state_->tensor != nullptr;
     }
