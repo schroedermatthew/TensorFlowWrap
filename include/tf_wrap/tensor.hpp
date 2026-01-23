@@ -31,6 +31,7 @@
 
 extern "C" {
 #include <tensorflow/c/c_api.h>
+#include <tensorflow/c/tf_tstring.h>
 }
 
 #include "tf_wrap/format.hpp"
