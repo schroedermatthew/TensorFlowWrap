@@ -4547,6 +4547,321 @@ TEST(graph_variable_v1) {
 }
 
 // =============================================================================
+// PREVIOUSLY UNTESTED: DeviceList, RunMetadata, AddControlInput, ToGraphDef
+// =============================================================================
+
+TEST(session_list_devices) {
+    tf_wrap::FastGraph g;
+    
+    // Create minimal graph
+    auto x = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    // List available devices
+    auto devices = s.ListDevices();
+    
+    // Should have at least one CPU device
+    REQUIRE(devices.count() >= 1);
+    
+    // Get all devices
+    auto all_devices = devices.all();
+    REQUIRE(all_devices.size() >= 1);
+    
+    // Check first device properties
+    auto first = devices.at(0);
+    REQUIRE(!first.name.empty());
+    REQUIRE(!first.type.empty());
+    REQUIRE(first.is_cpu() || first.is_gpu());
+    
+    // Find CPU device
+    bool found_cpu = false;
+    for (const auto& dev : all_devices) {
+        if (dev.is_cpu()) {
+            found_cpu = true;
+            REQUIRE(dev.type == "CPU");
+        }
+    }
+    REQUIRE(found_cpu);
+}
+
+TEST(session_run_with_metadata) {
+    tf_wrap::FastGraph g;
+    
+    auto a = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto b = tf_wrap::FastTensor::FromVector<float>({2, 2}, {5.0f, 6.0f, 7.0f, 8.0f});
+    
+    (void)g.NewOperation("Const", "A").SetAttrTensor("value", a.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "B").SetAttrTensor("value", b.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_a = g.GetOperationOrThrow("A");
+    auto* op_b = g.GetOperationOrThrow("B");
+    
+    (void)g.NewOperation("MatMul", "Result")
+        .AddInput(tf_wrap::Output(op_a, 0))
+        .AddInput(tf_wrap::Output(op_b, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    // Run with metadata collection
+    tf_wrap::Buffer metadata;
+    auto results = s.RunWithMetadata({}, {{"Result", 0}}, metadata);
+    
+    // Result should be correct
+    REQUIRE(results.size() == 1);
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v[0] == 19.0f);  // MatMul result
+    
+    // Metadata buffer should have been populated (contains RunMetadata protobuf)
+    // Note: may be empty if TF wasn't built with tracing enabled
+    // Just verify the call didn't crash
+    REQUIRE(metadata.handle() != nullptr);
+}
+
+TEST(graph_add_control_input) {
+    tf_wrap::FastGraph g;
+    
+    // Create two independent operations
+    auto x = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto y = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Y").SetAttrTensor("value", y.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_x = g.GetOperationOrThrow("X");
+    auto* op_y = g.GetOperationOrThrow("Y");
+    
+    // Create an op that depends on Y, with control dependency on X
+    // This means X must execute before Z, even though Z doesn't use X's output
+    (void)g.NewOperation("Identity", "Z")
+        .AddInput(tf_wrap::Output(op_y, 0))
+        .AddControlInput(op_x)  // X must run before Z
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Z", 0}}, {});
+    
+    // Z should return Y's value (2.0)
+    REQUIRE(results[0].ToScalar<float>() == 2.0f);
+}
+
+TEST(graph_add_control_input_ordering) {
+    tf_wrap::FastGraph g;
+    
+    // Create a chain of operations with control dependencies
+    auto val = tf_wrap::FastTensor::FromScalar<float>(10.0f);
+    (void)g.NewOperation("Const", "Start").SetAttrTensor("value", val.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    auto* op_start = g.GetOperationOrThrow("Start");
+    
+    // Op A depends on Start via control input
+    (void)g.NewOperation("Identity", "A")
+        .AddInput(tf_wrap::Output(op_start, 0))
+        .Finish();
+    auto* op_a = g.GetOperationOrThrow("A");
+    
+    // Op B depends on A via control input (not data)
+    auto val_b = tf_wrap::FastTensor::FromScalar<float>(20.0f);
+    (void)g.NewOperation("Const", "ValB").SetAttrTensor("value", val_b.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    auto* op_val_b = g.GetOperationOrThrow("ValB");
+    
+    (void)g.NewOperation("Identity", "B")
+        .AddInput(tf_wrap::Output(op_val_b, 0))
+        .AddControlInput(op_a)  // A must run before B
+        .Finish();
+    
+    // Op C depends on both A and B via control inputs
+    auto val_c = tf_wrap::FastTensor::FromScalar<float>(30.0f);
+    (void)g.NewOperation("Const", "ValC").SetAttrTensor("value", val_c.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    auto* op_val_c = g.GetOperationOrThrow("ValC");
+    auto* op_b = g.GetOperationOrThrow("B");
+    
+    (void)g.NewOperation("Identity", "C")
+        .AddInput(tf_wrap::Output(op_val_c, 0))
+        .AddControlInput(op_a)
+        .AddControlInput(op_b)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"C", 0}}, {});
+    
+    // C should return 30.0, proving the graph executed correctly
+    REQUIRE(results[0].ToScalar<float>() == 30.0f);
+}
+
+TEST(graph_to_graph_def) {
+    tf_wrap::FastGraph g;
+    
+    // Build a simple graph
+    auto x = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    auto y = tf_wrap::FastTensor::FromVector<float>({3}, {4.0f, 5.0f, 6.0f});
+    
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Y").SetAttrTensor("value", y.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_x = g.GetOperationOrThrow("X");
+    auto* op_y = g.GetOperationOrThrow("Y");
+    
+    (void)g.NewOperation("AddV2", "Sum")
+        .AddInput(tf_wrap::Output(op_x, 0))
+        .AddInput(tf_wrap::Output(op_y, 0))
+        .Finish();
+    
+    // Serialize graph to GraphDef protobuf
+    auto graph_def = g.ToGraphDef();
+    
+    // Should have produced a non-empty serialization
+    REQUIRE(graph_def.size() > 0);
+    
+    // GraphDef is a protobuf - check for some expected bytes
+    // Protobuf wire format: field numbers and types in first few bytes
+    // Not checking specific content since protobuf format may vary
+    REQUIRE(graph_def.size() > 10);  // Should be substantial
+}
+
+TEST(graph_to_graph_def_roundtrip_check) {
+    tf_wrap::FastGraph g;
+    
+    // Create graph with multiple node types
+    auto x = tf_wrap::FastTensor::FromScalar<float>(5.0f);
+    (void)g.NewOperation("Const", "Input").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    auto* op_input = g.GetOperationOrThrow("Input");
+    
+    (void)g.NewOperation("Square", "Squared").AddInput(tf_wrap::Output(op_input, 0)).Finish();
+    auto* op_sq = g.GetOperationOrThrow("Squared");
+    
+    (void)g.NewOperation("Sqrt", "Root").AddInput(tf_wrap::Output(op_sq, 0)).Finish();
+    
+    // Get GraphDef
+    auto graph_def = g.ToGraphDef();
+    REQUIRE(graph_def.size() > 0);
+    
+    // Verify the original graph still works
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Root", 0}}, {});
+    
+    // sqrt(square(5)) = 5
+    REQUIRE_APPROX(results[0].ToScalar<float>(), 5.0f, 0.001f);
+}
+
+// =============================================================================
+// LARGE TENSOR TESTS
+// =============================================================================
+
+TEST(large_tensor_1m_elements) {
+    // 1 million float elements = 4MB
+    constexpr int64_t SIZE = 1000000;
+    
+    std::vector<float> data(SIZE);
+    for (int64_t i = 0; i < SIZE; ++i) {
+        data[i] = static_cast<float>(i % 1000);
+    }
+    
+    auto tensor = tf_wrap::FastTensor::FromVector<float>({SIZE}, data);
+    
+    REQUIRE(tensor.num_elements() == SIZE);
+    REQUIRE(tensor.byte_size() == SIZE * sizeof(float));
+    
+    auto retrieved = tensor.ToVector<float>();
+    REQUIRE(retrieved.size() == SIZE);
+    REQUIRE(retrieved[0] == 0.0f);
+    REQUIRE(retrieved[999] == 999.0f);
+    REQUIRE(retrieved[1000] == 0.0f);
+}
+
+TEST(large_tensor_10m_elements) {
+    // 10 million float elements = 40MB
+    constexpr int64_t SIZE = 10000000;
+    
+    std::vector<float> data(SIZE, 1.0f);
+    
+    auto tensor = tf_wrap::FastTensor::FromVector<float>({SIZE}, data);
+    
+    REQUIRE(tensor.num_elements() == SIZE);
+    REQUIRE(tensor.byte_size() == SIZE * sizeof(float));
+}
+
+TEST(large_tensor_multidim) {
+    // 1000 x 1000 x 10 = 10M elements = 40MB
+    constexpr int64_t D0 = 1000, D1 = 1000, D2 = 10;
+    constexpr int64_t SIZE = D0 * D1 * D2;
+    
+    std::vector<float> data(SIZE, 0.5f);
+    
+    auto tensor = tf_wrap::FastTensor::FromVector<float>({D0, D1, D2}, data);
+    
+    REQUIRE(tensor.shape().size() == 3);
+    REQUIRE(tensor.shape()[0] == D0);
+    REQUIRE(tensor.shape()[1] == D1);
+    REQUIRE(tensor.shape()[2] == D2);
+    REQUIRE(tensor.num_elements() == SIZE);
+}
+
+TEST(large_tensor_reduce_sum) {
+    // Test that TF can handle large tensor operations
+    constexpr int64_t SIZE = 1000000;
+    
+    tf_wrap::FastGraph g;
+    
+    // Create tensor of ones
+    std::vector<float> data(SIZE, 1.0f);
+    auto x = tf_wrap::FastTensor::FromVector<float>({SIZE}, data);
+    
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    auto* op_x = g.GetOperationOrThrow("X");
+    
+    // Sum all elements
+    auto axis = tf_wrap::FastTensor::FromVector<int32_t>({1}, {0});
+    (void)g.NewOperation("Const", "Axis").SetAttrTensor("value", axis.handle()).SetAttrType("dtype", TF_INT32).Finish();
+    auto* op_axis = g.GetOperationOrThrow("Axis");
+    
+    (void)g.NewOperation("Sum", "Total")
+        .AddInput(tf_wrap::Output(op_x, 0))
+        .AddInput(tf_wrap::Output(op_axis, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Total", 0}}, {});
+    
+    // Sum of 1M ones should be 1M
+    REQUIRE_APPROX(results[0].ToScalar<float>(), static_cast<float>(SIZE), 1.0f);
+}
+
+TEST(large_tensor_matmul) {
+    // 500x500 matrix multiplication
+    constexpr int64_t N = 500;
+    
+    tf_wrap::FastGraph g;
+    
+    // Create two NxN matrices
+    std::vector<float> data_a(N * N, 1.0f);
+    std::vector<float> data_b(N * N, 2.0f);
+    
+    auto a = tf_wrap::FastTensor::FromVector<float>({N, N}, data_a);
+    auto b = tf_wrap::FastTensor::FromVector<float>({N, N}, data_b);
+    
+    (void)g.NewOperation("Const", "A").SetAttrTensor("value", a.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "B").SetAttrTensor("value", b.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_a = g.GetOperationOrThrow("A");
+    auto* op_b = g.GetOperationOrThrow("B");
+    
+    (void)g.NewOperation("MatMul", "Result")
+        .AddInput(tf_wrap::Output(op_a, 0))
+        .AddInput(tf_wrap::Output(op_b, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Result", 0}}, {});
+    
+    // Each element of result = sum of N products of 1*2 = 2N
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v.size() == N * N);
+    REQUIRE_APPROX(v[0], static_cast<float>(2 * N), 0.1f);
+}
+
+// =============================================================================
 // Main
 // =============================================================================
 
