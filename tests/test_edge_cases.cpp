@@ -1469,6 +1469,316 @@ TEST_CASE("Moved-from graph error is actionable") {
 }
 
 // ============================================================================
+// Cross-Policy Tests
+// ============================================================================
+
+TEST_CASE("cross policy safe session with fast graph") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromVector<float>({2}, {1.0f, 2.0f});
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::SafeSession s(g);
+    auto results = s.Run({}, {{"X", 0}}, {});
+    REQUIRE(results[0].ToVector<float>().size() == 2);
+}
+
+TEST_CASE("cross policy fast session with safe graph") {
+    tf_wrap::SafeGraph g;
+    auto t = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"X", 0}}, {});
+    REQUIRE(results[0].ToVector<float>().size() == 3);
+}
+
+TEST_CASE("cross policy shared tensor with fast graph") {
+    auto tensor = tf_wrap::SharedTensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
+    
+    tf_wrap::FastGraph g;
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", tensor.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"X", 0}}, {});
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v[0] == 1.0f);
+    REQUIRE(v[3] == 4.0f);
+}
+
+TEST_CASE("cross policy safe tensor with safe graph and fast session") {
+    auto tensor = tf_wrap::SafeTensor::FromScalar<int32_t>(42);
+    
+    tf_wrap::SafeGraph g;
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", tensor.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"X", 0}}, {});
+    REQUIRE(results[0].ToScalar<int32_t>() == 42);
+}
+
+// ============================================================================
+// Interleaved View Tests
+// ============================================================================
+
+TEST_CASE("tensor interleaved read write views") {
+    auto tensor = tf_wrap::SafeTensor::FromVector<float>({10}, 
+        {0.0f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f});
+    
+    {
+        auto write_view = tensor.write<float>();
+        write_view[0] = 100.0f;
+    }
+    
+    {
+        auto read_view = tensor.read<float>();
+        REQUIRE(read_view[0] == 100.0f);
+    }
+    
+    for (int i = 0; i < 10; ++i) {
+        {
+            auto write_view = tensor.write<float>();
+            write_view[i] = static_cast<float>(i * 10);
+        }
+        {
+            auto read_view = tensor.read<float>();
+            REQUIRE(read_view[i] == static_cast<float>(i * 10));
+        }
+    }
+}
+
+TEST_CASE("tensor concurrent read views") {
+    auto tensor = tf_wrap::SharedTensor::FromVector<float>({1000},
+        std::vector<float>(1000, 42.0f));
+    
+    std::atomic<int> success_count{0};
+    
+    auto reader = [&]() {
+        for (int i = 0; i < 100; ++i) {
+            auto view = tensor.read<float>();
+            bool all_correct = true;
+            for (size_t j = 0; j < view.size(); ++j) {
+                if (view[j] != 42.0f) {
+                    all_correct = false;
+                    break;
+                }
+            }
+            if (all_correct) ++success_count;
+        }
+    };
+    
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 8; ++i) {
+        threads.emplace_back(reader);
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    REQUIRE(success_count == 800);
+}
+
+// ============================================================================
+// AdoptMalloc Success Tests
+// ============================================================================
+
+TEST_CASE("adopt malloc success basic") {
+    std::vector<int64_t> shape = {2, 3};
+    size_t num_elements = 6;
+    size_t byte_size = num_elements * sizeof(float);
+    
+    float* data = static_cast<float*>(std::malloc(byte_size));
+    REQUIRE(data != nullptr);
+    
+    for (size_t i = 0; i < num_elements; ++i) {
+        data[i] = static_cast<float>(i);
+    }
+    
+    auto tensor = tf_wrap::FastTensor::AdoptMalloc<float>(shape, data, byte_size);
+    
+    REQUIRE(tensor.valid());
+    REQUIRE(tensor.num_elements() == 6);
+    REQUIRE(tensor.dtype() == TF_FLOAT);
+    
+    auto v = tensor.ToVector<float>();
+    REQUIRE(v[0] == 0.0f);
+    REQUIRE(v[5] == 5.0f);
+}
+
+TEST_CASE("adopt malloc success large tensor") {
+    std::vector<int64_t> shape = {1000, 1000};
+    size_t num_elements = 1000000;
+    size_t byte_size = num_elements * sizeof(float);
+    
+    float* data = static_cast<float*>(std::malloc(byte_size));
+    REQUIRE(data != nullptr);
+    
+    for (size_t i = 0; i < num_elements; ++i) {
+        data[i] = static_cast<float>(i % 100);
+    }
+    
+    auto tensor = tf_wrap::FastTensor::AdoptMalloc<float>(shape, data, byte_size);
+    
+    REQUIRE(tensor.shape()[0] == 1000);
+    REQUIRE(tensor.shape()[1] == 1000);
+    
+    auto v = tensor.ToVector<float>();
+    REQUIRE(v[0] == 0.0f);
+    REQUIRE(v[99] == 99.0f);
+    REQUIRE(v[100] == 0.0f);
+}
+
+// ============================================================================
+// Multi-Session Concurrent Tests
+// ============================================================================
+
+STRESS_TEST("multiple sessions same graph concurrent") {
+    tf_wrap::SafeGraph g;
+    
+    (void)g.NewOperation("Placeholder", "X")
+        .SetAttrType("dtype", TF_FLOAT)
+        .SetAttrShape("shape", {})
+        .Finish();
+    
+    auto* x = g.GetOperationOrThrow("X");
+    (void)g.NewOperation("Square", "Y")
+        .AddInput(tf_wrap::Output(x, 0))
+        .Finish();
+    
+    std::vector<std::unique_ptr<tf_wrap::SafeSession>> sessions;
+    for (int i = 0; i < 4; ++i) {
+        sessions.push_back(std::make_unique<tf_wrap::SafeSession>(g));
+    }
+    
+    std::atomic<int> success_count{0};
+    
+    auto worker = [&](int id) {
+        auto& session = *sessions[id];
+        for (int i = 0; i < 100; ++i) {
+            float val = static_cast<float>(id * 100 + i);
+            auto input = tf_wrap::FastTensor::FromScalar<float>(val);
+            auto results = session.Run(
+                {{{"X", 0}, input.handle()}},
+                {{"Y", 0}},
+                {}
+            );
+            if (std::abs(results[0].ToScalar<float>() - val * val) < 0.01f) {
+                ++success_count;
+            }
+        }
+    };
+    
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 4; ++i) {
+        threads.emplace_back(worker, i);
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    REQUIRE(success_count == 400);
+}
+
+// ============================================================================
+// Error Recovery Tests
+// ============================================================================
+
+TEST_CASE("session recovers after shape error") {
+    tf_wrap::FastGraph g;
+    
+    (void)g.NewOperation("Placeholder", "X")
+        .SetAttrType("dtype", TF_FLOAT)
+        .SetAttrShape("shape", {2, 2})
+        .Finish();
+    (void)g.NewOperation("Placeholder", "Y")
+        .SetAttrType("dtype", TF_FLOAT)
+        .SetAttrShape("shape", {2, 2})
+        .Finish();
+    
+    auto* x = g.GetOperationOrThrow("X");
+    auto* y = g.GetOperationOrThrow("Y");
+    
+    (void)g.NewOperation("MatMul", "Result")
+        .AddInput(tf_wrap::Output(x, 0))
+        .AddInput(tf_wrap::Output(y, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    // First cause an error with incompatible shapes
+    auto bad_x = tf_wrap::FastTensor::FromVector<float>({3, 3}, std::vector<float>(9, 1.0f));
+    auto bad_y = tf_wrap::FastTensor::FromVector<float>({2, 2}, std::vector<float>(4, 1.0f));
+    
+    bool threw = false;
+    try {
+        s.Run(
+            {{{"X", 0}, bad_x.handle()}, {{"Y", 0}, bad_y.handle()}},
+            {{"Result", 0}},
+            {}
+        );
+    } catch (...) {
+        threw = true;
+    }
+    REQUIRE(threw);
+    
+    // Now run with correct shapes - should succeed
+    auto good_x = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1, 2, 3, 4});
+    auto good_y = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1, 0, 0, 1});
+    
+    auto results = s.Run(
+        {{{"X", 0}, good_x.handle()}, {{"Y", 0}, good_y.handle()}},
+        {{"Result", 0}},
+        {}
+    );
+    
+    REQUIRE(results.size() == 1);
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v[0] == 1.0f);
+    REQUIRE(v[3] == 4.0f);
+}
+
+TEST_CASE("graph recovers after operation error") {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "Good")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    // Try to create an invalid operation
+    bool threw = false;
+    try {
+        (void)g.NewOperation("NonExistentOp", "Bad")
+            .Finish();
+    } catch (...) {
+        threw = true;
+    }
+    REQUIRE(threw);
+    
+    // Graph should still be usable
+    auto* good = g.GetOperationOrThrow("Good");
+    (void)g.NewOperation("Identity", "Copy")
+        .AddInput(tf_wrap::Output(good, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Copy", 0}}, {});
+    REQUIRE(results[0].ToScalar<float>() == 1.0f);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
