@@ -5058,6 +5058,395 @@ TEST(savedmodel_devices_available) {
 }
 
 // =============================================================================
+// MOVE SEMANTICS VERIFICATION (catches bugs like frozen_ not being preserved)
+// =============================================================================
+
+TEST(move_tensor_preserves_all_state) {
+    // Create tensor with specific properties
+    std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    auto t1 = tf_wrap::FastTensor::FromVector<float>({2, 3}, data);
+    
+    // Capture original state
+    auto orig_shape = t1.shape();
+    auto orig_dtype = t1.dtype();
+    auto orig_data = t1.ToVector<float>();
+    
+    // Move
+    auto t2 = std::move(t1);
+    
+    // Verify ALL state preserved in t2
+    REQUIRE(t2.shape() == orig_shape);
+    REQUIRE(t2.dtype() == orig_dtype);
+    REQUIRE(t2.ToVector<float>() == orig_data);
+    REQUIRE(t2.rank() == 2);
+    REQUIRE(t2.num_elements() == 6);
+}
+
+TEST(move_graph_preserves_all_state) {
+    tf_wrap::FastGraph g1;
+    
+    // Add some operations
+    auto x = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto y = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    (void)g1.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g1.NewOperation("Const", "Y").SetAttrTensor("value", y.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    // Capture original state
+    int orig_num_ops = g1.num_operations();
+    TF_Operation* orig_op_x = g1.GetOperationOrThrow("X");
+    TF_Operation* orig_op_y = g1.GetOperationOrThrow("Y");
+    
+    // Move
+    auto g2 = std::move(g1);
+    
+    // Verify ALL state preserved in g2
+    REQUIRE(g2.num_operations() == orig_num_ops);
+    REQUIRE(g2.GetOperationOrThrow("X") == orig_op_x);
+    REQUIRE(g2.GetOperationOrThrow("Y") == orig_op_y);
+    REQUIRE(g2.valid());
+    REQUIRE(!g2.is_frozen());
+}
+
+TEST(move_graph_preserves_frozen_state) {
+    tf_wrap::FastGraph g1;
+    
+    auto x = tf_wrap::FastTensor::FromScalar<float>(42.0f);
+    (void)g1.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    // Freeze the graph
+    g1.freeze();
+    REQUIRE(g1.is_frozen());
+    
+    // Move - THIS IS THE BUG WE CAUGHT
+    auto g2 = std::move(g1);
+    
+    // Verify frozen state is preserved
+    REQUIRE(g2.is_frozen());
+    
+    // Verify can't add operations
+    bool threw = false;
+    try {
+        auto y = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+        (void)g2.NewOperation("Const", "Y").SetAttrTensor("value", y.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    REQUIRE(threw);
+}
+
+TEST(move_session_preserves_functionality) {
+    tf_wrap::FastGraph g;
+    
+    auto x = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    auto* op_x = g.GetOperationOrThrow("X");
+    (void)g.NewOperation("Square", "Y").AddInput(tf_wrap::Output(op_x, 0)).Finish();
+    
+    tf_wrap::FastSession s1(g);
+    
+    // Run once before move
+    auto r1 = s1.Run({}, {{"Y", 0}}, {});
+    REQUIRE(r1[0].ToVector<float>()[0] == 1.0f);
+    
+    // Move
+    auto s2 = std::move(s1);
+    
+    // Verify session still works after move
+    auto r2 = s2.Run({}, {{"Y", 0}}, {});
+    auto v = r2[0].ToVector<float>();
+    REQUIRE(v[0] == 1.0f);
+    REQUIRE(v[1] == 4.0f);
+    REQUIRE(v[2] == 9.0f);
+    
+    // Verify ListDevices works after move
+    auto devices = s2.ListDevices();
+    REQUIRE(devices.count() >= 1);
+}
+
+TEST(move_assignment_graph) {
+    tf_wrap::FastGraph g1;
+    auto x = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g1.NewOperation("Const", "A").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    g1.freeze();
+    
+    tf_wrap::FastGraph g2;
+    auto y = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    (void)g2.NewOperation("Const", "B").SetAttrTensor("value", y.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    // Move assignment
+    g2 = std::move(g1);
+    
+    // g2 should now have g1's state
+    REQUIRE(g2.is_frozen());
+    REQUIRE(g2.GetOperation("A") != nullptr);
+    REQUIRE(g2.GetOperation("B") == nullptr);  // Old state gone
+}
+
+TEST(move_assignment_session) {
+    tf_wrap::FastGraph g1;
+    auto x = tf_wrap::FastTensor::FromScalar<float>(5.0f);
+    (void)g1.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    tf_wrap::FastSession s1(g1);
+    
+    tf_wrap::FastGraph g2;
+    auto y = tf_wrap::FastTensor::FromScalar<float>(10.0f);
+    (void)g2.NewOperation("Const", "Y").SetAttrTensor("value", y.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    tf_wrap::FastSession s2(g2);
+    
+    // Move assignment
+    s2 = std::move(s1);
+    
+    // s2 should now run g1's graph
+    auto r = s2.Run({}, {{"X", 0}}, {});
+    REQUIRE(r[0].ToScalar<float>() == 5.0f);
+}
+
+// =============================================================================
+// OBJECT LIFETIME TESTS
+// =============================================================================
+
+TEST(graph_usable_after_session_destroyed) {
+    tf_wrap::FastGraph g;
+    auto x = tf_wrap::FastTensor::FromScalar<float>(42.0f);
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    {
+        tf_wrap::FastSession s(g);
+        auto r = s.Run({}, {{"X", 0}}, {});
+        REQUIRE(r[0].ToScalar<float>() == 42.0f);
+    } // Session destroyed here
+    
+    // Graph should still be valid (though frozen)
+    REQUIRE(g.valid());
+    REQUIRE(g.GetOperation("X") != nullptr);
+    
+    // Can create new session from same graph
+    tf_wrap::FastSession s2(g);
+    auto r2 = s2.Run({}, {{"X", 0}}, {});
+    REQUIRE(r2[0].ToScalar<float>() == 42.0f);
+}
+
+TEST(multiple_sessions_same_graph) {
+    tf_wrap::FastGraph g;
+    auto x = tf_wrap::FastTensor::FromScalar<float>(7.0f);
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    tf_wrap::FastSession s1(g);
+    tf_wrap::FastSession s2(g);
+    
+    // Both sessions should work
+    auto r1 = s1.Run({}, {{"X", 0}}, {});
+    auto r2 = s2.Run({}, {{"X", 0}}, {});
+    
+    REQUIRE(r1[0].ToScalar<float>() == 7.0f);
+    REQUIRE(r2[0].ToScalar<float>() == 7.0f);
+}
+
+// =============================================================================
+// ERROR RECOVERY TESTS
+// =============================================================================
+
+TEST(session_usable_after_run_error) {
+    tf_wrap::FastGraph g;
+    auto x = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    // Try to fetch non-existent op
+    bool threw = false;
+    try {
+        s.Run({}, {{"NonExistent", 0}}, {});
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    REQUIRE(threw);
+    
+    // Session should still be usable
+    auto r = s.Run({}, {{"X", 0}}, {});
+    REQUIRE(r[0].ToScalar<float>() == 1.0f);
+}
+
+TEST(graph_usable_after_operation_error) {
+    tf_wrap::FastGraph g;
+    
+    // Add a valid operation
+    auto x = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    // Try to add invalid operation (missing required attribute)
+    bool threw = false;
+    try {
+        (void)g.NewOperation("Const", "Bad").Finish();  // Missing value and dtype
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    REQUIRE(threw);
+    
+    // Graph should still be usable
+    REQUIRE(g.GetOperation("X") != nullptr);
+    
+    // Can still add more valid operations
+    auto y = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    (void)g.NewOperation("Const", "Y").SetAttrTensor("value", y.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    REQUIRE(g.GetOperation("Y") != nullptr);
+}
+
+// =============================================================================
+// EDGE CASE INPUT TESTS
+// =============================================================================
+
+TEST(tensor_zero_size_dimension) {
+    // Tensor with shape {3, 0} - valid but empty
+    std::vector<float> empty_data;
+    auto t = tf_wrap::FastTensor::FromVector<float>({3, 0}, empty_data);
+    
+    REQUIRE(t.shape().size() == 2);
+    REQUIRE(t.shape()[0] == 3);
+    REQUIRE(t.shape()[1] == 0);
+    REQUIRE(t.num_elements() == 0);
+    REQUIRE(t.empty());
+}
+
+TEST(tensor_zero_in_middle_of_shape) {
+    // Tensor with shape {2, 0, 3} - valid but empty
+    std::vector<float> empty_data;
+    auto t = tf_wrap::FastTensor::FromVector<float>({2, 0, 3}, empty_data);
+    
+    REQUIRE(t.shape().size() == 3);
+    REQUIRE(t.num_elements() == 0);
+}
+
+TEST(tensor_high_rank) {
+    // 8-dimensional tensor
+    std::vector<float> data(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, 1.0f);  // 256 elements
+    auto t = tf_wrap::FastTensor::FromVector<float>({2, 2, 2, 2, 2, 2, 2, 2}, data);
+    
+    REQUIRE(t.rank() == 8);
+    REQUIRE(t.num_elements() == 256);
+}
+
+TEST(graph_many_operations) {
+    tf_wrap::FastGraph g;
+    
+    // Create 100 operations
+    auto init = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "op_0").SetAttrTensor("value", init.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    for (int i = 1; i < 100; ++i) {
+        auto* prev = g.GetOperationOrThrow("op_" + std::to_string(i - 1));
+        std::string name = "op_" + std::to_string(i);
+        (void)g.NewOperation("Identity", name).AddInput(tf_wrap::Output(prev, 0)).Finish();
+    }
+    
+    REQUIRE(g.num_operations() == 100);
+    
+    // Run the chain
+    tf_wrap::FastSession s(g);
+    auto r = s.Run({}, {{"op_99", 0}}, {});
+    REQUIRE(r[0].ToScalar<float>() == 1.0f);
+}
+
+TEST(tensor_same_input_to_multiple_ops) {
+    tf_wrap::FastGraph g;
+    
+    auto x = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    auto* op_x = g.GetOperationOrThrow("X");
+    
+    // Use X as input to multiple ops
+    (void)g.NewOperation("Square", "A").AddInput(tf_wrap::Output(op_x, 0)).Finish();
+    (void)g.NewOperation("Sqrt", "B").AddInput(tf_wrap::Output(op_x, 0)).Finish();
+    (void)g.NewOperation("Neg", "C").AddInput(tf_wrap::Output(op_x, 0)).Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"A", 0}, {"B", 0}, {"C", 0}}, {});
+    
+    // A = Square(X) = [1, 4, 9]
+    REQUIRE_APPROX(results[0].ToVector<float>()[1], 4.0f, 0.001f);
+    // B = Sqrt(X) = [1, 1.414, 1.732]
+    REQUIRE_APPROX(results[1].ToVector<float>()[1], std::sqrt(2.0f), 0.001f);
+    // C = Neg(X) = [-1, -2, -3]
+    REQUIRE_APPROX(results[2].ToVector<float>()[1], -2.0f, 0.001f);
+}
+
+TEST(graph_disconnected_subgraphs) {
+    tf_wrap::FastGraph g;
+    
+    // Subgraph 1: X -> Square -> A
+    auto x = tf_wrap::FastTensor::FromScalar<float>(3.0f);
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    auto* op_x = g.GetOperationOrThrow("X");
+    (void)g.NewOperation("Square", "A").AddInput(tf_wrap::Output(op_x, 0)).Finish();
+    
+    // Subgraph 2: Y -> Neg -> B (completely disconnected)
+    auto y = tf_wrap::FastTensor::FromScalar<float>(5.0f);
+    (void)g.NewOperation("Const", "Y").SetAttrTensor("value", y.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    auto* op_y = g.GetOperationOrThrow("Y");
+    (void)g.NewOperation("Neg", "B").AddInput(tf_wrap::Output(op_y, 0)).Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    // Can fetch from either subgraph
+    auto ra = s.Run({}, {{"A", 0}}, {});
+    REQUIRE(ra[0].ToScalar<float>() == 9.0f);
+    
+    auto rb = s.Run({}, {{"B", 0}}, {});
+    REQUIRE(rb[0].ToScalar<float>() == -5.0f);
+    
+    // Can fetch from both at once
+    auto both = s.Run({}, {{"A", 0}, {"B", 0}}, {});
+    REQUIRE(both[0].ToScalar<float>() == 9.0f);
+    REQUIRE(both[1].ToScalar<float>() == -5.0f);
+}
+
+// =============================================================================
+// API MISUSE DETECTION
+// =============================================================================
+
+TEST(run_with_wrong_dtype_feed) {
+    tf_wrap::FastGraph g;
+    
+    (void)g.NewOperation("Placeholder", "X")
+        .SetAttrType("dtype", TF_FLOAT)
+        .SetAttrShape("shape", {-1})
+        .Finish();
+    auto* op_x = g.GetOperationOrThrow("X");
+    (void)g.NewOperation("Identity", "Y").AddInput(tf_wrap::Output(op_x, 0)).Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    // Feed int32 to float placeholder
+    auto wrong_dtype = tf_wrap::FastTensor::FromVector<int32_t>({3}, {1, 2, 3});
+    
+    bool threw = false;
+    try {
+        s.Run({{"X", wrong_dtype}}, {{"Y", 0}}, {});
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    REQUIRE(threw);
+}
+
+TEST(fetch_nonexistent_output_index) {
+    tf_wrap::FastGraph g;
+    
+    auto x = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    // Const has only output 0, try to fetch output 5
+    bool threw = false;
+    try {
+        s.Run({}, {{"X", 5}}, {});
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    REQUIRE(threw);
+}
+
+// =============================================================================
 // Main
 // =============================================================================
 
