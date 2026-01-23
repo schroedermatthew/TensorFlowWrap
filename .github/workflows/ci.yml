@@ -560,7 +560,7 @@ jobs:
       - name: Create test SavedModel with Python
         run: |
           echo "Installing TensorFlow Python..."
-          pip install tensorflow==${{ matrix.tf_version }} --quiet
+          pip install "numpy<2" tensorflow==${{ matrix.tf_version }} --quiet
           
           echo "Creating test SavedModel..."
           python3 << 'PYEOF'
