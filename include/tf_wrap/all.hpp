@@ -12,6 +12,7 @@
 #include "tf_wrap/operation.hpp"
 #include "tf_wrap/graph.hpp"
 #include "tf_wrap/session.hpp"
+#include "tf_wrap/ops.hpp"  // 160 TensorFlow operations
 
 // ============================================================================
 // TensorFlow C++20 Wrapper - Quick Reference
