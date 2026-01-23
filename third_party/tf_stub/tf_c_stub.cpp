@@ -1069,14 +1069,13 @@ void TF_SessionPRun(
     TF_Session*,
     const char*,
     const TF_Output*, TF_Tensor* const*, int,
-    const TF_Output* outputs, TF_Tensor** output_values, int noutputs,
+    const TF_Output*, TF_Tensor** output_values, int noutputs,
     const TF_Operation* const*, int,
     TF_Status* status)
 {
     // In stub mode, just return scalar 0.0f for each output
     for (int i = 0; i < noutputs; ++i) {
-        int64_t dims[] = {};
-        output_values[i] = TF_AllocateTensor(TF_FLOAT, dims, 0, sizeof(float));
+        output_values[i] = TF_AllocateTensor(TF_FLOAT, nullptr, 0, sizeof(float));
         if (output_values[i]) {
             *static_cast<float*>(TF_TensorData(output_values[i])) = 0.0f;
         }
