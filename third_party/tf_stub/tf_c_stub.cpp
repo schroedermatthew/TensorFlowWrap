@@ -1049,7 +1049,6 @@ size_t TF_TString_GetSize(const TF_TString* tstr) {
 // ----------------------------------------------------------------------------
 
 static int g_prun_handle_counter = 0;
-static std::string g_last_prun_handle;
 
 void TF_SessionPRunSetup(
     TF_Session*,
@@ -1059,9 +1058,11 @@ void TF_SessionPRunSetup(
     const char** handle,
     TF_Status* status)
 {
-    // Generate a unique handle
-    g_last_prun_handle = "prun_handle_" + std::to_string(++g_prun_handle_counter);
-    *handle = g_last_prun_handle.c_str();
+    // Allocate a unique handle string (will be freed by TF_DeletePRunHandle)
+    std::string handle_str = "prun_handle_" + std::to_string(++g_prun_handle_counter);
+    char* allocated = new char[handle_str.size() + 1];
+    std::strcpy(allocated, handle_str.c_str());
+    *handle = allocated;
     set_status(status, TF_OK, "");
 }
 
@@ -1083,8 +1084,9 @@ void TF_SessionPRun(
     set_status(status, TF_OK, "");
 }
 
-void TF_DeletePRunHandle(const char*) {
-    // No-op in stub
+void TF_DeletePRunHandle(const char* handle) {
+    // Free the handle allocated by TF_SessionPRunSetup
+    delete[] handle;
 }
 
 // ----------------------------------------------------------------------------

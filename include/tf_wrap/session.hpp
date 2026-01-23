@@ -371,11 +371,11 @@ class PartialRunHandle {
 public:
     PartialRunHandle() = default;
     
-    explicit PartialRunHandle(const char* h) : handle_(h ? h : "") {}
+    explicit PartialRunHandle(const char* h) : handle_(h) {}
     
     ~PartialRunHandle() {
-        if (!handle_.empty()) {
-            TF_DeletePRunHandle(handle_.c_str());
+        if (handle_) {
+            TF_DeletePRunHandle(handle_);
         }
     }
     
@@ -384,27 +384,27 @@ public:
     PartialRunHandle& operator=(const PartialRunHandle&) = delete;
     
     PartialRunHandle(PartialRunHandle&& other) noexcept
-        : handle_(std::move(other.handle_))
+        : handle_(other.handle_)
     {
-        other.handle_.clear();
+        other.handle_ = nullptr;
     }
     
     PartialRunHandle& operator=(PartialRunHandle&& other) noexcept {
         if (this != &other) {
-            if (!handle_.empty()) {
-                TF_DeletePRunHandle(handle_.c_str());
+            if (handle_) {
+                TF_DeletePRunHandle(handle_);
             }
-            handle_ = std::move(other.handle_);
-            other.handle_.clear();
+            handle_ = other.handle_;
+            other.handle_ = nullptr;
         }
         return *this;
     }
     
-    [[nodiscard]] bool valid() const noexcept { return !handle_.empty(); }
-    [[nodiscard]] const char* c_str() const noexcept { return handle_.c_str(); }
+    [[nodiscard]] bool valid() const noexcept { return handle_ != nullptr; }
+    [[nodiscard]] const char* c_str() const noexcept { return handle_; }
     
 private:
-    std::string handle_;
+    const char* handle_{nullptr};
 };
 
 // ============================================================================
