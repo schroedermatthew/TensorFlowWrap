@@ -77,41 +77,56 @@ TEST(math_ops_compile) {
 
 TEST(nn_ops_compile) {
     tf_wrap::FastGraph graph;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
     
-    auto c = graph.NewOperation("Const", "c")
-        .SetAttrTensor("value", t.handle())
+    // Scalar for element-wise ops
+    auto t_scalar = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto c_scalar = graph.NewOperation("Const", "c_scalar")
+        .SetAttrTensor("value", t_scalar.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    // Rank-1 tensor for softmax (requires at least rank 1)
+    auto t_vec = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    auto c_vec = graph.NewOperation("Const", "c_vec")
+        .SetAttrTensor("value", t_vec.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     using namespace tf_wrap::ops;
     
-    TF_Output input{c, 0};
+    TF_Output scalar_input{c_scalar, 0};
+    TF_Output vec_input{c_vec, 0};
     
-    // Activation functions
-    (void)Relu(graph, "relu", input, TF_FLOAT);
-    (void)Relu6(graph, "relu6", input, TF_FLOAT);
-    (void)Elu(graph, "elu", input, TF_FLOAT);
-    (void)Selu(graph, "selu", input, TF_FLOAT);
-    (void)Softmax(graph, "softmax", input, TF_FLOAT);
-    (void)LogSoftmax(graph, "logsoftmax", input, TF_FLOAT);
-    (void)Softplus(graph, "softplus", input, TF_FLOAT);
-    (void)Softsign(graph, "softsign", input, TF_FLOAT);
+    // Element-wise activation functions (work with scalars)
+    (void)Relu(graph, "relu", scalar_input, TF_FLOAT);
+    (void)Relu6(graph, "relu6", scalar_input, TF_FLOAT);
+    (void)Elu(graph, "elu", scalar_input, TF_FLOAT);
+    (void)Selu(graph, "selu", scalar_input, TF_FLOAT);
+    (void)Softplus(graph, "softplus", scalar_input, TF_FLOAT);
+    (void)Softsign(graph, "softsign", scalar_input, TF_FLOAT);
+    
+    // Softmax ops require at least rank 1
+    (void)Softmax(graph, "softmax", vec_input, TF_FLOAT);
+    (void)LogSoftmax(graph, "logsoftmax", vec_input, TF_FLOAT);
     
     REQUIRE(graph.num_operations() > 5);
 }
 
 TEST(matrix_ops_compile) {
     tf_wrap::FastGraph graph;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    
+    // MatMul requires rank-2 tensors (matrices)
+    // Create 2x2 matrices
+    auto t1 = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto t2 = tf_wrap::FastTensor::FromVector<float>({2, 2}, {5.0f, 6.0f, 7.0f, 8.0f});
     
     auto c1 = graph.NewOperation("Const", "c1")
-        .SetAttrTensor("value", t.handle())
+        .SetAttrTensor("value", t1.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     auto c2 = graph.NewOperation("Const", "c2")
-        .SetAttrTensor("value", t.handle())
+        .SetAttrTensor("value", t2.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
@@ -185,7 +200,10 @@ TEST(array_ops_compile) {
 
 TEST(reduction_ops_compile) {
     tf_wrap::FastGraph graph;
-    auto t_data = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    
+    // Reduction ops need tensors with valid axes
+    // Use a rank-1 tensor so axis 0 is valid
+    auto t_data = tf_wrap::FastTensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
     auto t_axis = tf_wrap::FastTensor::FromScalar<int32_t>(0);
     
     auto data = graph.NewOperation("Const", "data")
