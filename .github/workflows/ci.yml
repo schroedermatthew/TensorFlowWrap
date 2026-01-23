@@ -25,7 +25,7 @@
 #   - stress-test: Run stress/fuzz tests
 #   - strict-warnings: Extra warning flags
 #   - real-tensorflow: Comprehensive tests with real TensorFlow C library
-#                      (TF 2.14.0, 2.15.0 - includes 30s soak test)
+#                      (TF 2.13.0, 2.14.0, 2.15.0, 2.16.1, 2.17.0)
 #   - ci-success: Gate job
 # =============================================================================
 
@@ -531,7 +531,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tf_version: ["2.14.0", "2.15.0"]
+        tf_version: ["2.13.0", "2.14.0", "2.15.0", "2.16.1", "2.17.0"]
 
     steps:
       - uses: actions/checkout@v4
@@ -544,7 +544,18 @@ jobs:
       - name: Download TensorFlow C library
         run: |
           echo "Downloading TensorFlow C library v${{ matrix.tf_version }}..."
-          TF_URL="https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-linux-x86_64-${{ matrix.tf_version }}.tar.gz"
+          
+          # URL format changed in TF 2.16+
+          TF_VERSION="${{ matrix.tf_version }}"
+          TF_MAJOR_MINOR=$(echo "$TF_VERSION" | cut -d. -f1,2)
+          
+          if [[ "$TF_MAJOR_MINOR" == "2.16" ]] || [[ "$TF_MAJOR_MINOR" == "2.17" ]] || [[ "$TF_MAJOR_MINOR" == "2.18" ]]; then
+            # New URL format for 2.16+
+            TF_URL="https://storage.googleapis.com/tensorflow/versions/${TF_VERSION}/libtensorflow-cpu-linux-x86_64.tar.gz"
+          else
+            # Old URL format for 2.15 and earlier
+            TF_URL="https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-linux-x86_64-${TF_VERSION}.tar.gz"
+          fi
           
           mkdir -p tensorflow_c
           
@@ -560,7 +571,16 @@ jobs:
       - name: Create test SavedModel with Python
         run: |
           echo "Installing TensorFlow Python..."
-          pip install "numpy<2" tensorflow==${{ matrix.tf_version }} --quiet
+          
+          # TF 2.16+ supports NumPy 2.x, older versions need NumPy 1.x
+          TF_VERSION="${{ matrix.tf_version }}"
+          TF_MAJOR_MINOR=$(echo "$TF_VERSION" | cut -d. -f1,2)
+          
+          if [[ "$TF_MAJOR_MINOR" == "2.16" ]] || [[ "$TF_MAJOR_MINOR" == "2.17" ]] || [[ "$TF_MAJOR_MINOR" == "2.18" ]]; then
+            pip install tensorflow==${{ matrix.tf_version }} --quiet
+          else
+            pip install "numpy<2" tensorflow==${{ matrix.tf_version }} --quiet
+          fi
           
           echo "Creating test SavedModel..."
           python3 << 'PYEOF'
