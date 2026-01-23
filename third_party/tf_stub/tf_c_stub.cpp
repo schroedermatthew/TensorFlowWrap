@@ -1,4 +1,5 @@
 #include <tensorflow/c/c_api.h>
+#include <tensorflow/c/tf_tstring.h>
 
 #include <algorithm>
 #include <cassert>
@@ -1005,4 +1006,40 @@ TF_Session* TF_LoadSessionFromSavedModel(
     msg += "'";
     set_status(status, TF_UNIMPLEMENTED, msg.c_str());
     return nullptr;
+}
+
+// ----------------------------------------------------------------------------
+// TF_TString functions
+// ----------------------------------------------------------------------------
+
+void TF_TString_Init(TF_TString* tstr) {
+    if (tstr) {
+        tstr->data = nullptr;
+        tstr->size = 0;
+        tstr->capacity = 0;
+    }
+}
+
+void TF_TString_Copy(TF_TString* dst, const char* src, size_t size) {
+    if (!dst) return;
+    
+    // Free existing data
+    if (dst->data) {
+        delete[] dst->data;
+    }
+    
+    // Allocate and copy
+    dst->data = new char[size + 1];
+    std::memcpy(dst->data, src, size);
+    dst->data[size] = '\0';  // Null-terminate for safety
+    dst->size = size;
+    dst->capacity = size + 1;
+}
+
+const char* TF_TString_GetDataPointer(const TF_TString* tstr) {
+    return tstr ? tstr->data : nullptr;
+}
+
+size_t TF_TString_GetSize(const TF_TString* tstr) {
+    return tstr ? tstr->size : 0;
 }
