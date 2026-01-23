@@ -304,6 +304,28 @@ private:
 // ============================================================================
 // Tensor - RAII wrapper for TF_Tensor with thread-safe access
 // ============================================================================
+//
+// Thread Safety Policies:
+// -----------------------
+// The Tensor class is parameterized by a locking policy that controls thread safety:
+//
+// - FastTensor (NoLock policy): No synchronization. Best performance for
+//   single-threaded use or when external synchronization is provided.
+//   WARNING: Clone() during concurrent write() is UNSAFE with this policy.
+//
+// - SafeTensor (Mutex policy): Full mutual exclusion. All operations are
+//   serialized. Safe for concurrent access from multiple threads.
+//   Clone() during concurrent write() is SAFE - they are mutually exclusive.
+//
+// - SharedTensor (SharedMutex policy): Reader-writer lock. Multiple concurrent
+//   readers allowed, writers get exclusive access. Best for read-heavy workloads.
+//   Clone() during concurrent write() is SAFE - clone takes shared lock.
+//
+// Choose your policy based on your threading requirements:
+//   - Single-threaded or external sync → FastTensor (best performance)
+//   - Multi-threaded with writes → SafeTensor (simplest)
+//   - Multi-threaded, read-heavy → SharedTensor (best read throughput)
+// ============================================================================
 
 template<class Policy = policy::NoLock>
     requires policy::LockPolicy<Policy>
@@ -456,7 +478,8 @@ public:
     /// Deep copy this tensor (returns new tensor with copied data)
     /// @returns A new Tensor with identical dtype, shape, and data
     /// @note Returns empty tensor if this tensor is empty
-    /// @note Thread-safe: acquires read lock during copy (H1 FIX)
+    /// @warning FastTensor only: Clone() during concurrent write() is undefined behavior.
+    ///          SafeTensor/SharedTensor are fully thread-safe.
     [[nodiscard]] Tensor Clone() const {
         if (!state_->tensor) {
             return Tensor{};  // Clone of empty is empty
@@ -490,6 +513,8 @@ public:
     // ─────────────────────────────────────────────────────────────────
 
     /// Read access - returns view holding shared lock AND state reference
+    /// @note With SafeTensor/SharedTensor: allows concurrent read() and Clone()
+    /// @note With FastTensor: NO locking - caller must ensure no concurrent write()
     template<TensorScalar T>
     [[nodiscard]] ReadView<T> read() const {
         ensure_tensor_("read");
@@ -502,6 +527,8 @@ public:
     }
 
     /// Write access - returns view holding exclusive lock AND state reference
+    /// @note With SafeTensor/SharedTensor: blocks concurrent read(), write(), Clone()
+    /// @note With FastTensor: NO locking - concurrent Clone() is UNSAFE
     template<TensorScalar T>
     [[nodiscard]] WriteView<T> write() {
         ensure_tensor_("write");
@@ -970,8 +997,19 @@ private:
 // Type aliases
 // ============================================================================
 
+/// No locking - best performance, NOT thread-safe for concurrent read/write.
+/// Use when: single-threaded, or caller provides external synchronization.
+/// WARNING: Clone() during concurrent write() produces undefined behavior.
 using FastTensor = Tensor<policy::NoLock>;
+
+/// Mutex locking - fully thread-safe, all operations serialized.
+/// Use when: multiple threads may read and write concurrently.
+/// Clone() during concurrent write() is SAFE (mutually exclusive).
 using SafeTensor = Tensor<policy::Mutex>;
+
+/// Reader-writer locking - multiple concurrent readers, exclusive writers.
+/// Use when: read-heavy workloads with occasional writes.
+/// Clone() during concurrent write() is SAFE (clone takes shared lock).
 using SharedTensor = Tensor<policy::SharedMutex>;
 
 } // namespace tf_wrap
