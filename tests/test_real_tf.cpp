@@ -1113,26 +1113,13 @@ TEST(value_gather) {
     auto* op_params = g.GetOperationOrThrow("Params");
     auto* op_indices = g.GetOperationOrThrow("Indices");
     
-    (void)g.NewOperation("GatherV2", "Gather")
+    // Use basic Gather which doesn't need axis
+    (void)g.NewOperation("Gather", "Gather")
         .AddInput(tf_wrap::Output(op_params, 0))
         .AddInput(tf_wrap::Output(op_indices, 0))
-        .AddInput(tf_wrap::Output(op_indices, 0))  // axis=0 is implicit for GatherV2
         .Finish();
     
-    // Actually use basic Gather which doesn't need axis
-    tf_wrap::FastGraph g2;
-    (void)g2.NewOperation("Const", "Params").SetAttrTensor("value", params.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
-    (void)g2.NewOperation("Const", "Indices").SetAttrTensor("value", indices.handle()).SetAttrType("dtype", TF_INT32).Finish();
-    
-    auto* op_params2 = g2.GetOperationOrThrow("Params");
-    auto* op_indices2 = g2.GetOperationOrThrow("Indices");
-    
-    (void)g2.NewOperation("Gather", "Gather")
-        .AddInput(tf_wrap::Output(op_params2, 0))
-        .AddInput(tf_wrap::Output(op_indices2, 0))
-        .Finish();
-    
-    tf_wrap::FastSession s(g2);
+    tf_wrap::FastSession s(g);
     auto results = s.Run({}, {{"Gather", 0}}, {});
     
     auto v = results[0].ToVector<float>();
