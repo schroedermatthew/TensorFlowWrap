@@ -557,6 +557,41 @@ jobs:
           echo "TensorFlow C library contents:"
           ls -la tensorflow_c/lib/
 
+      - name: Create test SavedModel with Python
+        run: |
+          echo "Installing TensorFlow Python..."
+          pip install tensorflow==${{ matrix.tf_version }} --quiet
+          
+          echo "Creating test SavedModel..."
+          python3 << 'PYEOF'
+          import tensorflow as tf
+          import os
+
+          # Create a simple model: output = input * 2 + 1
+          class SimpleModel(tf.Module):
+              @tf.function(input_signature=[tf.TensorSpec(shape=[None], dtype=tf.float32)])
+              def serve(self, x):
+                  return x * 2.0 + 1.0
+
+          model = SimpleModel()
+          
+          # Test it works
+          result = model.serve(tf.constant([1.0, 2.0, 3.0]))
+          print(f"Test run: [1,2,3] -> {result.numpy()}")  # Should be [3, 5, 7]
+          
+          # Save it
+          export_dir = "test_savedmodel"
+          tf.saved_model.save(model, export_dir, signatures={"serving_default": model.serve})
+          
+          print(f"SavedModel saved to {export_dir}")
+          print("Contents:")
+          for root, dirs, files in os.walk(export_dir):
+              for f in files:
+                  print(f"  {os.path.join(root, f)}")
+          PYEOF
+          
+          echo "✓ Test SavedModel created"
+
       - name: Build and run comprehensive real TF test suite
         timeout-minutes: 10
         run: |
