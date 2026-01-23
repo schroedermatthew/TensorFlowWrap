@@ -1061,7 +1061,7 @@ void TF_SessionPRunSetup(
     // Allocate a unique handle string (will be freed by TF_DeletePRunHandle)
     std::string handle_str = "prun_handle_" + std::to_string(++g_prun_handle_counter);
     char* allocated = new char[handle_str.size() + 1];
-    std::strcpy(allocated, handle_str.c_str());
+    std::memcpy(allocated, handle_str.c_str(), handle_str.size() + 1);
     *handle = allocated;
     set_status(status, TF_OK, "");
 }
