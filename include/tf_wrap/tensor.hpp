@@ -583,7 +583,16 @@ public:
             bytes,
             [&](void* dst, std::size_t len) {
                 if (len != 0) {
-                    std::memcpy(dst, values.data(), len);
+                    if constexpr (std::same_as<T, bool>) {
+                        // std::vector<bool> is a bitfield - no .data() method!
+                        // Must copy element-by-element.
+                        bool* out = static_cast<bool*>(dst);
+                        for (std::size_t i = 0; i < values.size(); ++i) {
+                            out[i] = values[i];
+                        }
+                    } else {
+                        std::memcpy(dst, values.data(), len);
+                    }
                 }
             });
     }

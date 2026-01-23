@@ -226,6 +226,26 @@ TF_TEST_CASE("Tensor FromVector works") {
     TF_REQUIRE(tensor.rank() == 2);
 }
 
+TF_TEST_CASE("Tensor FromVector<bool> works") {
+    // std::vector<bool> is a special bitfield type without .data()
+    // This test verifies the fix for that limitation
+    std::vector<std::int64_t> shape = {5};
+    std::vector<bool> data = {true, false, true, false, true};
+
+    auto tensor = tf_wrap::FastTensor::FromVector<bool>(shape, data);
+
+    TF_REQUIRE(tensor.dtype() == TF_BOOL);
+    TF_REQUIRE(tensor.shape() == shape);
+    TF_REQUIRE(tensor.num_elements() == 5);
+
+    auto view = tensor.read<bool>();
+    TF_REQUIRE(view[0] == true);
+    TF_REQUIRE(view[1] == false);
+    TF_REQUIRE(view[2] == true);
+    TF_REQUIRE(view[3] == false);
+    TF_REQUIRE(view[4] == true);
+}
+
 TF_TEST_CASE("Tensor FromScalar works") {
     auto tensor = tf_wrap::FastTensor::FromScalar<double>(3.14);
 

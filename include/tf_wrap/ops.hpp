@@ -1421,21 +1421,17 @@ template<typename GraphPolicy>
         .Finish());
 }
 
-/// Dropout regularization
-template<typename GraphPolicy>
-[[nodiscard]] inline OpResult Dropout(
-    Graph<GraphPolicy>& graph,
-    std::string_view name,
-    TF_Output x,
-    TF_Output rate,
-    TF_DataType T) {
-    return OpResult(
-        graph.NewOperation("Dropout", std::string(name))
-        .AddInput(x)
-        .AddInput(rate)
-        .SetAttrType("T", T)
-        .Finish());
-}
+// NOTE: "Dropout" op does not exist in TensorFlow C API.
+// Dropout is typically implemented using primitive ops:
+//
+// Example dropout implementation (keep_prob = 1 - rate):
+//   1. Generate random values: RandomUniform(graph, "rand", shape, TF_FLOAT)
+//   2. Create mask: Greater(graph, "mask", rand_output, rate_output, TF_FLOAT)
+//   3. Cast mask to float: Cast(graph, "mask_float", mask_output, TF_BOOL, TF_FLOAT)
+//   4. Scale factor: RealDiv(graph, "scale", one_output, keep_prob_output, TF_FLOAT)
+//   5. Apply: Mul(graph, "dropped", Mul(..., x, mask_float), scale, TF_FLOAT)
+//
+// Or use Select() with a random boolean mask and zeros.
 
 /// Softmax cross entropy loss
 template<typename GraphPolicy>
@@ -1983,19 +1979,15 @@ template<typename GraphPolicy>
         .Finish());
 }
 
-/// Create tensor of zeros
-template<typename GraphPolicy>
-[[nodiscard]] inline OpResult Zeros(
-    Graph<GraphPolicy>& graph,
-    std::string_view name,
-    TF_Output shape,
-    TF_DataType T) {
-    return OpResult(
-        graph.NewOperation("Zeros", std::string(name))
-        .AddInput(shape)
-        .SetAttrType("T", T)
-        .Finish());
-}
+// NOTE: "Zeros" op does not exist in TensorFlow C API.
+// To create a tensor of zeros, use one of these alternatives:
+//
+// 1. Fill() with a zero constant:
+//    auto zero = Const(graph, "zero", zero_tensor.handle(), TF_FLOAT);
+//    auto zeros = Fill(graph, "zeros", shape, zero.output(), TF_FLOAT, TF_INT32);
+//
+// 2. ZerosLike() to match another tensor's shape:
+//    auto zeros = ZerosLike(graph, "zeros", other_tensor_output, TF_FLOAT);
 
 /// Create tensor of zeros with same shape
 template<typename GraphPolicy>
