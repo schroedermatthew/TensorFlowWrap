@@ -362,8 +362,10 @@ public:
     Graph(Graph&& other) noexcept
         : graph_(other.graph_)
         , policy_(std::move(other.policy_))
+        , frozen_(other.frozen_)
     {
         other.graph_ = nullptr;
+        other.frozen_ = false;
     }
     
     Graph& operator=(Graph&& other) noexcept {
@@ -371,7 +373,9 @@ public:
             if (graph_) TF_DeleteGraph(graph_);
             graph_ = other.graph_;
             policy_ = std::move(other.policy_);
+            frozen_ = other.frozen_;
             other.graph_ = nullptr;
+            other.frozen_ = false;
         }
         return *this;
     }
