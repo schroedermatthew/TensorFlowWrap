@@ -112,6 +112,20 @@ jobs:
           
           ./test_edge_cases
 
+      - name: Build and run ops tests
+        run: |
+          g++-${{ matrix.version }} -std=c++${{ matrix.std }} \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            -pthread \
+            ${{ env.TEST_DIR }}/test_ops.cpp \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            -o test_ops
+          
+          ./test_ops
+
   # ===========================================================================
   # Linux Clang
   # ===========================================================================
@@ -169,6 +183,21 @@ jobs:
           
           ./test_edge_cases
 
+      - name: Build and run ops tests
+        run: |
+          clang++-${{ matrix.version }} -std=c++${{ matrix.std }} \
+            -Wall -Wextra -Wpedantic -Werror \
+            -Wno-gnu-zero-variadic-macro-arguments \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            -pthread \
+            ${{ env.TEST_DIR }}/test_ops.cpp \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            -o test_ops
+          
+          ./test_ops
+
   # ===========================================================================
   # Windows MSVC
   # ===========================================================================
@@ -214,6 +243,19 @@ jobs:
             /Fe:test_edge_cases.exe
           
           test_edge_cases.exe
+
+      - name: Build and run ops tests
+        shell: cmd
+        run: |
+          cl /std:c++${{ matrix.std }} /W4 /WX /EHsc ^
+            /I${{ env.INCLUDE_DIR }} ^
+            /I${{ env.STUB_DIR }} ^
+            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
+            ${{ env.TEST_DIR }}\test_ops.cpp ^
+            ${{ env.STUB_DIR }}\tf_c_stub.cpp ^
+            /Fe:test_ops.exe
+          
+          test_ops.exe
 
   # ===========================================================================
   # AddressSanitizer
@@ -604,6 +646,27 @@ jobs:
           
           echo "✓ Comprehensive bug tests passed with real TensorFlow"
 
+      - name: Build and run ops tests with real TF
+        run: |
+          TF_INCLUDE="tensorflow_c/include"
+          TF_LIB="tensorflow_c/lib"
+          
+          g++-12 -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -I"$TF_INCLUDE" \
+            ${{ env.TEST_DIR }}/test_ops.cpp \
+            -L"$TF_LIB" \
+            -ltensorflow \
+            -Wl,-rpath,"$TF_LIB" \
+            -pthread \
+            -o test_ops_real
+          
+          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
+          ./test_ops_real
+          
+          echo "✓ Ops tests passed with real TensorFlow"
+
       - name: Build and run simple integration test
         run: |
           TF_INCLUDE="tensorflow_c/include"
@@ -709,6 +772,19 @@ jobs:
             -o test_edge_cases
           
           ./test_edge_cases
+
+      - name: Build and run ops tests
+        run: |
+          clang++ -std=c++20 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.TEST_DIR }}/test_ops.cpp \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            -o test_ops
+          
+          ./test_ops
 
   # ===========================================================================
   # CI Success Gate
