@@ -727,11 +727,18 @@ TEST(reverse_where_ops_compile) {
 TEST(logical_reduce_ops_compile) {
     tf_wrap::FastGraph graph;
     
-    // Create rank-1 boolean tensor (reduction requires at least rank 1)
-    auto t = tf_wrap::FastTensor::FromVector<bool>({4}, {true, true, false, true});
-    auto c = graph.NewOperation("Const", "c")
+    // Create rank-1 int tensor and cast to bool (FromVector<bool> is broken due to std::vector<bool>)
+    auto t = tf_wrap::FastTensor::FromVector<int32_t>({4}, {1, 1, 0, 1});
+    auto c_int = graph.NewOperation("Const", "c_int")
         .SetAttrTensor("value", t.handle())
-        .SetAttrType("dtype", TF_BOOL)
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    
+    // Cast to bool
+    auto c = graph.NewOperation("Cast", "c")
+        .AddInput(TF_Output{c_int, 0})
+        .SetAttrType("SrcT", TF_INT32)
+        .SetAttrType("DstT", TF_BOOL)
         .Finish();
     
     // Axis
@@ -748,7 +755,7 @@ TEST(logical_reduce_ops_compile) {
     (void)All(graph, "all", data, axis_out, TF_INT32);
     (void)Any(graph, "any", data, axis_out, TF_INT32);
     
-    REQUIRE(graph.num_operations() >= 4);
+    REQUIRE(graph.num_operations() >= 5);
 }
 
 TEST(leaky_relu_biasadd_ops_compile) {
@@ -1342,7 +1349,8 @@ TEST(dropout_ops_compile) {
     tf_wrap::FastGraph graph;
     
     auto t_x = tf_wrap::FastTensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
-    auto t_cond = tf_wrap::FastTensor::FromVector<bool>({4}, {true, false, true, false});
+    // Use int and cast to bool (FromVector<bool> is broken due to std::vector<bool>)
+    auto t_cond_int = tf_wrap::FastTensor::FromVector<int32_t>({4}, {1, 0, 1, 0});
     auto t_zeros = tf_wrap::FastTensor::FromVector<float>({4}, {0.0f, 0.0f, 0.0f, 0.0f});
     
     auto x = graph.NewOperation("Const", "x")
@@ -1350,9 +1358,16 @@ TEST(dropout_ops_compile) {
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    auto cond = graph.NewOperation("Const", "cond")
-        .SetAttrTensor("value", t_cond.handle())
-        .SetAttrType("dtype", TF_BOOL)
+    auto cond_int = graph.NewOperation("Const", "cond_int")
+        .SetAttrTensor("value", t_cond_int.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    
+    // Cast to bool
+    auto cond = graph.NewOperation("Cast", "cond")
+        .AddInput(TF_Output{cond_int, 0})
+        .SetAttrType("SrcT", TF_INT32)
+        .SetAttrType("DstT", TF_BOOL)
         .Finish();
     
     auto zeros = graph.NewOperation("Const", "zeros")
@@ -1366,7 +1381,7 @@ TEST(dropout_ops_compile) {
     // Select can be used to implement dropout masking
     (void)SelectV2(graph, "dropout_select", cond_out, x_out, zeros_out, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 4);
+    REQUIRE(graph.num_operations() >= 5);
 }
 
 TEST(multinomial_randomshuffle_ops_compile) {
