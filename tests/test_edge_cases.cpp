@@ -67,6 +67,20 @@ inline void require_throws_impl(Fn&& fn, const char* expr, const char* ex_name,
     }
 }
 
+// Non-template version that catches any exception
+template<class Fn>
+inline void require_throws_any_impl(Fn&& fn, const char* expr,
+                                    const char* file, int line) {
+    try {
+        fn();
+        throw std::runtime_error(tf_wrap::detail::format(
+            "REQUIRE_THROWS failed: {} did not throw ({}:{})",
+            expr, file, line));
+    } catch (...) {
+        // Any exception is expected - success
+    }
+}
+
 } // namespace tf_test
 
 // Two-level macro for proper __LINE__ expansion
@@ -86,8 +100,11 @@ inline void require_throws_impl(Fn&& fn, const char* expr, const char* ex_name,
     static void TF_JOIN(stress_fn_, __LINE__)()
 
 #define REQUIRE(expr) tf_test::require_impl((expr), #expr, __FILE__, __LINE__)
+#define REQUIRE_FALSE(expr) tf_test::require_impl(!(expr), "!" #expr, __FILE__, __LINE__)
 #define REQUIRE_THROWS_AS(expr, ex) \
     tf_test::require_throws_impl<ex>([&]{ (void)(expr); }, #expr, #ex, __FILE__, __LINE__)
+#define REQUIRE_THROWS(expr) \
+    tf_test::require_throws_any_impl([&]{ (void)(expr); }, #expr, __FILE__, __LINE__)
 
 // ============================================================================
 // Empty/Zero Tensor Tests
@@ -191,7 +208,7 @@ TEST_CASE("moved-from status is safe to destroy") {
     // s1 destruction should not double-free
 }
 
-TEST_CASE("moved-from graph is safe") {
+TEST_CASE("moved-from graph must throw on use") {
     tf_wrap::FastGraph g1;
     auto tensor = tf_wrap::FastTensor::FromScalar<float>(1.0f);
     (void)g1.NewOperation("Const", "c")
@@ -201,6 +218,10 @@ TEST_CASE("moved-from graph is safe") {
     
     tf_wrap::FastGraph g2 = std::move(g1);
     REQUIRE(g2.GetOperation("c").has_value());
+    
+    // Moved-from must throw, not silently return empty
+    REQUIRE(!g1.valid());
+    REQUIRE_THROWS(g1.num_operations());
 }
 
 TEST_CASE("moved-from session options is safe") {
@@ -608,6 +629,170 @@ STRESS_TEST("fuzz: moved-from object safety") {
     }
     
     std::cout << "    50 move sequences completed safely\n";
+}
+
+// ============================================================================
+// Graph Moved-From State Tests (P1 #4 fix verification)
+// ============================================================================
+
+TEST_CASE("Graph moved-from: must throw on use after move") {
+    tf_wrap::SafeGraph g;
+
+    // Create a real op so the destination graph is non-empty.
+    auto t = tf_wrap::SafeTensor::FromVector<float>({1}, {1.0f});
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+
+    tf_wrap::SafeGraph g2(std::move(g));
+
+    // Destination must still work.
+    REQUIRE(g2.num_operations() == 1u);
+    REQUIRE(g2.HasOperation("A"));
+    REQUIRE(g2.valid());
+
+    // Moved-from must be invalid and throw on handle-touching calls.
+    REQUIRE(!g.valid());
+    REQUIRE_THROWS(g.num_operations());
+    REQUIRE_THROWS(g.GetAllOperations());
+    REQUIRE_THROWS(g.GetOperation("A"));
+    REQUIRE_THROWS(g.HasOperation("A"));
+    REQUIRE_THROWS(g.DebugString());
+}
+
+TEST_CASE("Graph move-assign: moved-from must throw on use") {
+    tf_wrap::SafeGraph g1;
+    tf_wrap::SafeGraph g2;
+
+    auto t = tf_wrap::SafeTensor::FromVector<float>({1}, {1.0f});
+    (void)g1.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+
+    g2 = std::move(g1);
+
+    // Destination has the operation
+    REQUIRE(g2.num_operations() == 1u);
+    REQUIRE(g2.HasOperation("A"));
+    REQUIRE(g2.valid());
+
+    // Moved-from must throw
+    REQUIRE(!g1.valid());
+    REQUIRE_THROWS(g1.num_operations());
+    REQUIRE_THROWS(g1.GetAllOperations());
+    REQUIRE_THROWS(g1.NewOperation("Const", "B"));
+}
+
+TEST_CASE("Graph self-move assignment leaves graph intact") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+
+    (void)g.NewOperation("Const", "c")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+
+    // Intentional self-move to test robustness
+    tf_wrap::FastGraph* p = &g;
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wself-move"
+#endif
+    g = std::move(*p);
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+
+    REQUIRE(g.handle() != nullptr);
+    REQUIRE(g.valid());
+    REQUIRE(g.HasOperation("c"));
+}
+
+STRESS_TEST("fuzz: moved-from graph safety (handle semantics)") {
+    for (int i = 0; i < 50; ++i) {
+        tf_wrap::FastGraph g1;
+        auto t = tf_wrap::FastTensor::FromScalar<float>(static_cast<float>(i));
+
+        (void)g1.NewOperation("Const", "c")
+            .SetAttrTensor("value", t.handle())
+            .SetAttrType("dtype", TF_FLOAT)
+            .Finish();
+
+        tf_wrap::FastGraph g2 = std::move(g1);
+        REQUIRE(g2.HasOperation("c"));
+
+        // Moved-from must throw (our chosen contract)
+        REQUIRE(!g1.valid());
+        REQUIRE_THROWS(g1.num_operations());
+        REQUIRE_THROWS(g1.DebugString());
+
+        tf_wrap::FastGraph g3 = std::move(g2);
+        REQUIRE(g3.HasOperation("c"));
+        REQUIRE(!g2.valid());
+    }
+    
+    std::cout << "    50 graph move sequences completed safely\n";
+}
+
+// ============================================================================
+// Session/Graph Freeze Tests (enforces TF's immutability requirement)
+// ============================================================================
+
+TEST_CASE("Graph mutation after Session creation must throw") {
+    tf_wrap::SafeGraph g;
+
+    // Build a minimal graph
+    auto a = tf_wrap::SafeTensor::FromVector<float>({2}, {1.0f, 2.0f});
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", a.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+
+    // Graph should not be frozen yet
+    REQUIRE_FALSE(g.is_frozen());
+
+    // Create session - this freezes the graph
+    tf_wrap::SafeSession s(g);
+    
+    // Graph must now be frozen
+    REQUIRE(g.is_frozen());
+
+    // Any mutation attempt must throw
+    auto b = tf_wrap::SafeTensor::FromScalar<float>(0.0f);
+    REQUIRE_THROWS(g.NewOperation("Const", "B")
+        .SetAttrTensor("value", b.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish());
+    
+    // Session should still work
+    auto result = s.Run("A", 0);
+    REQUIRE((result.ToVector<float>() == std::vector<float>{1.0f, 2.0f}));
+    
+    std::cout << "    Graph freeze enforced after Session creation\n";
+}
+
+TEST_CASE("Graph freeze works with different Session/Graph policies") {
+    // SharedGraph with SafeSession - policies can differ
+    tf_wrap::SharedGraph g;
+
+    auto a = tf_wrap::FastTensor::FromVector<float>({2}, {1.0f, 2.0f});
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", a.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+
+    tf_wrap::SafeSession s(g);
+    
+    REQUIRE(g.is_frozen());
+    
+    // Mutation must throw
+    auto b = tf_wrap::FastTensor::FromScalar<float>(0.0f);
+    REQUIRE_THROWS(g.NewOperation("Const", "B")
+        .SetAttrTensor("value", b.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish());
 }
 
 // ============================================================================

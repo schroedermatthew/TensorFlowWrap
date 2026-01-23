@@ -157,6 +157,9 @@ endif()
 add_library(TensorFlowWrap INTERFACE)
 add_library(tf::wrapper ALIAS TensorFlowWrap)
 
+# Set export name so find_package() users can use tf::wrapper
+set_target_properties(TensorFlowWrap PROPERTIES EXPORT_NAME wrapper)
+
 target_include_directories(TensorFlowWrap INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
@@ -283,6 +286,28 @@ if(TF_WRAPPER_BUILD_TESTS)
     set_tests_properties(tf_stress_tests PROPERTIES TIMEOUT 120)
     set_tests_properties(tf_stress_tests PROPERTIES LABELS "unit")
 
+    # Operations wrapper tests
+    add_executable(tf_ops_tests tests/test_ops.cpp)
+    target_link_libraries(tf_ops_tests PRIVATE tf::wrapper ${TF_WRAPPER_TEST_TF_LIBRARIES})
+    if(TF_WRAPPER_TF_STUB)
+        target_compile_definitions(tf_ops_tests PRIVATE TF_WRAPPER_TF_STUB_ENABLED=1)
+    endif()
+    add_strict_warnings(tf_ops_tests)
+    TensorFlowWrap_setup_runtime(tf_ops_tests)
+    add_test(NAME tf_ops_tests COMMAND tf_ops_tests)
+    set_tests_properties(tf_ops_tests PROPERTIES LABELS "unit")
+
+    # Comprehensive bug regression tests
+    add_executable(tf_comprehensive_tests tests/test_comprehensive_bugs.cpp)
+    target_link_libraries(tf_comprehensive_tests PRIVATE tf::wrapper ${TF_WRAPPER_TEST_TF_LIBRARIES})
+    if(TF_WRAPPER_TF_STUB)
+        target_compile_definitions(tf_comprehensive_tests PRIVATE TF_WRAPPER_TF_STUB_ENABLED=1)
+    endif()
+    add_strict_warnings(tf_comprehensive_tests)
+    TensorFlowWrap_setup_runtime(tf_comprehensive_tests)
+    add_test(NAME tf_comprehensive_tests COMMAND tf_comprehensive_tests)
+    set_tests_properties(tf_comprehensive_tests PROPERTIES LABELS "unit")
+
     # Integration tests (require real TensorFlow)
     if(NOT TF_WRAPPER_TF_STUB)
         add_executable(tf_integration_tests tests/test_integration.cpp)
@@ -291,6 +316,14 @@ if(TF_WRAPPER_BUILD_TESTS)
         TensorFlowWrap_setup_runtime(tf_integration_tests)
         add_test(NAME tf_integration_tests COMMAND tf_integration_tests)
         set_tests_properties(tf_integration_tests PROPERTIES LABELS "integration")
+
+        # Real TensorFlow tests
+        add_executable(tf_real_tf_tests tests/test_real_tf.cpp)
+        target_link_libraries(tf_real_tf_tests PRIVATE tf::wrapper ${TF_WRAPPER_TEST_TF_LIBRARIES})
+        add_strict_warnings(tf_real_tf_tests)
+        TensorFlowWrap_setup_runtime(tf_real_tf_tests)
+        add_test(NAME tf_real_tf_tests COMMAND tf_real_tf_tests)
+        set_tests_properties(tf_real_tf_tests PROPERTIES LABELS "integration")
     endif()
 endif()
 
@@ -304,7 +337,7 @@ install(TARGETS TensorFlowWrap
     EXPORT TensorFlowWrap_targets
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-install(DIRECTORY include/tf
+install(DIRECTORY include/tf_wrap
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 install(EXPORT TensorFlowWrap_targets

@@ -55,6 +55,23 @@ inline void require_impl(bool cond, const char* expr, const char* file, int line
                              " (" + file + ":" + std::to_string(line) + ")");
 }
 
+template<class Ex, class Fn>
+inline void require_throws_impl(Fn&& fn, const char* expr, const char* ex_name,
+                                const char* file, int line) {
+    try {
+        fn();
+        throw std::runtime_error(std::string("REQUIRE_THROWS failed: ") + expr + 
+                                 " did not throw " + ex_name +
+                                 " (" + file + ":" + std::to_string(line) + ")");
+    } catch (const Ex&) {
+        // Expected
+    } catch (const std::exception& e) {
+        throw std::runtime_error(std::string("REQUIRE_THROWS failed: ") + expr + 
+                                 " threw wrong type: " + e.what() +
+                                 " (" + file + ":" + std::to_string(line) + ")");
+    }
+}
+
 } // namespace tf_test
 
 #define TF_JOIN2(a, b) a##b
@@ -80,6 +97,8 @@ inline void require_impl(bool cond, const char* expr, const char* file, int line
     static void TF_JOIN(bug_fn_, __LINE__)()
 
 #define REQUIRE(expr) tf_test::require_impl((expr), #expr, __FILE__, __LINE__)
+#define REQUIRE_THROWS_AS(expr, ex) \
+    tf_test::require_throws_impl<ex>([&]{ (void)(expr); }, #expr, #ex, __FILE__, __LINE__)
 
 // ============================================================================
 // H1: Clone() Race Condition Tests
@@ -489,7 +508,7 @@ TEST_CASE("Tensor move leaves valid empty state") {
     REQUIRE(t2.ToScalar<float>() == 42.0f);
 }
 
-TEST_CASE("Graph move leaves valid empty state") {
+TEST_CASE("Graph move: moved-from must throw on use") {
     tf_wrap::FastGraph g1;
     auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
     (void)g1.NewOperation("Const", "c")
@@ -501,9 +520,13 @@ TEST_CASE("Graph move leaves valid empty state") {
     
     tf_wrap::FastGraph g2 = std::move(g1);
     
-    // g1 should be empty (but may crash if handle is null - implementation dependent)
     // g2 should have the operation
     REQUIRE(g2.num_operations() == 1);
+    REQUIRE(g2.valid());
+    
+    // g1 must be invalid and throw on use (not silently return empty)
+    REQUIRE(!g1.valid());
+    REQUIRE_THROWS_AS(g1.num_operations(), std::runtime_error);
 }
 
 // ============================================================================

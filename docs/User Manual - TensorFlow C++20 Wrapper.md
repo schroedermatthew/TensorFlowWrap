@@ -2,7 +2,7 @@
 doc_id: UM-TFWRAPPER-001
 doc_type: "User Manual"
 title: "TensorFlow C++20 Wrapper"
-fatp_components: ["tf/all", "tf/tensor", "tf/graph", "tf/session", "tf/status", "tf/policy"]
+fatp_components: ["tf_wrap/all", "tf_wrap/tensor", "tf_wrap/graph", "tf_wrap/session", "tf_wrap/status", "tf_wrap/policy"]
 topics: ["TensorFlow C API wrapping", "RAII resource management", "policy-based thread safety", "tensor memory safety", "graph building", "session execution", "SavedModel loading", "device enumeration"]
 constraints: ["TensorFlow C API lifetime rules", "thread-safe tensor access", "lock guard lifetime", "exception safety", "moved-from object safety", "graph must outlive session"]
 cxx_standard: "C++20"
@@ -40,7 +40,7 @@ This manual covers correct usage of the TensorFlow C++20 Wrapper library, includ
 
 **Component:** TensorFlow C++20 Wrapper  
 **Primary use case:** Type-safe, RAII-managed TensorFlow inference in C++ applications  
-**Integration pattern:** Header-only; include `<tf/all.hpp>` and link against TensorFlow C library  
+**Integration pattern:** Header-only; include `<tf_wrap/all.hpp>` and link against TensorFlow C library  
 **Key API:** `tf_wrap::Tensor<Policy>`, `tf_wrap::Graph<Policy>`, `tf_wrap::Session<Policy>`, `tf_wrap::Status`, `tf_wrap::Device`  
 **std equivalent:** None. The TensorFlow C++ API (`tensorflow/cc`) exists but requires building TensorFlow from source  
 **Migration from std:** N/A — no standard equivalent  

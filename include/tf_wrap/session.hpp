@@ -366,11 +366,17 @@ public:
     // ─────────────────────────────────────────────────────────────────
     
     /// Create session from graph (any policy)
+    /// Note: Freezes the graph to prevent mutation after session creation,
+    /// matching TensorFlow's requirement that graphs be immutable once
+    /// a session is created from them.
     template<policy::LockPolicy GraphPolicy>
     explicit Session(Graph<GraphPolicy>& graph,
                      const SessionOptions& opts = SessionOptions())
         : graph_handle_(graph.handle())
     {
+        // Freeze the graph - TF requires immutability after session creation
+        graph.freeze();
+        
         Status st;
         session_ = TF_NewSession(graph_handle_, opts.get(), st.get());
         st.throw_if_error("TF_NewSession");
@@ -382,6 +388,8 @@ public:
                      TF_SessionOptions* opts)
         : graph_handle_(graph.handle())
     {
+        graph.freeze();
+        
         Status st;
         session_ = TF_NewSession(graph_handle_, opts, st.get());
         st.throw_if_error("TF_NewSession");
@@ -444,6 +452,9 @@ public:
         }
 
         [[maybe_unused]] auto guard = policy_.scoped_lock();  // Lock SESSION for entire run
+        
+        // Note: Graph mutation is prevented by freeze() called in constructor,
+        // so no runtime lock coordination needed here.
         
         // Build input arrays
         std::vector<TF_Output> input_ops;
@@ -658,6 +669,9 @@ public:
             st.get());
         
         st.throw_if_error(tf_wrap::detail::format("LoadSavedModel('{}')", export_dir));
+        
+        // Freeze the graph - TF requires immutability after session creation
+        graph.freeze();
         
         // Construct Session that takes ownership
         Session session;

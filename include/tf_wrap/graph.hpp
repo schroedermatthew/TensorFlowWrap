@@ -321,6 +321,7 @@ public:
         TF_Operation* op = TF_FinishOperation(desc_, st.get());
         desc_ = nullptr;
         finished_ = true;
+        guard_ = guard_type{};  // Release the lock - operation is complete
         st.throw_if_error("TF_FinishOperation");
         return op;
     }
@@ -374,6 +375,9 @@ public:
         return *this;
     }
     
+    /// Check if this graph is in a valid (non-moved-from) state
+    [[nodiscard]] bool valid() const noexcept { return graph_ != nullptr; }
+    
     // ─────────────────────────────────────────────────────────────────
     // Import GraphDef
     // ─────────────────────────────────────────────────────────────────
@@ -381,10 +385,20 @@ public:
     /// Import a serialized GraphDef protobuf
     void ImportGraphDef(const void* proto, std::size_t proto_len,
                         const char* prefix = "") {
+        ensure_valid_("ImportGraphDef");
+        ensure_not_frozen_("ImportGraphDef");
         [[maybe_unused]] auto guard = policy_.scoped_lock();  // Exclusive for mutation
         
         TF_Buffer* buf = TF_NewBufferFromString(proto, proto_len);
+        if (!buf) {
+            throw std::runtime_error("ImportGraphDef: TF_NewBufferFromString failed");
+        }
+        
         TF_ImportGraphDefOptions* opts = TF_NewImportGraphDefOptions();
+        if (!opts) {
+            TF_DeleteBuffer(buf);
+            throw std::runtime_error("ImportGraphDef: TF_NewImportGraphDefOptions failed");
+        }
         
         if (prefix && prefix[0] != '\0') {
             TF_ImportGraphDefOptionsSetPrefix(opts, prefix);
@@ -415,6 +429,7 @@ public:
     [[nodiscard]] std::optional<TF_Operation*> GetOperation(
         const std::string& name) const 
     {
+        ensure_valid_("GetOperation");
         [[maybe_unused]] auto guard = policy_.scoped_shared();  // Shared for read
         TF_Operation* op = TF_GraphOperationByName(graph_, name.c_str());
         return op ? std::optional{op} : std::nullopt;
@@ -444,6 +459,8 @@ public:
         const std::string& op_type,
         const std::string& name)
     {
+        ensure_valid_("NewOperation");
+        ensure_not_frozen_("NewOperation");
         auto guard = policy_.scoped_lock();  // Lock acquired
         return OperationBuilder<Policy>(graph_, op_type, name, std::move(guard));
     }  // Lock transferred to builder
@@ -454,6 +471,7 @@ public:
     
     /// Get all operations in the graph
     [[nodiscard]] std::vector<TF_Operation*> GetAllOperations() const {
+        ensure_valid_("GetAllOperations");
         [[maybe_unused]] auto guard = policy_.scoped_shared();
         
         std::vector<TF_Operation*> ops;
@@ -469,6 +487,7 @@ public:
     
     /// Get number of operations (efficient - no allocation)
     [[nodiscard]] std::size_t num_operations() const {
+        ensure_valid_("num_operations");
         [[maybe_unused]] auto guard = policy_.scoped_shared();
         
         std::size_t count = 0;
@@ -489,6 +508,7 @@ public:
     /// - Loaded by another Graph using ImportGraphDef
     /// - Parsed using protobuf to inspect graph structure
     [[nodiscard]] std::vector<std::uint8_t> ToGraphDef() const {
+        ensure_valid_("ToGraphDef");
         [[maybe_unused]] auto guard = policy_.scoped_shared();
         
         TF_Buffer* buf = TF_NewBuffer();
@@ -526,6 +546,7 @@ public:
     /// Get information about all placeholder operations (typical feed points)
     /// Placeholders are the usual entry points for feeding data into a graph
     [[nodiscard]] std::vector<TensorPort> GetPlaceholders() const {
+        ensure_valid_("GetPlaceholders");
         [[maybe_unused]] auto guard = policy_.scoped_shared();
         
         std::vector<TensorPort> placeholders;
@@ -558,6 +579,7 @@ public:
     /// Get information about operations that have no consumers (typical fetch points)
     /// These are operations whose outputs are not used by any other operation
     [[nodiscard]] std::vector<TensorPort> GetOutputs() const {
+        ensure_valid_("GetOutputs");
         [[maybe_unused]] auto guard = policy_.scoped_shared();
         
         std::vector<TensorPort> outputs;
@@ -594,6 +616,7 @@ public:
     [[nodiscard]] std::vector<TF_Operation*> GetOperationsByType(
         std::string_view op_type) const
     {
+        ensure_valid_("GetOperationsByType");
         [[maybe_unused]] auto guard = policy_.scoped_shared();
         
         std::vector<TF_Operation*> ops;
@@ -612,6 +635,7 @@ public:
     /// Print graph summary to a string (for debugging)
     /// @note Thread-safe with all locking policies (H2 FIX)
     [[nodiscard]] std::string DebugString() const {
+        ensure_valid_("DebugString");
         [[maybe_unused]] auto guard = policy_.scoped_shared();
         
         // H2 FIX: Count operations inline instead of calling num_operations()
@@ -654,10 +678,39 @@ public:
     // ─────────────────────────────────────────────────────────────────
     
     [[nodiscard]] TF_Graph* handle() const noexcept { return graph_; }
+    
+    /// Returns a copy of the graph's locking policy.
+    /// For Mutex/SharedMutex policies, the copy shares the underlying mutex
+    /// via shared_ptr, allowing external code (like Session) to coordinate
+    /// with Graph's locking.
+    [[nodiscard]] Policy policy_copy() const { return policy_; }
+    
+    /// Freeze the graph, preventing further mutation.
+    /// Called automatically when a Session is created from this Graph.
+    /// TensorFlow requires graphs to be immutable after session creation.
+    void freeze() noexcept { frozen_ = true; }
+    
+    /// Check if the graph is frozen (session has been created).
+    [[nodiscard]] bool is_frozen() const noexcept { return frozen_; }
 
 private:
     TF_Graph* graph_{nullptr};
     mutable Policy policy_;
+    bool frozen_{false};
+    
+    void ensure_valid_(const char* fn) const {
+        if (!graph_) {
+            throw std::runtime_error(std::string(fn) + ": Graph is in moved-from state");
+        }
+    }
+    
+    void ensure_not_frozen_(const char* fn) const {
+        if (frozen_) {
+            throw std::runtime_error(std::string(fn) + 
+                ": Graph is frozen (a Session has been created from it). "
+                "TensorFlow requires graphs to be immutable after Session creation.");
+        }
+    }
 };
 
 // ============================================================================

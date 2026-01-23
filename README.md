@@ -75,7 +75,7 @@ Copy `include/tf_wrap/` to your project.
 
 ```cmake
 add_subdirectory(TensorFlowWrap)
-target_link_libraries(your_target PRIVATE TensorFlowWrap::TensorFlowWrap)
+target_link_libraries(your_target PRIVATE tf::wrapper)
 ```
 
 ## Building Tests
