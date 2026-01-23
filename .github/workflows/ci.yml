@@ -583,6 +583,27 @@ jobs:
           
           echo "✓ Edge case tests passed with real TensorFlow"
 
+      - name: Build and run comprehensive bug tests with real TF
+        run: |
+          TF_INCLUDE="tensorflow_c/include"
+          TF_LIB="tensorflow_c/lib"
+          
+          g++-12 -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -I"$TF_INCLUDE" \
+            ${{ env.TEST_DIR }}/test_comprehensive_bugs.cpp \
+            -L"$TF_LIB" \
+            -ltensorflow \
+            -Wl,-rpath,"$TF_LIB" \
+            -pthread \
+            -o test_comprehensive_real
+          
+          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
+          ./test_comprehensive_real
+          
+          echo "✓ Comprehensive bug tests passed with real TensorFlow"
+
       - name: Build and run simple integration test
         run: |
           TF_INCLUDE="tensorflow_c/include"
