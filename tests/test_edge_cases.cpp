@@ -796,6 +796,677 @@ TEST_CASE("Graph freeze works with different Session/Graph policies") {
 }
 
 // ============================================================================
+// CRITICAL: Session moved-from state tests
+// ============================================================================
+
+TEST_CASE("Session move constructor leaves source invalid") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s1(g);
+    tf_wrap::FastSession s2(std::move(s1));
+    
+    // s2 should work
+    REQUIRE(s2.handle() != nullptr);
+    
+    // s1 should be invalid
+    REQUIRE(s1.handle() == nullptr);
+}
+
+TEST_CASE("Session move assignment leaves source invalid") {
+    tf_wrap::FastGraph g1;
+    auto t1 = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g1.NewOperation("Const", "A")
+        .SetAttrTensor("value", t1.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastGraph g2;
+    auto t2 = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    (void)g2.NewOperation("Const", "B")
+        .SetAttrTensor("value", t2.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s1(g1);
+    tf_wrap::FastSession s2(g2);
+    
+    s2 = std::move(s1);
+    
+    REQUIRE(s2.handle() != nullptr);
+    REQUIRE(s1.handle() == nullptr);
+}
+
+TEST_CASE("Moved-from session throws on Run") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s1(g);
+    tf_wrap::FastSession s2(std::move(s1));
+    
+    REQUIRE_THROWS(s1.Run("A", 0));
+}
+
+TEST_CASE("Moved-from session is safe to destroy") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    {
+        tf_wrap::FastSession s1(g);
+        tf_wrap::FastSession s2(std::move(s1));
+        // s1 destroyed here - should not crash
+    }
+    // If we get here, destruction was safe
+    REQUIRE(true);
+}
+
+// ============================================================================
+// CRITICAL: Session from invalid Graph tests
+// ============================================================================
+
+TEST_CASE("Session from moved-from graph throws") {
+    tf_wrap::FastGraph g1;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g1.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastGraph g2(std::move(g1));
+    
+    // Creating session from moved-from graph should throw
+    bool threw = false;
+    try {
+        tf_wrap::FastSession s(g1);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    REQUIRE(threw);
+}
+
+// ============================================================================
+// CRITICAL: OperationBuilder lifecycle tests
+// ============================================================================
+
+TEST_CASE("OperationBuilder Finish releases lock immediately") {
+    tf_wrap::SafeGraph g;
+    auto t = tf_wrap::SafeTensor::FromScalar<float>(1.0f);
+    
+    // Create and finish an operation
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    // Should be able to create another operation immediately
+    // (lock was released by Finish)
+    auto t2 = tf_wrap::SafeTensor::FromScalar<float>(2.0f);
+    (void)g.NewOperation("Const", "B")
+        .SetAttrTensor("value", t2.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    REQUIRE(g.num_operations() == 2u);
+}
+
+TEST_CASE("OperationBuilder without Finish releases lock on destruction") {
+    tf_wrap::SafeGraph g;
+    auto t = tf_wrap::SafeTensor::FromScalar<float>(1.0f);
+    
+    {
+        // Create builder but don't finish
+        auto builder = g.NewOperation("Const", "A")
+            .SetAttrTensor("value", t.handle())
+            .SetAttrType("dtype", TF_FLOAT);
+        // Builder destroyed without Finish()
+    }
+    
+    // Should be able to create another operation
+    // (lock was released by destructor)
+    auto t2 = tf_wrap::SafeTensor::FromScalar<float>(2.0f);
+    (void)g.NewOperation("Const", "B")
+        .SetAttrTensor("value", t2.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    // Only B should exist (A was never finished)
+    REQUIRE(g.num_operations() == 1u);
+    REQUIRE(g.HasOperation("B"));
+}
+
+TEST_CASE("OperationBuilder from frozen graph throws") {
+    tf_wrap::SafeGraph g;
+    auto t = tf_wrap::SafeTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    // Freeze the graph
+    g.freeze();
+    
+    // Creating new operation should throw
+    auto t2 = tf_wrap::SafeTensor::FromScalar<float>(2.0f);
+    REQUIRE_THROWS(g.NewOperation("Const", "B")
+        .SetAttrTensor("value", t2.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish());
+}
+
+// ============================================================================
+// CRITICAL: Graph freeze completeness tests
+// ============================================================================
+
+TEST_CASE("is_frozen returns false initially") {
+    tf_wrap::FastGraph g;
+    REQUIRE_FALSE(g.is_frozen());
+}
+
+TEST_CASE("is_frozen returns true after freeze") {
+    tf_wrap::FastGraph g;
+    g.freeze();
+    REQUIRE(g.is_frozen());
+}
+
+TEST_CASE("freeze is idempotent") {
+    tf_wrap::FastGraph g;
+    g.freeze();
+    g.freeze();  // Should not throw or change state
+    g.freeze();
+    REQUIRE(g.is_frozen());
+}
+
+TEST_CASE("Read operations work after freeze") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    g.freeze();
+    
+    // All read operations should still work
+    REQUIRE(g.valid());
+    REQUIRE(g.is_frozen());
+    REQUIRE(g.num_operations() == 1u);
+    REQUIRE(g.HasOperation("A"));
+    REQUIRE(g.GetOperation("A").has_value());
+    REQUIRE(g.GetOperationOrThrow("A") != nullptr);
+    REQUIRE(g.GetAllOperations().size() == 1u);
+    REQUIRE(!g.DebugString().empty());
+    REQUIRE(g.handle() != nullptr);
+}
+
+TEST_CASE("ImportGraphDef on frozen graph throws") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    // Get a GraphDef to import
+    auto graphdef = g.ToGraphDef();
+    
+    // Freeze the graph
+    g.freeze();
+    
+    // ImportGraphDef should throw
+    REQUIRE_THROWS(g.ImportGraphDef(graphdef.data(), graphdef.size(), "imported_"));
+}
+
+// ============================================================================
+// CRITICAL: Policy copy shares mutex tests
+// ============================================================================
+
+TEST_CASE("Mutex policy copy shares underlying mutex") {
+    tf_wrap::policy::Mutex p1;
+    tf_wrap::policy::Mutex p2 = p1;
+    
+    REQUIRE(p1.shares_mutex_with(p2));
+}
+
+TEST_CASE("SharedMutex policy copy shares underlying mutex") {
+    tf_wrap::policy::SharedMutex p1;
+    tf_wrap::policy::SharedMutex p2 = p1;
+    
+    REQUIRE(p1.shares_mutex_with(p2));
+}
+
+STRESS_TEST("Lock on policy copy blocks lock on original") {
+    tf_wrap::policy::Mutex p1;
+    tf_wrap::policy::Mutex p2 = p1;
+    
+    std::atomic<bool> lock1_held{false};
+    std::atomic<bool> lock2_acquired{false};
+    
+    std::thread t1([&] {
+        auto guard = p1.scoped_lock();
+        lock1_held.store(true);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        lock1_held.store(false);
+    });
+    
+    // Wait for t1 to acquire lock
+    while (!lock1_held.load()) {
+        std::this_thread::yield();
+    }
+    
+    std::thread t2([&] {
+        auto guard = p2.scoped_lock();  // Should block
+        lock2_acquired.store(true);
+    });
+    
+    // Give t2 a chance to try acquiring
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    
+    // t2 should NOT have acquired yet (t1 still holds lock)
+    bool acquired_while_held = lock2_acquired.load();
+    
+    t1.join();
+    t2.join();
+    
+    REQUIRE_FALSE(acquired_while_held);
+    REQUIRE(lock2_acquired.load());
+}
+
+// ============================================================================
+// HIGH: Session/Graph lifetime tests
+// ============================================================================
+
+TEST_CASE("Multiple Sessions from same Graph works") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(42.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s1(g);
+    tf_wrap::FastSession s2(g);
+    tf_wrap::FastSession s3(g);
+    
+    // All sessions should work
+    auto r1 = s1.Run("A", 0);
+    auto r2 = s2.Run("A", 0);
+    auto r3 = s3.Run("A", 0);
+    
+    REQUIRE(r1.ToScalar<float>() == 42.0f);
+    REQUIRE(r2.ToScalar<float>() == 42.0f);
+    REQUIRE(r3.ToScalar<float>() == 42.0f);
+}
+
+TEST_CASE("Session still works after Graph frozen") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(42.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    // Graph is now frozen
+    REQUIRE(g.is_frozen());
+    
+    // Session should still work
+    auto result = s.Run("A", 0);
+    REQUIRE(result.ToScalar<float>() == 42.0f);
+}
+
+// ============================================================================
+// HIGH: Session Run edge cases
+// ============================================================================
+
+TEST_CASE("Session Run with empty fetches returns empty") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    std::vector<tf_wrap::Fetch> empty_fetches;
+    auto results = s.Run({}, empty_fetches, {});
+    
+    REQUIRE(results.empty());
+}
+
+TEST_CASE("Session Run with non-existent operation throws") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    REQUIRE_THROWS(s.Run("NonExistent", 0));
+}
+
+TEST_CASE("Session Run with non-existent feed operation throws") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    auto feed_tensor = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    std::vector<tf_wrap::Feed> feeds = {
+        tf_wrap::Feed{"NonExistent", 0, feed_tensor.handle()}
+    };
+    std::vector<tf_wrap::Fetch> fetches = {tf_wrap::Fetch{"A", 0}};
+    
+    REQUIRE_THROWS(s.Run(feeds, fetches, {}));
+}
+
+// ============================================================================
+// HIGH: OperationBuilder error paths
+// ============================================================================
+
+TEST_CASE("OperationBuilder duplicate name handled") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    // Creating another op with same name - TF behavior varies
+    // At minimum it should not crash
+    auto t2 = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    try {
+        (void)g.NewOperation("Const", "A")
+            .SetAttrTensor("value", t2.handle())
+            .SetAttrType("dtype", TF_FLOAT)
+            .Finish();
+        // If it succeeded, there should be an op (TF may rename it)
+    } catch (const std::runtime_error&) {
+        // Throwing is also acceptable
+    }
+    
+    // Graph should still be valid
+    REQUIRE(g.valid());
+}
+
+// ============================================================================
+// MEDIUM: Consistent moved-from contracts
+// ============================================================================
+
+TEST_CASE("All movable types: moved-from has defined behavior") {
+    // Status
+    {
+        tf_wrap::Status s1;
+        s1.set(TF_INVALID_ARGUMENT, "test");
+        tf_wrap::Status s2(std::move(s1));
+        REQUIRE(s2.code() == TF_INVALID_ARGUMENT);
+        // s1 is moved-from but safe to query
+    }
+    
+    // Tensor
+    {
+        auto t1 = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+        auto t2 = std::move(t1);
+        REQUIRE(t2.handle() != nullptr);
+        REQUIRE(t1.handle() == nullptr);
+    }
+    
+    // Graph
+    {
+        tf_wrap::FastGraph g1;
+        tf_wrap::FastGraph g2(std::move(g1));
+        REQUIRE(g2.valid());
+        REQUIRE(!g1.valid());
+    }
+    
+    // SessionOptions
+    {
+        tf_wrap::SessionOptions o1;
+        tf_wrap::SessionOptions o2(std::move(o1));
+        REQUIRE(o2.get() != nullptr);
+        REQUIRE(o1.get() == nullptr);
+    }
+    
+    // Buffer
+    {
+        tf_wrap::Buffer b1;  // Default constructor
+        tf_wrap::Buffer b2(std::move(b1));
+        REQUIRE(b2.get() != nullptr);
+        REQUIRE(b1.get() == nullptr);
+    }
+}
+
+TEST_CASE("Types with valid(): moved-from is not valid") {
+    // Graph
+    {
+        tf_wrap::FastGraph g1;
+        tf_wrap::FastGraph g2(std::move(g1));
+        REQUIRE(!g1.valid());
+    }
+}
+
+TEST_CASE("Types with handle(): moved-from has null handle") {
+    // Tensor
+    {
+        auto t1 = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+        auto t2 = std::move(t1);
+        REQUIRE(t1.handle() == nullptr);
+    }
+    
+    // Graph
+    {
+        tf_wrap::FastGraph g1;
+        tf_wrap::FastGraph g2(std::move(g1));
+        REQUIRE(g1.handle() == nullptr);
+    }
+    
+    // Session
+    {
+        tf_wrap::FastGraph g;
+        auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+        (void)g.NewOperation("Const", "A")
+            .SetAttrTensor("value", t.handle())
+            .SetAttrType("dtype", TF_FLOAT)
+            .Finish();
+        
+        tf_wrap::FastSession s1(g);
+        tf_wrap::FastSession s2(std::move(s1));
+        REQUIRE(s1.handle() == nullptr);
+    }
+    
+    // SessionOptions
+    {
+        tf_wrap::SessionOptions o1;
+        tf_wrap::SessionOptions o2(std::move(o1));
+        REQUIRE(o1.get() == nullptr);
+    }
+    
+    // Buffer
+    {
+        tf_wrap::Buffer b1;  // Default constructor
+        tf_wrap::Buffer b2(std::move(b1));
+        REQUIRE(b1.get() == nullptr);
+    }
+}
+
+// ============================================================================
+// MEDIUM: Thread safety claims verification
+// ============================================================================
+
+STRESS_TEST("SafeGraph methods are actually serialized") {
+    tf_wrap::SafeGraph g;
+    std::atomic<int> op_count{0};
+    std::vector<std::thread> threads;
+    
+    // Multiple threads try to add operations
+    for (int i = 0; i < 10; ++i) {
+        threads.emplace_back([&g, &op_count, i] {
+            auto t = tf_wrap::SafeTensor::FromScalar<float>(static_cast<float>(i));
+            std::string name = "Op" + std::to_string(i);
+            try {
+                (void)g.NewOperation("Const", name)
+                    .SetAttrTensor("value", t.handle())
+                    .SetAttrType("dtype", TF_FLOAT)
+                    .Finish();
+                op_count.fetch_add(1);
+            } catch (...) {
+                // May throw if graph gets frozen, that's OK
+            }
+        });
+    }
+    
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    // All operations that succeeded should be in the graph
+    REQUIRE(g.num_operations() == static_cast<std::size_t>(op_count.load()));
+}
+
+STRESS_TEST("SharedGraph allows concurrent reads") {
+    tf_wrap::SharedGraph g;
+    auto t = tf_wrap::SharedTensor::FromScalar<float>(42.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    g.freeze();  // Prevent writes
+    
+    std::atomic<int> read_count{0};
+    std::vector<std::thread> threads;
+    
+    // Multiple threads read concurrently
+    for (int i = 0; i < 10; ++i) {
+        threads.emplace_back([&g, &read_count] {
+            for (int j = 0; j < 100; ++j) {
+                REQUIRE(g.HasOperation("A"));
+                REQUIRE(g.num_operations() == 1u);
+                read_count.fetch_add(1);
+            }
+        });
+    }
+    
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    REQUIRE(read_count.load() == 1000);
+}
+
+STRESS_TEST("SafeSession Run is actually serialized") {
+    tf_wrap::SafeGraph g;
+    auto t = tf_wrap::SafeTensor::FromScalar<float>(42.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::SafeSession s(g);
+    
+    std::atomic<int> run_count{0};
+    std::vector<std::thread> threads;
+    
+    // Multiple threads run concurrently
+    for (int i = 0; i < 10; ++i) {
+        threads.emplace_back([&s, &run_count] {
+            for (int j = 0; j < 10; ++j) {
+                auto result = s.Run("A", 0);
+                REQUIRE(result.ToScalar<float>() == 42.0f);
+                run_count.fetch_add(1);
+            }
+        });
+    }
+    
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    REQUIRE(run_count.load() == 100);
+}
+
+// ============================================================================
+// MEDIUM: Error message quality tests
+// ============================================================================
+
+TEST_CASE("Error messages include operation name") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "MyConstOp")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    try {
+        (void)s.Run("NonExistentOp", 0);
+        REQUIRE(false);  // Should have thrown
+    } catch (const std::runtime_error& e) {
+        std::string msg = e.what();
+        REQUIRE(msg.find("NonExistentOp") != std::string::npos);
+    }
+}
+
+TEST_CASE("Frozen graph error is actionable") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    g.freeze();
+    
+    try {
+        auto t2 = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+        (void)g.NewOperation("Const", "B")
+            .SetAttrTensor("value", t2.handle())
+            .SetAttrType("dtype", TF_FLOAT)
+            .Finish();
+        REQUIRE(false);
+    } catch (const std::runtime_error& e) {
+        std::string msg = e.what();
+        // Error should mention frozen/immutable and Session
+        REQUIRE((msg.find("frozen") != std::string::npos || 
+                 msg.find("immutable") != std::string::npos));
+    }
+}
+
+TEST_CASE("Moved-from graph error is actionable") {
+    tf_wrap::FastGraph g1;
+    tf_wrap::FastGraph g2(std::move(g1));
+    
+    try {
+        (void)g1.num_operations();
+        REQUIRE(false);
+    } catch (const std::runtime_error& e) {
+        std::string msg = e.what();
+        REQUIRE(msg.find("moved") != std::string::npos);
+    }
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
