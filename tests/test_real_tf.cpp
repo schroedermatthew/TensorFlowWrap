@@ -1405,6 +1405,546 @@ TEST(value_range) {
     REQUIRE(v[0] == 0.0f && v[1] == 1.0f && v[2] == 2.0f && v[3] == 3.0f && v[4] == 4.0f);
 }
 
+TEST(value_reduction_prod) {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto axis = tf_wrap::FastTensor::FromVector<int32_t>({1}, {1}); // reduce along axis 1
+    
+    (void)g.NewOperation("Const", "T").SetAttrTensor("value", t.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Axis").SetAttrTensor("value", axis.handle()).SetAttrType("dtype", TF_INT32).Finish();
+    
+    auto* op_t = g.GetOperationOrThrow("T");
+    auto* op_axis = g.GetOperationOrThrow("Axis");
+    
+    (void)g.NewOperation("Prod", "Prod")
+        .AddInput(tf_wrap::Output(op_t, 0))
+        .AddInput(tf_wrap::Output(op_axis, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Prod", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v.size() == 2);
+    REQUIRE(v[0] == 6.0f);    // 1*2*3
+    REQUIRE(v[1] == 120.0f);  // 4*5*6
+}
+
+TEST(value_reduction_any_all) {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromVector<bool>({2, 3}, {true, false, true, true, true, true});
+    auto axis = tf_wrap::FastTensor::FromVector<int32_t>({1}, {1}); // reduce along axis 1
+    
+    (void)g.NewOperation("Const", "T").SetAttrTensor("value", t.handle()).SetAttrType("dtype", TF_BOOL).Finish();
+    (void)g.NewOperation("Const", "Axis").SetAttrTensor("value", axis.handle()).SetAttrType("dtype", TF_INT32).Finish();
+    
+    auto* op_t = g.GetOperationOrThrow("T");
+    auto* op_axis = g.GetOperationOrThrow("Axis");
+    
+    (void)g.NewOperation("Any", "Any")
+        .AddInput(tf_wrap::Output(op_t, 0))
+        .AddInput(tf_wrap::Output(op_axis, 0))
+        .Finish();
+    
+    (void)g.NewOperation("All", "All")
+        .AddInput(tf_wrap::Output(op_t, 0))
+        .AddInput(tf_wrap::Output(op_axis, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Any", 0}, {"All", 0}}, {});
+    
+    auto any_v = results[0].ToVector<bool>();
+    REQUIRE(any_v.size() == 2);
+    REQUIRE(any_v[0] == true);   // row 0: T,F,T -> any=true
+    REQUIRE(any_v[1] == true);   // row 1: T,T,T -> any=true
+    
+    auto all_v = results[1].ToVector<bool>();
+    REQUIRE(all_v[0] == false);  // row 0: T,F,T -> all=false
+    REQUIRE(all_v[1] == true);   // row 1: T,T,T -> all=true
+}
+
+TEST(value_batchmatmul) {
+    tf_wrap::FastGraph g;
+    
+    // Batch of 2 matrices: each is 2x2
+    // A[0] = [[1,2],[3,4]], A[1] = [[5,6],[7,8]]
+    auto a = tf_wrap::FastTensor::FromVector<float>({2, 2, 2}, 
+        {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f});
+    // B[0] = [[1,0],[0,1]] (identity), B[1] = [[2,0],[0,2]] (scale by 2)
+    auto b = tf_wrap::FastTensor::FromVector<float>({2, 2, 2}, 
+        {1.0f, 0.0f, 0.0f, 1.0f, 2.0f, 0.0f, 0.0f, 2.0f});
+    
+    (void)g.NewOperation("Const", "A").SetAttrTensor("value", a.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "B").SetAttrTensor("value", b.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_a = g.GetOperationOrThrow("A");
+    auto* op_b = g.GetOperationOrThrow("B");
+    
+    (void)g.NewOperation("BatchMatMul", "BMM")
+        .AddInput(tf_wrap::Output(op_a, 0))
+        .AddInput(tf_wrap::Output(op_b, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"BMM", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v.size() == 8);
+    // C[0] = A[0] @ B[0] = A[0] @ I = A[0] = [[1,2],[3,4]]
+    REQUIRE(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f && v[3] == 4.0f);
+    // C[1] = A[1] @ B[1] = [[5,6],[7,8]] @ [[2,0],[0,2]] = [[10,12],[14,16]]
+    REQUIRE(v[4] == 10.0f && v[5] == 12.0f && v[6] == 14.0f && v[7] == 16.0f);
+}
+
+TEST(value_conv2d_simple) {
+    tf_wrap::FastGraph g;
+    
+    // Input: NHWC format - batch=1, height=3, width=3, channels=1
+    // Simple 3x3 input with values 1-9
+    auto input = tf_wrap::FastTensor::FromVector<float>({1, 3, 3, 1}, 
+        {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f});
+    
+    // Filter: HWIO format - height=2, width=2, in_channels=1, out_channels=1
+    // Simple 2x2 filter of all 1s (sum filter)
+    auto filter = tf_wrap::FastTensor::FromVector<float>({2, 2, 1, 1}, 
+        {1.0f, 1.0f, 1.0f, 1.0f});
+    
+    (void)g.NewOperation("Const", "Input").SetAttrTensor("value", input.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Filter").SetAttrTensor("value", filter.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_input = g.GetOperationOrThrow("Input");
+    auto* op_filter = g.GetOperationOrThrow("Filter");
+    
+    (void)g.NewOperation("Conv2D", "Conv")
+        .AddInput(tf_wrap::Output(op_input, 0))
+        .AddInput(tf_wrap::Output(op_filter, 0))
+        .SetAttrIntList("strides", std::vector<int64_t>{1, 1, 1, 1})
+        .SetAttrString("padding", "VALID")
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Conv", 0}}, {});
+    
+    // Output shape: [1, 2, 2, 1] with VALID padding
+    REQUIRE(results[0].shape()[0] == 1);
+    REQUIRE(results[0].shape()[1] == 2);
+    REQUIRE(results[0].shape()[2] == 2);
+    REQUIRE(results[0].shape()[3] == 1);
+    
+    auto v = results[0].ToVector<float>();
+    // Conv with sum filter:
+    // [0,0]: 1+2+4+5 = 12
+    // [0,1]: 2+3+5+6 = 16
+    // [1,0]: 4+5+7+8 = 24
+    // [1,1]: 5+6+8+9 = 28
+    REQUIRE(v[0] == 12.0f);
+    REQUIRE(v[1] == 16.0f);
+    REQUIRE(v[2] == 24.0f);
+    REQUIRE(v[3] == 28.0f);
+}
+
+TEST(value_maxpool_simple) {
+    tf_wrap::FastGraph g;
+    
+    // Input: NHWC format - batch=1, height=4, width=4, channels=1
+    auto input = tf_wrap::FastTensor::FromVector<float>({1, 4, 4, 1}, 
+        {1.0f, 2.0f, 3.0f, 4.0f,
+         5.0f, 6.0f, 7.0f, 8.0f,
+         9.0f, 10.0f, 11.0f, 12.0f,
+         13.0f, 14.0f, 15.0f, 16.0f});
+    
+    (void)g.NewOperation("Const", "Input").SetAttrTensor("value", input.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_input = g.GetOperationOrThrow("Input");
+    
+    (void)g.NewOperation("MaxPool", "MaxPool")
+        .AddInput(tf_wrap::Output(op_input, 0))
+        .SetAttrIntList("ksize", std::vector<int64_t>{1, 2, 2, 1})
+        .SetAttrIntList("strides", std::vector<int64_t>{1, 2, 2, 1})
+        .SetAttrString("padding", "VALID")
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"MaxPool", 0}}, {});
+    
+    // Output shape: [1, 2, 2, 1]
+    REQUIRE(results[0].shape()[1] == 2);
+    REQUIRE(results[0].shape()[2] == 2);
+    
+    auto v = results[0].ToVector<float>();
+    // Max in each 2x2 window with stride 2:
+    // [0,0]: max(1,2,5,6) = 6
+    // [0,1]: max(3,4,7,8) = 8
+    // [1,0]: max(9,10,13,14) = 14
+    // [1,1]: max(11,12,15,16) = 16
+    REQUIRE(v[0] == 6.0f);
+    REQUIRE(v[1] == 8.0f);
+    REQUIRE(v[2] == 14.0f);
+    REQUIRE(v[3] == 16.0f);
+}
+
+TEST(value_avgpool_simple) {
+    tf_wrap::FastGraph g;
+    
+    // Input: NHWC format - batch=1, height=4, width=4, channels=1
+    auto input = tf_wrap::FastTensor::FromVector<float>({1, 4, 4, 1}, 
+        {1.0f, 2.0f, 3.0f, 4.0f,
+         5.0f, 6.0f, 7.0f, 8.0f,
+         9.0f, 10.0f, 11.0f, 12.0f,
+         13.0f, 14.0f, 15.0f, 16.0f});
+    
+    (void)g.NewOperation("Const", "Input").SetAttrTensor("value", input.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_input = g.GetOperationOrThrow("Input");
+    
+    (void)g.NewOperation("AvgPool", "AvgPool")
+        .AddInput(tf_wrap::Output(op_input, 0))
+        .SetAttrIntList("ksize", std::vector<int64_t>{1, 2, 2, 1})
+        .SetAttrIntList("strides", std::vector<int64_t>{1, 2, 2, 1})
+        .SetAttrString("padding", "VALID")
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"AvgPool", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    // Avg in each 2x2 window:
+    // [0,0]: (1+2+5+6)/4 = 3.5
+    // [0,1]: (3+4+7+8)/4 = 5.5
+    // [1,0]: (9+10+13+14)/4 = 11.5
+    // [1,1]: (11+12+15+16)/4 = 13.5
+    REQUIRE_APPROX(v[0], 3.5f, 0.0001f);
+    REQUIRE_APPROX(v[1], 5.5f, 0.0001f);
+    REQUIRE_APPROX(v[2], 11.5f, 0.0001f);
+    REQUIRE_APPROX(v[3], 13.5f, 0.0001f);
+}
+
+TEST(value_softmax_crossentropy) {
+    tf_wrap::FastGraph g;
+    
+    // Logits: 2 samples, 3 classes
+    auto logits = tf_wrap::FastTensor::FromVector<float>({2, 3}, 
+        {1.0f, 2.0f, 3.0f,   // sample 0: class 2 has highest logit
+         3.0f, 2.0f, 1.0f}); // sample 1: class 0 has highest logit
+    
+    // Labels: one-hot encoded
+    auto labels = tf_wrap::FastTensor::FromVector<float>({2, 3}, 
+        {0.0f, 0.0f, 1.0f,   // sample 0: true class = 2
+         1.0f, 0.0f, 0.0f}); // sample 1: true class = 0
+    
+    (void)g.NewOperation("Const", "Logits").SetAttrTensor("value", logits.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Labels").SetAttrTensor("value", labels.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_logits = g.GetOperationOrThrow("Logits");
+    auto* op_labels = g.GetOperationOrThrow("Labels");
+    
+    (void)g.NewOperation("SoftmaxCrossEntropyWithLogits", "XEnt")
+        .AddInput(tf_wrap::Output(op_logits, 0))
+        .AddInput(tf_wrap::Output(op_labels, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"XEnt", 0}}, {});  // output 0 is loss
+    
+    auto loss = results[0].ToVector<float>();
+    REQUIRE(loss.size() == 2);
+    
+    // For sample 0: logits [1,2,3], true class 2
+    // softmax([1,2,3]) ≈ [0.09, 0.24, 0.67]
+    // cross-entropy = -log(0.67) ≈ 0.407
+    REQUIRE(loss[0] > 0.3f && loss[0] < 0.5f);
+    
+    // For sample 1: logits [3,2,1], true class 0  
+    // softmax([3,2,1]) ≈ [0.67, 0.24, 0.09]
+    // cross-entropy = -log(0.67) ≈ 0.407
+    REQUIRE(loss[1] > 0.3f && loss[1] < 0.5f);
+}
+
+TEST(value_sparse_softmax_crossentropy) {
+    tf_wrap::FastGraph g;
+    
+    // Logits: 2 samples, 3 classes
+    auto logits = tf_wrap::FastTensor::FromVector<float>({2, 3}, 
+        {1.0f, 2.0f, 3.0f,   // sample 0
+         3.0f, 2.0f, 1.0f}); // sample 1
+    
+    // Labels: sparse (class indices)
+    auto labels = tf_wrap::FastTensor::FromVector<int32_t>({2}, {2, 0}); // class 2, class 0
+    
+    (void)g.NewOperation("Const", "Logits").SetAttrTensor("value", logits.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Labels").SetAttrTensor("value", labels.handle()).SetAttrType("dtype", TF_INT32).Finish();
+    
+    auto* op_logits = g.GetOperationOrThrow("Logits");
+    auto* op_labels = g.GetOperationOrThrow("Labels");
+    
+    (void)g.NewOperation("SparseSoftmaxCrossEntropyWithLogits", "SparseXEnt")
+        .AddInput(tf_wrap::Output(op_logits, 0))
+        .AddInput(tf_wrap::Output(op_labels, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"SparseXEnt", 0}}, {});  // output 0 is loss
+    
+    auto loss = results[0].ToVector<float>();
+    REQUIRE(loss.size() == 2);
+    
+    // Same expected values as dense version
+    REQUIRE(loss[0] > 0.3f && loss[0] < 0.5f);
+    REQUIRE(loss[1] > 0.3f && loss[1] < 0.5f);
+}
+
+TEST(value_biasadd) {
+    tf_wrap::FastGraph g;
+    
+    // Value: batch=2, features=3
+    auto value = tf_wrap::FastTensor::FromVector<float>({2, 3}, 
+        {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto bias = tf_wrap::FastTensor::FromVector<float>({3}, {10.0f, 20.0f, 30.0f});
+    
+    (void)g.NewOperation("Const", "Value").SetAttrTensor("value", value.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Bias").SetAttrTensor("value", bias.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_value = g.GetOperationOrThrow("Value");
+    auto* op_bias = g.GetOperationOrThrow("Bias");
+    
+    (void)g.NewOperation("BiasAdd", "BiasAdd")
+        .AddInput(tf_wrap::Output(op_value, 0))
+        .AddInput(tf_wrap::Output(op_bias, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"BiasAdd", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    // Row 0: [1+10, 2+20, 3+30] = [11, 22, 33]
+    // Row 1: [4+10, 5+20, 6+30] = [14, 25, 36]
+    REQUIRE(v[0] == 11.0f && v[1] == 22.0f && v[2] == 33.0f);
+    REQUIRE(v[3] == 14.0f && v[4] == 25.0f && v[5] == 36.0f);
+}
+
+TEST(value_leaky_relu) {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromVector<float>({4}, {-2.0f, -1.0f, 1.0f, 2.0f});
+    
+    (void)g.NewOperation("Const", "T").SetAttrTensor("value", t.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    auto* op_t = g.GetOperationOrThrow("T");
+    
+    (void)g.NewOperation("LeakyRelu", "LeakyRelu")
+        .AddInput(tf_wrap::Output(op_t, 0))
+        .SetAttrFloat("alpha", 0.1f)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"LeakyRelu", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    // LeakyReLU: x if x > 0, alpha*x otherwise
+    REQUIRE_APPROX(v[0], -0.2f, 0.0001f);  // -2 * 0.1
+    REQUIRE_APPROX(v[1], -0.1f, 0.0001f);  // -1 * 0.1
+    REQUIRE(v[2] == 1.0f);
+    REQUIRE(v[3] == 2.0f);
+}
+
+TEST(value_elu_selu) {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromVector<float>({4}, {-1.0f, 0.0f, 1.0f, 2.0f});
+    
+    (void)g.NewOperation("Const", "T").SetAttrTensor("value", t.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    auto* op_t = g.GetOperationOrThrow("T");
+    
+    (void)g.NewOperation("Elu", "Elu").AddInput(tf_wrap::Output(op_t, 0)).Finish();
+    (void)g.NewOperation("Selu", "Selu").AddInput(tf_wrap::Output(op_t, 0)).Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Elu", 0}, {"Selu", 0}}, {});
+    
+    auto elu_v = results[0].ToVector<float>();
+    // ELU: x if x > 0, exp(x)-1 otherwise
+    REQUIRE_APPROX(elu_v[0], -0.6321f, 0.001f);  // exp(-1)-1 ≈ -0.632
+    REQUIRE(elu_v[1] == 0.0f);
+    REQUIRE(elu_v[2] == 1.0f);
+    REQUIRE(elu_v[3] == 2.0f);
+    
+    auto selu_v = results[1].ToVector<float>();
+    // SELU: scale * (x if x > 0, alpha*(exp(x)-1) otherwise)
+    // scale ≈ 1.0507, alpha ≈ 1.6733
+    REQUIRE(selu_v[0] < 0.0f);  // negative output for negative input
+    REQUIRE(selu_v[1] == 0.0f);
+    REQUIRE(selu_v[2] > 1.0f);  // scaled positive
+    REQUIRE(selu_v[3] > 2.0f);  // scaled positive
+}
+
+TEST(value_clip_by_value) {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromVector<float>({5}, {-5.0f, 0.0f, 5.0f, 10.0f, 15.0f});
+    auto clip_min = tf_wrap::FastTensor::FromScalar<float>(0.0f);
+    auto clip_max = tf_wrap::FastTensor::FromScalar<float>(10.0f);
+    
+    (void)g.NewOperation("Const", "T").SetAttrTensor("value", t.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Min").SetAttrTensor("value", clip_min.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Max").SetAttrTensor("value", clip_max.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_t = g.GetOperationOrThrow("T");
+    auto* op_min = g.GetOperationOrThrow("Min");
+    auto* op_max = g.GetOperationOrThrow("Max");
+    
+    (void)g.NewOperation("ClipByValue", "Clip")
+        .AddInput(tf_wrap::Output(op_t, 0))
+        .AddInput(tf_wrap::Output(op_min, 0))
+        .AddInput(tf_wrap::Output(op_max, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Clip", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v[0] == 0.0f);   // -5 clipped to 0
+    REQUIRE(v[1] == 0.0f);   // 0 unchanged
+    REQUIRE(v[2] == 5.0f);   // 5 unchanged
+    REQUIRE(v[3] == 10.0f);  // 10 unchanged
+    REQUIRE(v[4] == 10.0f);  // 15 clipped to 10
+}
+
+TEST(value_pad) {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto paddings = tf_wrap::FastTensor::FromVector<int32_t>({2, 2}, {1, 1, 1, 1}); // pad 1 on each side
+    
+    (void)g.NewOperation("Const", "T").SetAttrTensor("value", t.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Paddings").SetAttrTensor("value", paddings.handle()).SetAttrType("dtype", TF_INT32).Finish();
+    
+    auto* op_t = g.GetOperationOrThrow("T");
+    auto* op_paddings = g.GetOperationOrThrow("Paddings");
+    
+    (void)g.NewOperation("Pad", "Pad")
+        .AddInput(tf_wrap::Output(op_t, 0))
+        .AddInput(tf_wrap::Output(op_paddings, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Pad", 0}}, {});
+    
+    // Output should be 4x4 (2+1+1 in each dim)
+    REQUIRE(results[0].shape()[0] == 4);
+    REQUIRE(results[0].shape()[1] == 4);
+    
+    auto v = results[0].ToVector<float>();
+    // Original 2x2 should be in center, padded with zeros
+    // Row 0: [0, 0, 0, 0]
+    // Row 1: [0, 1, 2, 0]
+    // Row 2: [0, 3, 4, 0]
+    // Row 3: [0, 0, 0, 0]
+    REQUIRE(v[0] == 0.0f && v[1] == 0.0f && v[2] == 0.0f && v[3] == 0.0f);
+    REQUIRE(v[4] == 0.0f && v[5] == 1.0f && v[6] == 2.0f && v[7] == 0.0f);
+    REQUIRE(v[8] == 0.0f && v[9] == 3.0f && v[10] == 4.0f && v[11] == 0.0f);
+    REQUIRE(v[12] == 0.0f && v[13] == 0.0f && v[14] == 0.0f && v[15] == 0.0f);
+}
+
+TEST(value_reverse) {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto axis = tf_wrap::FastTensor::FromVector<int32_t>({1}, {1}); // reverse along axis 1
+    
+    (void)g.NewOperation("Const", "T").SetAttrTensor("value", t.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Axis").SetAttrTensor("value", axis.handle()).SetAttrType("dtype", TF_INT32).Finish();
+    
+    auto* op_t = g.GetOperationOrThrow("T");
+    auto* op_axis = g.GetOperationOrThrow("Axis");
+    
+    (void)g.NewOperation("ReverseV2", "Reverse")
+        .AddInput(tf_wrap::Output(op_t, 0))
+        .AddInput(tf_wrap::Output(op_axis, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Reverse", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    // Reverse each row: [[1,2,3],[4,5,6]] -> [[3,2,1],[6,5,4]]
+    REQUIRE(v[0] == 3.0f && v[1] == 2.0f && v[2] == 1.0f);
+    REQUIRE(v[3] == 6.0f && v[4] == 5.0f && v[5] == 4.0f);
+}
+
+TEST(value_stack_unstack) {
+    tf_wrap::FastGraph g;
+    
+    auto t1 = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    auto t2 = tf_wrap::FastTensor::FromVector<float>({3}, {4.0f, 5.0f, 6.0f});
+    
+    (void)g.NewOperation("Const", "T1").SetAttrTensor("value", t1.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "T2").SetAttrTensor("value", t2.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    
+    auto* op_t1 = g.GetOperationOrThrow("T1");
+    auto* op_t2 = g.GetOperationOrThrow("T2");
+    
+    std::vector<TF_Output> values = {tf_wrap::Output(op_t1, 0), tf_wrap::Output(op_t2, 0)};
+    
+    (void)g.NewOperation("Pack", "Stack")
+        .AddInputList(values)
+        .SetAttrInt("N", 2)
+        .SetAttrInt("axis", 0)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Stack", 0}}, {});
+    
+    // Stacked along axis 0: shape [2, 3]
+    REQUIRE(results[0].shape()[0] == 2);
+    REQUIRE(results[0].shape()[1] == 3);
+    
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f);
+    REQUIRE(v[3] == 4.0f && v[4] == 5.0f && v[5] == 6.0f);
+}
+
+TEST(value_squeeze_expanddims) {
+    tf_wrap::FastGraph g;
+    
+    auto t = tf_wrap::FastTensor::FromVector<float>({1, 3, 1}, {1.0f, 2.0f, 3.0f});
+    auto axis = tf_wrap::FastTensor::FromScalar<int32_t>(1);
+    
+    (void)g.NewOperation("Const", "T").SetAttrTensor("value", t.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    (void)g.NewOperation("Const", "Axis").SetAttrTensor("value", axis.handle()).SetAttrType("dtype", TF_INT32).Finish();
+    
+    auto* op_t = g.GetOperationOrThrow("T");
+    auto* op_axis = g.GetOperationOrThrow("Axis");
+    
+    // Squeeze removes dims of size 1
+    (void)g.NewOperation("Squeeze", "Squeeze")
+        .AddInput(tf_wrap::Output(op_t, 0))
+        .Finish();
+    
+    // ExpandDims adds a dim at axis
+    auto t2 = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    (void)g.NewOperation("Const", "T2").SetAttrTensor("value", t2.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
+    auto* op_t2 = g.GetOperationOrThrow("T2");
+    
+    (void)g.NewOperation("ExpandDims", "Expand")
+        .AddInput(tf_wrap::Output(op_t2, 0))
+        .AddInput(tf_wrap::Output(op_axis, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Squeeze", 0}, {"Expand", 0}}, {});
+    
+    // Squeeze [1,3,1] -> [3]
+    REQUIRE(results[0].rank() == 1);
+    REQUIRE(results[0].shape()[0] == 3);
+    
+    // ExpandDims [3] with axis=1 -> [3,1]
+    REQUIRE(results[1].rank() == 2);
+    REQUIRE(results[1].shape()[0] == 3);
+    REQUIRE(results[1].shape()[1] == 1);
+}
+
 TEST(toscalar_multielement_throws) {
     auto t = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
     
