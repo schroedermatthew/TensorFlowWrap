@@ -695,15 +695,9 @@ TEST_CASE("Graph self-move assignment leaves graph intact") {
         .Finish();
 
     // Intentional self-move to test robustness
-    tf_wrap::FastGraph* p = &g;
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wself-move"
-#endif
+    // Use volatile pointer to prevent compiler from detecting self-move
+    tf_wrap::FastGraph* volatile p = &g;
     g = std::move(*p);
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
     REQUIRE(g.handle() != nullptr);
     REQUIRE(g.valid());
@@ -1131,7 +1125,7 @@ TEST_CASE("Session still works after Graph frozen") {
 // HIGH: Session Run edge cases
 // ============================================================================
 
-TEST_CASE("Session Run with empty fetches returns empty") {
+TEST_CASE("Session Run with empty fetches") {
     tf_wrap::FastGraph g;
     auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
     (void)g.NewOperation("Const", "A")
@@ -1141,10 +1135,18 @@ TEST_CASE("Session Run with empty fetches returns empty") {
     
     tf_wrap::FastSession s(g);
     
+    // Real TensorFlow requires at least one fetch or target and throws INVALID_ARGUMENT.
+    // Stub mode returns empty results. Both behaviors are acceptable.
     std::vector<tf_wrap::Fetch> empty_fetches;
-    auto results = s.Run({}, empty_fetches, {});
-    
-    REQUIRE(results.empty());
+    try {
+        auto results = s.Run({}, empty_fetches, {});
+        // Stub mode: returns empty
+        REQUIRE(results.empty());
+    } catch (const std::runtime_error& e) {
+        // Real TF: throws INVALID_ARGUMENT
+        std::string msg = e.what();
+        REQUIRE(msg.find("INVALID_ARGUMENT") != std::string::npos);
+    }
 }
 
 TEST_CASE("Session Run with non-existent operation throws") {
@@ -1345,9 +1347,9 @@ STRESS_TEST("SafeGraph methods are actually serialized") {
 
 STRESS_TEST("SharedGraph allows concurrent reads") {
     tf_wrap::SharedGraph g;
-    auto t = tf_wrap::SharedTensor::FromScalar<float>(42.0f);
+    auto tensor = tf_wrap::SharedTensor::FromScalar<float>(42.0f);
     (void)g.NewOperation("Const", "A")
-        .SetAttrTensor("value", t.handle())
+        .SetAttrTensor("value", tensor.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
@@ -1367,8 +1369,8 @@ STRESS_TEST("SharedGraph allows concurrent reads") {
         });
     }
     
-    for (auto& t : threads) {
-        t.join();
+    for (auto& th : threads) {
+        th.join();
     }
     
     REQUIRE(read_count.load() == 1000);
@@ -1376,9 +1378,9 @@ STRESS_TEST("SharedGraph allows concurrent reads") {
 
 STRESS_TEST("SafeSession Run is actually serialized") {
     tf_wrap::SafeGraph g;
-    auto t = tf_wrap::SafeTensor::FromScalar<float>(42.0f);
+    auto tensor = tf_wrap::SafeTensor::FromScalar<float>(42.0f);
     (void)g.NewOperation("Const", "A")
-        .SetAttrTensor("value", t.handle())
+        .SetAttrTensor("value", tensor.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
@@ -1398,8 +1400,8 @@ STRESS_TEST("SafeSession Run is actually serialized") {
         });
     }
     
-    for (auto& t : threads) {
-        t.join();
+    for (auto& th : threads) {
+        th.join();
     }
     
     REQUIRE(run_count.load() == 100);

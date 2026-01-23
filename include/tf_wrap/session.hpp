@@ -374,6 +374,10 @@ public:
                      const SessionOptions& opts = SessionOptions())
         : graph_handle_(graph.handle())
     {
+        if (!graph_handle_) {
+            throw std::runtime_error("Session: cannot create session from moved-from graph");
+        }
+        
         // Freeze the graph - TF requires immutability after session creation
         graph.freeze();
         
@@ -388,6 +392,10 @@ public:
                      TF_SessionOptions* opts)
         : graph_handle_(graph.handle())
     {
+        if (!graph_handle_) {
+            throw std::runtime_error("Session: cannot create session from moved-from graph");
+        }
+        
         graph.freeze();
         
         Status st;
