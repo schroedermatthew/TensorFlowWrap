@@ -4254,18 +4254,18 @@ TEST(graph_assert_print) {
     auto* op_cond = g.GetOperationOrThrow("Cond");
     auto* op_data = g.GetOperationOrThrow("Data");
     
-    // Assert op
+    // Assert op - T is a list of types for the data tensors
     (void)g.NewOperation("Assert", "Assert")
         .AddInput(tf_wrap::Output(op_cond, 0))
         .AddInputList(std::vector<TF_Output>{tf_wrap::Output(op_data, 0)})
-        .SetAttrInt("T", 1)
+        .SetAttrTypeList("T", std::vector<TF_DataType>{TF_FLOAT})
         .Finish();
     
-    // Print op
+    // Print op - U is a list of types for the summary tensors
     (void)g.NewOperation("Print", "Print")
         .AddInput(tf_wrap::Output(op_data, 0))
         .AddInputList(std::vector<TF_Output>{tf_wrap::Output(op_data, 0)})
-        .SetAttrInt("U", 1)
+        .SetAttrTypeList("U", std::vector<TF_DataType>{TF_FLOAT})
         .Finish();
     
     REQUIRE(g.GetOperationOrThrow("Assert") != nullptr);
@@ -4449,12 +4449,17 @@ TEST(graph_regex_replace) {
 }
 
 TEST(graph_string_split) {
+    // StringSplit requires a 1D string tensor (batch of strings) and scalar delimiter
+    // Our FromString creates scalars, so we just test graph construction without execution
     tf_wrap::FastGraph g;
     
-    auto input = tf_wrap::FastTensor::FromString("a,b,c");
-    auto delimiter = tf_wrap::FastTensor::FromString(",");
+    // Create placeholder for 1D string input (would be fed at runtime)
+    (void)g.NewOperation("Placeholder", "Input")
+        .SetAttrType("dtype", TF_STRING)
+        .SetAttrShape("shape", {-1})  // Unknown batch size
+        .Finish();
     
-    (void)g.NewOperation("Const", "Input").SetAttrTensor("value", input.handle()).SetAttrType("dtype", TF_STRING).Finish();
+    auto delimiter = tf_wrap::FastTensor::FromString(",");
     (void)g.NewOperation("Const", "Delim").SetAttrTensor("value", delimiter.handle()).SetAttrType("dtype", TF_STRING).Finish();
     
     auto* op_input = g.GetOperationOrThrow("Input");
@@ -4466,6 +4471,7 @@ TEST(graph_string_split) {
         .Finish();
     
     // StringSplit returns sparse tensor (indices, values, shape)
+    // Just verify the op was created successfully
     REQUIRE(g.GetOperationOrThrow("Split") != nullptr);
 }
 
