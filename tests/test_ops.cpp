@@ -1575,8 +1575,148 @@ TEST(nms_ops_compile) {
     REQUIRE(graph.num_operations() >= 7);
 }
 
-// Note: File I/O ops (ReadFile, WriteFile, DecodeJpeg, etc.) and string ops
-// require runtime file access or specific formats - tested separately or skipped
+// ============================================================================
+// File I/O, Image, String, and Control Flow Ops (Graph Build Tests)
+// These ops require runtime file access or specific formats, but we can still
+// verify that the graph builds correctly with proper inputs
+// ============================================================================
+
+TEST(file_io_ops_compile) {
+    tf_wrap::FastGraph graph;
+    
+    // Create string tensors for filenames
+    // Note: TF_STRING type is used for string ops
+    auto t_filename = tf_wrap::FastTensor::FromScalar<float>(0.0f); // placeholder value
+    auto filename = graph.NewOperation("Placeholder", "filename")
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    auto contents = graph.NewOperation("Placeholder", "contents")
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    auto pattern = graph.NewOperation("Placeholder", "pattern")
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    using namespace tf_wrap::ops;
+    
+    TF_Output filename_out{filename, 0};
+    TF_Output contents_out{contents, 0};
+    TF_Output pattern_out{pattern, 0};
+    
+    // Test that file I/O ops build correctly
+    (void)ReadFile(graph, "readfile", filename_out);
+    (void)WriteFile(graph, "writefile", filename_out, contents_out);
+    (void)MatchingFiles(graph, "matchingfiles", pattern_out);
+    
+    REQUIRE(graph.num_operations() >= 6);
+}
+
+TEST(image_decode_encode_ops_compile) {
+    tf_wrap::FastGraph graph;
+    
+    // Contents placeholder for encoded image data
+    auto contents = graph.NewOperation("Placeholder", "contents")
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    // Image placeholder for raw image data (HWC format, uint8)
+    auto t_image = tf_wrap::FastTensor::FromVector<uint8_t>({2, 2, 3}, 
+        {255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255}); // 2x2 RGB image
+    auto image = graph.NewOperation("Const", "image")
+        .SetAttrTensor("value", t_image.handle())
+        .SetAttrType("dtype", TF_UINT8)
+        .Finish();
+    
+    using namespace tf_wrap::ops;
+    
+    TF_Output contents_out{contents, 0};
+    TF_Output image_out{image, 0};
+    
+    // Test image decode ops
+    (void)DecodeJpeg(graph, "decodejpeg", contents_out);
+    (void)DecodePng(graph, "decodepng", contents_out, TF_UINT8);
+    
+    // Test image encode ops
+    (void)EncodeJpeg(graph, "encodejpeg", image_out);
+    (void)EncodePng(graph, "encodepng", image_out, TF_UINT8);
+    
+    REQUIRE(graph.num_operations() >= 6);
+}
+
+TEST(string_ops_compile) {
+    tf_wrap::FastGraph graph;
+    
+    // String placeholders
+    auto str1 = graph.NewOperation("Placeholder", "str1")
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    auto str2 = graph.NewOperation("Placeholder", "str2")
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    auto delimiter = graph.NewOperation("Placeholder", "delimiter")
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    auto pattern = graph.NewOperation("Placeholder", "pattern")
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    auto rewrite = graph.NewOperation("Placeholder", "rewrite")
+        .SetAttrType("dtype", TF_STRING)
+        .Finish();
+    
+    using namespace tf_wrap::ops;
+    
+    TF_Output str1_out{str1, 0};
+    TF_Output str2_out{str2, 0};
+    TF_Output delimiter_out{delimiter, 0};
+    TF_Output pattern_out{pattern, 0};
+    TF_Output rewrite_out{rewrite, 0};
+    
+    // Test string ops
+    std::vector<TF_Output> strings = {str1_out, str2_out};
+    (void)StringJoin(graph, "stringjoin", strings, 2);
+    (void)StringSplit(graph, "stringsplit", str1_out, delimiter_out);
+    (void)RegexReplace(graph, "regexreplace", str1_out, pattern_out, rewrite_out);
+    
+    REQUIRE(graph.num_operations() >= 8);
+}
+
+TEST(print_assert_ops_compile) {
+    tf_wrap::FastGraph graph;
+    
+    // Create tensor for Print input
+    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto input = graph.NewOperation("Const", "input")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    // Create boolean tensor for Assert condition
+    auto t_bool = tf_wrap::FastTensor::FromScalar<bool>(true);
+    auto condition = graph.NewOperation("Const", "condition")
+        .SetAttrTensor("value", t_bool.handle())
+        .SetAttrType("dtype", TF_BOOL)
+        .Finish();
+    
+    using namespace tf_wrap::ops;
+    
+    TF_Output input_out{input, 0};
+    TF_Output condition_out{condition, 0};
+    
+    // Data to print/assert with
+    std::vector<TF_Output> data = {input_out};
+    
+    // Test Print and Assert ops
+    (void)Print(graph, "print", input_out, data, TF_FLOAT);
+    (void)Assert(graph, "assert", condition_out, data);
+    
+    REQUIRE(graph.num_operations() >= 4);
+}
 
 TEST(pack_ops_compile) {
     tf_wrap::FastGraph graph;
@@ -1659,6 +1799,10 @@ int main() {
     RUN_TEST(image_resize_ops_compile);
     RUN_TEST(crop_and_resize_ops_compile);
     RUN_TEST(nms_ops_compile);
+    RUN_TEST(file_io_ops_compile);
+    RUN_TEST(image_decode_encode_ops_compile);
+    RUN_TEST(string_ops_compile);
+    RUN_TEST(print_assert_ops_compile);
     RUN_TEST(pack_ops_compile);
     
     std::cout << "\n========================================\n";
