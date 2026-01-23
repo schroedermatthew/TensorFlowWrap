@@ -25,7 +25,7 @@
 #   - stress-test: Run stress/fuzz tests
 #   - strict-warnings: Extra warning flags
 #   - real-tensorflow: Comprehensive tests with real TensorFlow C library
-#                      (TF 2.13.0, 2.14.0, 2.15.0, 2.16.1, 2.18.1)
+#                      (TF 2.13.0, 2.14.0, 2.15.0, 2.16.1, 2.17.1, 2.18.1)
 #   - ci-success: Gate job
 # =============================================================================
 
@@ -531,8 +531,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Note: TF 2.17.x excluded - C library package missing TSL headers
-        tf_version: ["2.13.0", "2.14.0", "2.15.0", "2.16.1", "2.18.1"]
+        # Note: TF 2.17.0 excluded - C library missing TSL headers (fixed in 2.17.1)
+        tf_version: ["2.13.0", "2.14.0", "2.15.0", "2.16.1", "2.17.1", "2.18.1"]
 
     steps:
       - uses: actions/checkout@v4
