@@ -1722,7 +1722,7 @@ TEST_CASE("session recovers after shape error") {
     
     bool threw = false;
     try {
-        s.Run(
+        (void)s.Run(
             {{{"X", 0}, bad_x.handle()}, {{"Y", 0}, bad_y.handle()}},
             {{"Result", 0}},
             {}
