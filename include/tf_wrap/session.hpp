@@ -402,11 +402,30 @@ public:
             void operator()(TF_Tensor* t) const noexcept {
                 if (t) TF_DeleteTensor(t);
             }
+<<<<<<< HEAD
         };
         using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
 
         std::vector<RawTensorPtr> owned;
         owned.reserve(output_vals.size());
+=======
+            st.throw_if_error("TF_SessionRun");
+        }
+
+        for (std::size_t i = 0; i < output_vals.size(); ++i) {
+            if (output_vals[i] == nullptr) {
+                for (auto* t : output_vals) {
+                    if (t) TF_DeleteTensor(t);
+                }
+                throw std::runtime_error(tf_wrap::detail::format(
+                    "TF_SessionRun: fetch '{}' returned null tensor",
+                    fetches[i].op_name));
+            }
+        }
+        
+        std::vector<Tensor> results;
+        results.reserve(fetches.size());
+>>>>>>> 1182454810694b01398ec7aa912d4e2a28324fb8
         for (auto* t : output_vals) {
             owned.emplace_back(t);
         }
@@ -617,11 +636,30 @@ public:
             void operator()(TF_Tensor* t) const noexcept {
                 if (t) TF_DeleteTensor(t);
             }
+<<<<<<< HEAD
         };
         using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
 
         std::vector<RawTensorPtr> owned;
         owned.reserve(output_vals.size());
+=======
+            st.throw_if_error("TF_SessionPRun");
+        }
+
+        for (std::size_t i = 0; i < output_vals.size(); ++i) {
+            if (output_vals[i] == nullptr) {
+                for (auto* t : output_vals) {
+                    if (t) TF_DeleteTensor(t);
+                }
+                throw std::runtime_error(tf_wrap::detail::format(
+                    "TF_SessionPRun: fetch '{}' returned null tensor",
+                    fetches[i].op_name));
+            }
+        }
+        
+        std::vector<Tensor> results;
+        results.reserve(fetches.size());
+>>>>>>> 1182454810694b01398ec7aa912d4e2a28324fb8
         for (auto* t : output_vals) {
             owned.emplace_back(t);
         }
