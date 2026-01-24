@@ -11,7 +11,12 @@
 // - Soak tests: TF_SOAK_TESTS=1 (hours of runtime)
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include "doctest/doctest.h"
+#include "doctest.h"
+
+// Suppress -Wunused-result warnings from CHECK_THROWS_AS with [[nodiscard]] functions
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic ignored "-Wunused-result"
+#endif
 
 #include "tf_wrap/all.hpp"
 
