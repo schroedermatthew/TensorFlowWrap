@@ -1726,8 +1726,8 @@ STRESS_TEST("multiple sessions concurrent const only") {
     for (int i = 0; i < 4; ++i) {
         threads.emplace_back(worker, i);
     }
-    for (auto& t : threads) {
-        t.join();
+    for (auto& th : threads) {
+        th.join();
     }
     
     REQUIRE(success_count == 400);
