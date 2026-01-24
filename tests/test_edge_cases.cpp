@@ -1529,6 +1529,171 @@ TEST_CASE("cross policy safe tensor with safe graph and fast session") {
 }
 
 // ============================================================================
+// Multi-Session Tests (using Const - stub safe)
+// ============================================================================
+
+TEST_CASE("multiple sessions same graph const only") {
+    tf_wrap::SafeGraph g;
+    auto t = tf_wrap::SafeTensor::FromScalar<float>(42.0f);
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    // Create multiple sessions from same graph
+    tf_wrap::SafeSession s1(g);
+    tf_wrap::SafeSession s2(g);
+    tf_wrap::SafeSession s3(g);
+    tf_wrap::SafeSession s4(g);
+    
+    // All should work independently
+    auto r1 = s1.Run({}, {{"X", 0}}, {});
+    auto r2 = s2.Run({}, {{"X", 0}}, {});
+    auto r3 = s3.Run({}, {{"X", 0}}, {});
+    auto r4 = s4.Run({}, {{"X", 0}}, {});
+    
+    REQUIRE(r1[0].ToScalar<float>() == 42.0f);
+    REQUIRE(r2[0].ToScalar<float>() == 42.0f);
+    REQUIRE(r3[0].ToScalar<float>() == 42.0f);
+    REQUIRE(r4[0].ToScalar<float>() == 42.0f);
+}
+
+// ============================================================================
+// Identity Operation Tests (stub supports Identity)
+// ============================================================================
+
+TEST_CASE("identity operation passthrough") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    (void)g.NewOperation("Const", "Input")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto* input_op = g.GetOperationOrThrow("Input");
+    (void)g.NewOperation("Identity", "Output")
+        .AddInput(tf_wrap::Output(input_op, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Output", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v.size() == 3);
+    REQUIRE(v[0] == 1.0f);
+    REQUIRE(v[1] == 2.0f);
+    REQUIRE(v[2] == 3.0f);
+}
+
+// ============================================================================
+// Add/Mul Operation Tests (stub supports Add and Mul)
+// ============================================================================
+
+TEST_CASE("add operation two constants") {
+    tf_wrap::FastGraph g;
+    auto t1 = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    auto t2 = tf_wrap::FastTensor::FromVector<float>({3}, {10.0f, 20.0f, 30.0f});
+    
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t1.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    (void)g.NewOperation("Const", "B")
+        .SetAttrTensor("value", t2.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto* a = g.GetOperationOrThrow("A");
+    auto* b = g.GetOperationOrThrow("B");
+    (void)g.NewOperation("Add", "Sum")
+        .AddInput(tf_wrap::Output(a, 0))
+        .AddInput(tf_wrap::Output(b, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Sum", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v.size() == 3);
+    REQUIRE(v[0] == 11.0f);
+    REQUIRE(v[1] == 22.0f);
+    REQUIRE(v[2] == 33.0f);
+}
+
+TEST_CASE("mul operation two constants") {
+    tf_wrap::FastGraph g;
+    auto t1 = tf_wrap::FastTensor::FromVector<float>({3}, {2.0f, 3.0f, 4.0f});
+    auto t2 = tf_wrap::FastTensor::FromVector<float>({3}, {10.0f, 10.0f, 10.0f});
+    
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t1.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    (void)g.NewOperation("Const", "B")
+        .SetAttrTensor("value", t2.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto* a = g.GetOperationOrThrow("A");
+    auto* b = g.GetOperationOrThrow("B");
+    (void)g.NewOperation("Mul", "Product")
+        .AddInput(tf_wrap::Output(a, 0))
+        .AddInput(tf_wrap::Output(b, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"Product", 0}}, {});
+    
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v.size() == 3);
+    REQUIRE(v[0] == 20.0f);
+    REQUIRE(v[1] == 30.0f);
+    REQUIRE(v[2] == 40.0f);
+}
+
+TEST_CASE("chained add operations") {
+    tf_wrap::FastGraph g;
+    auto t1 = tf_wrap::FastTensor::FromScalar<int32_t>(1);
+    auto t2 = tf_wrap::FastTensor::FromScalar<int32_t>(2);
+    auto t3 = tf_wrap::FastTensor::FromScalar<int32_t>(3);
+    
+    (void)g.NewOperation("Const", "A")
+        .SetAttrTensor("value", t1.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    (void)g.NewOperation("Const", "B")
+        .SetAttrTensor("value", t2.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    (void)g.NewOperation("Const", "C")
+        .SetAttrTensor("value", t3.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    
+    auto* a = g.GetOperationOrThrow("A");
+    auto* b = g.GetOperationOrThrow("B");
+    auto* c = g.GetOperationOrThrow("C");
+    
+    // A + B
+    (void)g.NewOperation("Add", "AB")
+        .AddInput(tf_wrap::Output(a, 0))
+        .AddInput(tf_wrap::Output(b, 0))
+        .Finish();
+    
+    // (A + B) + C
+    auto* ab = g.GetOperationOrThrow("AB");
+    (void)g.NewOperation("Add", "ABC")
+        .AddInput(tf_wrap::Output(ab, 0))
+        .AddInput(tf_wrap::Output(c, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"ABC", 0}}, {});
+    
+    REQUIRE(results[0].ToScalar<int32_t>() == 6);  // 1 + 2 + 3 = 6
+}
+
+// ============================================================================
 // Interleaved View Tests (no Session::Run - stub safe)
 // ============================================================================
 
