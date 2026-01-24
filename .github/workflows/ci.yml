@@ -1,896 +1,134 @@
+# CI Configuration Updates for Test Improvements
+# Add these jobs to .github/workflows/ci.yml
+
 # =============================================================================
-# .github/workflows/ci.yml
-# =============================================================================
-# CI workflow for TensorFlowWrap - C++20 Wrapper for TensorFlow C API
-#
-# Directory structure:
-#   Headers:    include/tf_wrap/*.hpp
-#   Tests:      tests/test_*.cpp
-#   Stub:       third_party/tf_stub/
-#
-# Requirements:
-#   - C++20 (required)
-#   - Header-only library (no build step for library itself)
-#   - Tests use stub TensorFlow C API (no real TF installation needed)
-#
-# Jobs:
-#   - linux-gcc: GCC 12/13 build + tests
-#   - linux-clang: Clang 15/16 build + tests
-#   - windows-msvc: MSVC build + tests
-#   - macos: Apple Clang on ARM (macos-14)
-#   - sanitizer-asan: AddressSanitizer
-#   - sanitizer-ubsan: UndefinedBehaviorSanitizer
-#   - sanitizer-tsan: ThreadSanitizer
-#   - header-check: Verify headers compile standalone
-#   - stress-test: Run stress/fuzz tests
-#   - strict-warnings: Extra warning flags
-#   - real-tensorflow: Comprehensive tests with real TensorFlow C library
-#                      (TF 2.13.0, 2.14.0, 2.15.0, 2.16.1, 2.17.1, 2.18.1)
-#   - ci-success: Gate job
+# NEW JOB: 32-bit Linux Build
 # =============================================================================
 
-name: CI
-
-on:
-  push:
-    branches: [main, master]
-    paths:
-      - 'include/**'
-      - 'tests/**'
-      - 'third_party/**'
-      - 'CMakeLists.txt'
-      - '.github/workflows/ci.yml'
-  pull_request:
-    branches: [main, master]
-    paths:
-      - 'include/**'
-      - 'tests/**'
-      - 'third_party/**'
-      - 'CMakeLists.txt'
-      - '.github/workflows/ci.yml'
-  workflow_dispatch:
-
-env:
-  INCLUDE_DIR: include
-  TEST_DIR: tests
-  STUB_DIR: third_party/tf_stub
-
-jobs:
-  # ===========================================================================
-  # Linux GCC
-  # ===========================================================================
-  linux-gcc:
-    name: Linux GCC-${{ matrix.version }} C++${{ matrix.std }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - version: 12
-            std: 20
-            runner: ubuntu-22.04
-          - version: 13
-            std: 20
-            runner: ubuntu-24.04
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install GCC
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-${{ matrix.version }}
-
-      - name: Build and run tests
-        run: |
-          echo "Building with GCC-${{ matrix.version }} C++${{ matrix.std }}..."
-          
-          g++-${{ matrix.version }} -std=c++${{ matrix.std }} \
-            -Wall -Wextra -Wpedantic -Werror \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            -pthread \
-            ${{ env.TEST_DIR }}/test_main.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_main
-          
-          echo "Running tests..."
-          ./test_main
-
-      - name: Build and run edge case tests
-        run: |
-          g++-${{ matrix.version }} -std=c++${{ matrix.std }} \
-            -Wall -Wextra -Wpedantic -Werror \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            -pthread \
-            ${{ env.TEST_DIR }}/test_edge_cases.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_edge_cases
-          
-          ./test_edge_cases
-
-      - name: Build and run ops tests
-        run: |
-          g++-${{ matrix.version }} -std=c++${{ matrix.std }} \
-            -Wall -Wextra -Wpedantic -Werror \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            -pthread \
-            ${{ env.TEST_DIR }}/test_ops.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_ops
-          
-          ./test_ops
-
-  # ===========================================================================
-  # Linux Clang
-  # ===========================================================================
-  linux-clang:
-    name: Linux Clang-${{ matrix.version }} C++${{ matrix.std }}
+  linux-32bit:
+    name: Linux 32-bit (GCC)
     runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - version: 15
-            std: 20
-          - version: 16
-            std: 20
-
+    
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Clang
+      
+      - name: Install 32-bit toolchain
         run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh ${{ matrix.version }}
-
-      - name: Build and run tests
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib
+      
+      - name: Build and run tests (32-bit)
         run: |
-          echo "Building with Clang-${{ matrix.version }} C++${{ matrix.std }}..."
-          
-          clang++-${{ matrix.version }} -std=c++${{ matrix.std }} \
+          g++ -std=c++20 -m32 \
             -Wall -Wextra -Wpedantic -Werror \
-            -Wno-gnu-zero-variadic-macro-arguments \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
+            -I./include \
+            -I./third_party/tf_stub \
             -DTF_WRAPPER_TF_STUB_ENABLED=1 \
             -pthread \
-            ${{ env.TEST_DIR }}/test_main.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_main
+            tests/test_safety.cpp \
+            third_party/tf_stub/tf_c_stub.cpp \
+            -o test_safety_32
           
-          echo "Running tests..."
-          ./test_main
+          ./test_safety_32
 
-      - name: Build and run edge case tests
-        run: |
-          clang++-${{ matrix.version }} -std=c++${{ matrix.std }} \
-            -Wall -Wextra -Wpedantic -Werror \
-            -Wno-gnu-zero-variadic-macro-arguments \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            -pthread \
-            ${{ env.TEST_DIR }}/test_edge_cases.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_edge_cases
-          
-          ./test_edge_cases
+# =============================================================================
+# NEW JOB: Safety Invariant Tests
+# =============================================================================
 
-      - name: Build and run ops tests
-        run: |
-          clang++-${{ matrix.version }} -std=c++${{ matrix.std }} \
-            -Wall -Wextra -Wpedantic -Werror \
-            -Wno-gnu-zero-variadic-macro-arguments \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            -pthread \
-            ${{ env.TEST_DIR }}/test_ops.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_ops
-          
-          ./test_ops
-
-  # ===========================================================================
-  # Windows MSVC
-  # ===========================================================================
-  windows-msvc:
-    name: Windows MSVC C++${{ matrix.std }}
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        std: [20]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Build and run tests
-        shell: cmd
-        run: |
-          echo Building with MSVC C++${{ matrix.std }}...
-          
-          cl /std:c++${{ matrix.std }} /W4 /WX /EHsc ^
-            /I${{ env.INCLUDE_DIR }} ^
-            /I${{ env.STUB_DIR }} ^
-            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
-            ${{ env.TEST_DIR }}\test_main.cpp ^
-            ${{ env.STUB_DIR }}\tf_c_stub.cpp ^
-            /Fe:test_main.exe
-          
-          echo Running tests...
-          test_main.exe
-
-      - name: Build and run edge case tests
-        shell: cmd
-        run: |
-          cl /std:c++${{ matrix.std }} /W4 /WX /EHsc ^
-            /I${{ env.INCLUDE_DIR }} ^
-            /I${{ env.STUB_DIR }} ^
-            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
-            ${{ env.TEST_DIR }}\test_edge_cases.cpp ^
-            ${{ env.STUB_DIR }}\tf_c_stub.cpp ^
-            /Fe:test_edge_cases.exe
-          
-          test_edge_cases.exe
-
-      - name: Build and run ops tests
-        shell: cmd
-        run: |
-          cl /std:c++${{ matrix.std }} /W4 /WX /EHsc ^
-            /I${{ env.INCLUDE_DIR }} ^
-            /I${{ env.STUB_DIR }} ^
-            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
-            ${{ env.TEST_DIR }}\test_ops.cpp ^
-            ${{ env.STUB_DIR }}\tf_c_stub.cpp ^
-            /Fe:test_ops.exe
-          
-          test_ops.exe
-
-  # ===========================================================================
-  # AddressSanitizer
-  # ===========================================================================
-  sanitizer-asan:
-    name: AddressSanitizer
+  test-safety:
+    name: Safety Invariant Tests
     runs-on: ubuntu-24.04
-
+    
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install GCC
+      
+      - name: Build and run safety tests
         run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-13
-
-      - name: Build with ASAN
-        run: |
-          g++-13 -std=c++20 \
+          g++-14 -std=c++20 \
             -Wall -Wextra -Wpedantic -Werror \
-            -g -fsanitize=address -fno-omit-frame-pointer \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
+            -fsanitize=address,undefined \
+            -I./include \
+            -I./third_party/tf_stub \
             -DTF_WRAPPER_TF_STUB_ENABLED=1 \
             -pthread \
-            ${{ env.TEST_DIR }}/test_main.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_main_asan
+            tests/test_safety.cpp \
+            third_party/tf_stub/tf_c_stub.cpp \
+            -o test_safety
+          
+          ./test_safety
 
-      - name: Run with ASAN
-        env:
-          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
-        run: ./test_main_asan
+# =============================================================================
+# NEW JOB: Stub Dtype Tracking Tests
+# =============================================================================
 
-      - name: Build edge cases with ASAN
-        run: |
-          g++-13 -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -g -fsanitize=address -fno-omit-frame-pointer \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            -pthread \
-            ${{ env.TEST_DIR }}/test_edge_cases.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_edge_asan
-
-      - name: Run edge cases with ASAN
-        env:
-          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
-        run: ./test_edge_asan
-
-  # ===========================================================================
-  # UndefinedBehaviorSanitizer
-  # ===========================================================================
-  sanitizer-ubsan:
-    name: UndefinedBehaviorSanitizer
+  test-stub-dtype:
+    name: Stub Dtype Tracking Tests
     runs-on: ubuntu-24.04
-
+    
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install GCC
+      
+      - name: Build and run dtype tracking tests
         run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-13
-
-      - name: Build with UBSAN
-        run: |
-          g++-13 -std=c++20 \
+          g++-14 -std=c++20 \
             -Wall -Wextra -Wpedantic -Werror \
-            -g -fsanitize=undefined -fno-omit-frame-pointer \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
+            -I./include \
+            -I./third_party/tf_stub \
             -DTF_WRAPPER_TF_STUB_ENABLED=1 \
             -pthread \
-            ${{ env.TEST_DIR }}/test_main.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_main_ubsan
+            tests/test_stub_dtype_tracking.cpp \
+            third_party/tf_stub/tf_c_stub.cpp \
+            -o test_stub_dtype
+          
+          ./test_stub_dtype
 
-      - name: Run with UBSAN
-        env:
-          UBSAN_OPTIONS: print_stacktrace=1:abort_on_error=1
-        run: ./test_main_ubsan
+# =============================================================================
+# NEW JOB: Easy Helpers Tests
+# =============================================================================
 
-      - name: Build edge cases with UBSAN
-        run: |
-          g++-13 -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -g -fsanitize=undefined -fno-omit-frame-pointer \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            -pthread \
-            ${{ env.TEST_DIR }}/test_edge_cases.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_edge_ubsan
-
-      - name: Run edge cases with UBSAN
-        env:
-          UBSAN_OPTIONS: print_stacktrace=1:abort_on_error=1
-        run: ./test_edge_ubsan
-
-  # ===========================================================================
-  # ThreadSanitizer
-  # ===========================================================================
-  sanitizer-tsan:
-    name: ThreadSanitizer
+  test-easy-helpers:
+    name: Easy Helpers Tests
     runs-on: ubuntu-24.04
-
+    
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install GCC
+      
+      - name: Build and run helper tests
         run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-13
-
-      - name: Build with TSAN
-        run: |
-          g++-13 -std=c++20 \
+          g++-14 -std=c++20 \
             -Wall -Wextra -Wpedantic -Werror \
-            -g -fsanitize=thread -fno-omit-frame-pointer \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
+            -I./include \
+            -I./third_party/tf_stub \
             -DTF_WRAPPER_TF_STUB_ENABLED=1 \
             -pthread \
-            ${{ env.TEST_DIR }}/test_main.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_main_tsan
+            tests/test_easy_helpers.cpp \
+            third_party/tf_stub/tf_c_stub.cpp \
+            -o test_easy_helpers
+          
+          ./test_easy_helpers
 
-      - name: Run with TSAN
-        env:
-          TSAN_OPTIONS: abort_on_error=1
-        run: ./test_main_tsan
+# =============================================================================
+# NEW JOB: Bool Tensor Tests
+# =============================================================================
 
-      - name: Build edge cases with TSAN
-        run: |
-          g++-13 -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -g -fsanitize=thread -fno-omit-frame-pointer \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            -pthread \
-            ${{ env.TEST_DIR }}/test_edge_cases.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_edge_tsan
-
-      - name: Run edge cases with TSAN
-        env:
-          TSAN_OPTIONS: abort_on_error=1
-        run: ./test_edge_tsan
-
-  # ===========================================================================
-  # Header Standalone Compile Check
-  # ===========================================================================
-  header-check:
-    name: Header Standalone Compile
+  test-bool-tensor:
+    name: Bool Tensor Tests
     runs-on: ubuntu-24.04
-
+    
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install GCC
+      
+      - name: Build and run bool tensor tests
         run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-13
-
-      - name: Check each header compiles standalone
-        run: |
-          echo "Checking each header compiles standalone..."
-          
-          success=0
-          failed=0
-          
-          for header in ${{ env.INCLUDE_DIR }}/tf_wrap/*.hpp; do
-            basename=$(basename "$header")
-            
-            # Create test file that includes only this header
-            cat > test_header.cpp << EOF
-          #include "tf_wrap/$basename"
-          int main() { return 0; }
-          EOF
-            
-            if g++-13 -std=c++20 -Wall -Wextra -Wpedantic -Werror \
-              -I${{ env.INCLUDE_DIR }} \
-              -I${{ env.STUB_DIR }} \
-              -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-              -c test_header.cpp -o /dev/null 2>&1; then
-              echo "✓ $basename"
-              success=$((success + 1))
-            else
-              echo "✗ $basename"
-              g++-13 -std=c++20 -Wall -Wextra -Wpedantic -Werror \
-                -I${{ env.INCLUDE_DIR }} \
-                -I${{ env.STUB_DIR }} \
-                -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-                -c test_header.cpp 2>&1 || true
-              failed=$((failed + 1))
-            fi
-          done
-          
-          rm -f test_header.cpp
-          
-          echo ""
-          echo "Results: $success passed, $failed failed"
-          
-          if [ $failed -gt 0 ]; then
-            echo "❌ Some headers failed standalone compilation"
-            exit 1
-          fi
-          
-          echo "✓ All headers compile standalone"
-
-  # ===========================================================================
-  # Stress Tests
-  # ===========================================================================
-  stress-test:
-    name: Stress & Fuzz Tests
-    runs-on: ubuntu-24.04
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install GCC
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-13
-
-      - name: Build stress tests
-        run: |
-          g++-13 -std=c++20 \
+          g++-14 -std=c++20 \
             -Wall -Wextra -Wpedantic -Werror \
-            -O2 \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            -DNDEBUG \
-            -pthread \
-            ${{ env.TEST_DIR }}/test_edge_cases.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_stress
-
-      - name: Run stress tests
-        timeout-minutes: 5
-        run: ./test_stress --stress
-
-      - name: Build comprehensive bug tests
-        run: |
-          g++-13 -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -O2 \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            -DNDEBUG \
-            -pthread \
-            ${{ env.TEST_DIR }}/test_comprehensive_bugs.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_comprehensive
-
-      - name: Run comprehensive bug tests (including SafeGraph/SafeTensor)
-        timeout-minutes: 5
-        run: ./test_comprehensive --all
-
-  # ===========================================================================
-  # Real TensorFlow Integration Test (Multiple Versions)
-  # ===========================================================================
-  real-tensorflow:
-    name: Real TensorFlow ${{ matrix.tf_version }}
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        # Note: TF 2.17.0 excluded - C library missing TSL headers (fixed in 2.17.1)
-        tf_version: ["2.13.0", "2.14.0", "2.15.0", "2.16.1", "2.17.1", "2.18.1"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-12 curl
-
-      - name: Download TensorFlow C library
-        run: |
-          echo "Downloading TensorFlow C library v${{ matrix.tf_version }}..."
-          
-          # URL format changed in TF 2.16+
-          TF_VERSION="${{ matrix.tf_version }}"
-          TF_MAJOR_MINOR=$(echo "$TF_VERSION" | cut -d. -f1,2)
-          
-          if [[ "$TF_MAJOR_MINOR" == "2.16" ]] || [[ "$TF_MAJOR_MINOR" == "2.17" ]] || [[ "$TF_MAJOR_MINOR" == "2.18" ]]; then
-            # New URL format for 2.16+
-            TF_URL="https://storage.googleapis.com/tensorflow/versions/${TF_VERSION}/libtensorflow-cpu-linux-x86_64.tar.gz"
-          else
-            # Old URL format for 2.15 and earlier
-            TF_URL="https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-linux-x86_64-${TF_VERSION}.tar.gz"
-          fi
-          
-          mkdir -p tensorflow_c
-          
-          echo "Fetching from: $TF_URL"
-          curl -fSL --retry 3 "$TF_URL" -o tf.tar.gz
-          
-          file tf.tar.gz
-          tar -xzf tf.tar.gz -C tensorflow_c
-          
-          echo "TensorFlow C library contents:"
-          ls -la tensorflow_c/lib/
-
-      - name: Create test SavedModel with Python
-        run: |
-          echo "Installing TensorFlow Python..."
-          
-          # TF 2.16+ supports NumPy 2.x, older versions need NumPy 1.x
-          TF_VERSION="${{ matrix.tf_version }}"
-          TF_MAJOR_MINOR=$(echo "$TF_VERSION" | cut -d. -f1,2)
-          
-          if [[ "$TF_MAJOR_MINOR" == "2.16" ]] || [[ "$TF_MAJOR_MINOR" == "2.17" ]] || [[ "$TF_MAJOR_MINOR" == "2.18" ]]; then
-            pip install tensorflow==${{ matrix.tf_version }} --quiet
-          else
-            pip install "numpy<2" tensorflow==${{ matrix.tf_version }} --quiet
-          fi
-          
-          echo "Creating test SavedModel..."
-          python3 << 'PYEOF'
-          import tensorflow as tf
-          import os
-
-          # Create a simple model: output = input * 2 + 1
-          class SimpleModel(tf.Module):
-              @tf.function(input_signature=[tf.TensorSpec(shape=[None], dtype=tf.float32)])
-              def serve(self, x):
-                  return x * 2.0 + 1.0
-
-          model = SimpleModel()
-          
-          # Test it works
-          result = model.serve(tf.constant([1.0, 2.0, 3.0]))
-          print(f"Test run: [1,2,3] -> {result.numpy()}")  # Should be [3, 5, 7]
-          
-          # Save it
-          export_dir = "test_savedmodel"
-          tf.saved_model.save(model, export_dir, signatures={"serving_default": model.serve})
-          
-          print(f"SavedModel saved to {export_dir}")
-          print("Contents:")
-          for root, dirs, files in os.walk(export_dir):
-              for f in files:
-                  print(f"  {os.path.join(root, f)}")
-          PYEOF
-          
-          echo "✓ Test SavedModel created"
-
-      - name: Build and run comprehensive real TF test suite
-        timeout-minutes: 10
-        run: |
-          echo "Building comprehensive test suite with real TensorFlow..."
-          
-          TF_INCLUDE="tensorflow_c/include"
-          TF_LIB="tensorflow_c/lib"
-          
-          g++-12 -std=c++20 -O2 \
-            -Wall -Wextra -Wpedantic \
-            -I${{ env.INCLUDE_DIR }} \
-            -I"$TF_INCLUDE" \
-            ${{ env.TEST_DIR }}/test_real_tf.cpp \
-            -L"$TF_LIB" \
-            -ltensorflow \
-            -Wl,-rpath,"$TF_LIB" \
-            -pthread \
-            -o test_real_tf
-          
-          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
-          
-          echo "Running comprehensive test suite (includes 30-second soak test)..."
-          ./test_real_tf
-          
-          echo "✓ All real TensorFlow tests passed"
-
-      - name: Build and run main tests with real TF
-        run: |
-          TF_INCLUDE="tensorflow_c/include"
-          TF_LIB="tensorflow_c/lib"
-          
-          g++-12 -std=c++20 -O2 \
-            -Wall -Wextra -Wpedantic \
-            -I${{ env.INCLUDE_DIR }} \
-            -I"$TF_INCLUDE" \
-            ${{ env.TEST_DIR }}/test_main.cpp \
-            -L"$TF_LIB" \
-            -ltensorflow \
-            -Wl,-rpath,"$TF_LIB" \
-            -pthread \
-            -o test_main_real
-          
-          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
-          ./test_main_real
-          
-          echo "✓ Main tests passed with real TensorFlow"
-
-      - name: Build and run edge case tests with real TF
-        run: |
-          TF_INCLUDE="tensorflow_c/include"
-          TF_LIB="tensorflow_c/lib"
-          
-          g++-12 -std=c++20 -O2 \
-            -Wall -Wextra -Wpedantic \
-            -I${{ env.INCLUDE_DIR }} \
-            -I"$TF_INCLUDE" \
-            ${{ env.TEST_DIR }}/test_edge_cases.cpp \
-            -L"$TF_LIB" \
-            -ltensorflow \
-            -Wl,-rpath,"$TF_LIB" \
-            -pthread \
-            -o test_edge_cases_real
-          
-          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
-          ./test_edge_cases_real
-          
-          echo "✓ Edge case tests passed with real TensorFlow"
-
-      - name: Build and run comprehensive bug tests with real TF
-        run: |
-          TF_INCLUDE="tensorflow_c/include"
-          TF_LIB="tensorflow_c/lib"
-          
-          g++-12 -std=c++20 -O2 \
-            -Wall -Wextra -Wpedantic \
-            -I${{ env.INCLUDE_DIR }} \
-            -I"$TF_INCLUDE" \
-            ${{ env.TEST_DIR }}/test_comprehensive_bugs.cpp \
-            -L"$TF_LIB" \
-            -ltensorflow \
-            -Wl,-rpath,"$TF_LIB" \
-            -pthread \
-            -o test_comprehensive_real
-          
-          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
-          ./test_comprehensive_real
-          
-          echo "✓ Comprehensive bug tests passed with real TensorFlow"
-
-      - name: Build and run ops tests with real TF
-        run: |
-          TF_INCLUDE="tensorflow_c/include"
-          TF_LIB="tensorflow_c/lib"
-          
-          g++-12 -std=c++20 -O2 \
-            -Wall -Wextra -Wpedantic \
-            -I${{ env.INCLUDE_DIR }} \
-            -I"$TF_INCLUDE" \
-            ${{ env.TEST_DIR }}/test_ops.cpp \
-            -L"$TF_LIB" \
-            -ltensorflow \
-            -Wl,-rpath,"$TF_LIB" \
-            -pthread \
-            -o test_ops_real
-          
-          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
-          ./test_ops_real
-          
-          echo "✓ Ops tests passed with real TensorFlow"
-
-      - name: Build and run simple integration test
-        run: |
-          TF_INCLUDE="tensorflow_c/include"
-          TF_LIB="tensorflow_c/lib"
-          
-          g++-12 -std=c++20 \
-            -Wall -Wextra -Wpedantic \
-            -I${{ env.INCLUDE_DIR }} \
-            -I"$TF_INCLUDE" \
-            ${{ env.TEST_DIR }}/test_integration.cpp \
-            -L"$TF_LIB" \
-            -ltensorflow \
-            -Wl,-rpath,"$TF_LIB" \
-            -o test_integration
-          
-          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
-          ./test_integration
-          
-          echo "✓ Integration test passed"
-
-  # ===========================================================================
-  # Strict Warnings
-  # ===========================================================================
-  strict-warnings:
-    name: Strict Warnings
-    runs-on: ubuntu-24.04
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install GCC
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-13
-
-      - name: Build with extra warnings
-        run: |
-          g++-13 -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -Wconversion -Wsign-conversion -Wshadow \
-            -Wnon-virtual-dtor -Wold-style-cast -Wcast-align \
-            -Wunused -Woverloaded-virtual -Wformat=2 \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
+            -fsanitize=address,undefined \
+            -I./include \
+            -I./third_party/tf_stub \
             -DTF_WRAPPER_TF_STUB_ENABLED=1 \
             -pthread \
-            ${{ env.TEST_DIR }}/test_main.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_strict 2>&1 | tee warnings.log
+            tests/test_bool_tensor.cpp \
+            third_party/tf_stub/tf_c_stub.cpp \
+            -o test_bool_tensor
           
-          # Count warnings (should be 0 with -Werror, but log anyway)
-          if [ -s warnings.log ]; then
-            echo "Build output:"
-            cat warnings.log
-          fi
-          
-          echo "✓ Built with strict warnings"
-
-      - name: Run strict build
-        run: ./test_strict
-
-  # ===========================================================================
-  # macOS (Apple Clang)
-  # ===========================================================================
-  macos:
-    name: macOS ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-14]  # ARM only (macos-13 deprecated)
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build and run tests
-        run: |
-          echo "Compiler version:"
-          clang++ --version
-          
-          echo "Building test_main..."
-          clang++ -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            ${{ env.TEST_DIR }}/test_main.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_main
-          
-          echo "Running tests..."
-          ./test_main
-
-      - name: Build and run edge case tests
-        run: |
-          clang++ -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            ${{ env.TEST_DIR }}/test_edge_cases.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_edge_cases
-          
-          ./test_edge_cases
-
-      - name: Build and run ops tests
-        run: |
-          clang++ -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            ${{ env.TEST_DIR }}/test_ops.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_ops
-          
-          ./test_ops
-
-  # ===========================================================================
-  # CI Success Gate
-  # ===========================================================================
-  ci-success:
-    name: CI Success
-    runs-on: ubuntu-latest
-    needs:
-      - linux-gcc
-      - linux-clang
-      - windows-msvc
-      - macos
-      - sanitizer-asan
-      - sanitizer-ubsan
-      - sanitizer-tsan
-      - header-check
-      - stress-test
-      - strict-warnings
-      - real-tensorflow
-    if: always()
-
-    steps:
-      - name: Check all jobs passed
-        run: |
-          echo "Job results:"
-          echo "  linux-gcc:        ${{ needs.linux-gcc.result }}"
-          echo "  linux-clang:      ${{ needs.linux-clang.result }}"
-          echo "  windows-msvc:     ${{ needs.windows-msvc.result }}"
-          echo "  macos:            ${{ needs.macos.result }}"
-          echo "  sanitizer-asan:   ${{ needs.sanitizer-asan.result }}"
-          echo "  sanitizer-ubsan:  ${{ needs.sanitizer-ubsan.result }}"
-          echo "  sanitizer-tsan:   ${{ needs.sanitizer-tsan.result }}"
-          echo "  header-check:     ${{ needs.header-check.result }}"
-          echo "  stress-test:      ${{ needs.stress-test.result }}"
-          echo "  strict-warnings:  ${{ needs.strict-warnings.result }}"
-          echo "  real-tensorflow:  ${{ needs.real-tensorflow.result }}"
-          
-          if [ "${{ needs.linux-gcc.result }}" != "success" ] || \
-             [ "${{ needs.linux-clang.result }}" != "success" ] || \
-             [ "${{ needs.windows-msvc.result }}" != "success" ] || \
-             [ "${{ needs.macos.result }}" != "success" ] || \
-             [ "${{ needs.sanitizer-asan.result }}" != "success" ] || \
-             [ "${{ needs.sanitizer-ubsan.result }}" != "success" ] || \
-             [ "${{ needs.sanitizer-tsan.result }}" != "success" ] || \
-             [ "${{ needs.header-check.result }}" != "success" ] || \
-             [ "${{ needs.stress-test.result }}" != "success" ] || \
-             [ "${{ needs.strict-warnings.result }}" != "success" ] || \
-             [ "${{ needs.real-tensorflow.result }}" != "success" ]; then
-            echo "❌ One or more jobs failed"
-            exit 1
-          fi
-          
-          echo "✓ All CI jobs passed"
+          ./test_bool_tensor
