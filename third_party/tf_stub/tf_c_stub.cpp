@@ -18,6 +18,7 @@
 // Goals:
 // - Allow this wrapper to compile + run unit tests without TensorFlow.
 // - Provide predictable, safe behavior for status/tensor/graph/session calls.
+// - Track dtype attributes so tests can verify correct dtype propagation.
 //
 // Non-goals:
 // - Any numerical correctness.
@@ -57,6 +58,10 @@ struct TF_Operation {
     // Minimal attribute storage needed by the wrapper/tests.
     // Real TF supports many attr types; we only store tensor attrs.
     std::unordered_map<std::string, std::unique_ptr<TF_Tensor>> tensor_attrs;
+    
+    // P0 FIX: Track dtype attributes for proper dtype propagation
+    // Keys: "T", "dtype", "DstT", "SrcT", "out_type", etc.
+    std::unordered_map<std::string, TF_DataType> type_attrs;
 };
 
 struct TF_OperationDescription {
@@ -507,8 +512,46 @@ void TF_SetAttrFloat(TF_OperationDescription*, const char*, float)
 {
 }
 
-void TF_SetAttrType(TF_OperationDescription*, const char*, TF_DataType)
+// P0 FIX: Actually store type attributes for dtype tracking
+void TF_SetAttrType(TF_OperationDescription* desc, const char* attr_name, TF_DataType dtype)
 {
+    if (!desc || !desc->op || !attr_name || attr_name[0] == '\0')
+    {
+        return;
+    }
+    
+    // Store the type attribute
+    desc->op->type_attrs[std::string(attr_name)] = dtype;
+    
+    // Propagate to output_type based on attribute name priority:
+    // For most ops: T or dtype determines output type
+    // For Cast: DstT determines output type (not SrcT or T)
+    // For some ops: out_type determines output type
+    const std::string name(attr_name);
+    
+    if (name == "DstT")
+    {
+        // Cast op: DstT always wins
+        desc->op->output_type = dtype;
+    }
+    else if (name == "T" || name == "dtype")
+    {
+        // Only set if DstT not already set (Cast op case)
+        if (desc->op->type_attrs.find("DstT") == desc->op->type_attrs.end())
+        {
+            desc->op->output_type = dtype;
+        }
+    }
+    else if (name == "out_type")
+    {
+        // Some ops use out_type; set if no higher-priority attr
+        if (desc->op->type_attrs.find("DstT") == desc->op->type_attrs.end() &&
+            desc->op->type_attrs.find("T") == desc->op->type_attrs.end() &&
+            desc->op->type_attrs.find("dtype") == desc->op->type_attrs.end())
+        {
+            desc->op->output_type = dtype;
+        }
+    }
 }
 
 void TF_SetAttrShape(TF_OperationDescription*, const char*, const int64_t*, int)
@@ -615,6 +658,7 @@ int TF_GraphGetTensorNumDims(TF_Graph*, TF_Output, TF_Status* status)
     return -1;
 }
 
+// P0 FIX: Return the actual tracked dtype, not always TF_FLOAT
 TF_DataType TF_OperationOutputType(TF_Output out)
 {
     if (!out.oper)
@@ -622,6 +666,34 @@ TF_DataType TF_OperationOutputType(TF_Output out)
         return TF_FLOAT;
     }
 
+    // Check type_attrs with priority: DstT > T > dtype > out_type
+    const auto& attrs = out.oper->type_attrs;
+    
+    auto it = attrs.find("DstT");
+    if (it != attrs.end())
+    {
+        return it->second;
+    }
+    
+    it = attrs.find("T");
+    if (it != attrs.end())
+    {
+        return it->second;
+    }
+    
+    it = attrs.find("dtype");
+    if (it != attrs.end())
+    {
+        return it->second;
+    }
+    
+    it = attrs.find("out_type");
+    if (it != attrs.end())
+    {
+        return it->second;
+    }
+
+    // Fallback to output_type (which may have been set during TF_SetAttrType)
     return out.oper->output_type;
 }
 
@@ -901,78 +973,10 @@ void TF_SessionRun(
             return cache[op].get();
         }
 
-        // Square computes x * x element-wise
-        if (op->op_type == "Square")
-        {
-            if (op->inputs.empty())
-            {
-                return nullptr;
-            }
-            TF_Tensor* input = self(self, op->inputs[0].oper, cache);
-            if (!input)
-            {
-                return nullptr;
-            }
-
-            const size_t bytes = input->owns_storage ? input->storage.size() : input->external_len;
-            auto out = std::make_unique<TF_Tensor>();
-            out->dtype = input->dtype;
-            out->dims = input->dims;
-            out->storage.resize(bytes);
-            out->owns_storage = true;
-
-            const void* pi = input->owns_storage ? static_cast<const void*>(input->storage.data()) : input->external_data;
-            if (!pi)
-            {
-                return nullptr;
-            }
-
-            if (input->dtype == TF_FLOAT)
-            {
-                const size_t n = bytes / sizeof(float);
-                const float* fi = static_cast<const float*>(pi);
-                float* fo = reinterpret_cast<float*>(out->storage.data());
-                for (size_t i = 0; i < n; ++i) fo[i] = fi[i] * fi[i];
-            }
-            else if (input->dtype == TF_INT32)
-            {
-                const size_t n = bytes / sizeof(int32_t);
-                const int32_t* ii = static_cast<const int32_t*>(pi);
-                int32_t* io = reinterpret_cast<int32_t*>(out->storage.data());
-                for (size_t i = 0; i < n; ++i) io[i] = ii[i] * ii[i];
-            }
-            else if (input->dtype == TF_DOUBLE)
-            {
-                const size_t n = bytes / sizeof(double);
-                const double* di = static_cast<const double*>(pi);
-                double* d_out = reinterpret_cast<double*>(out->storage.data());
-                for (size_t i = 0; i < n; ++i) d_out[i] = di[i] * di[i];
-            }
-            else if (input->dtype == TF_COMPLEX64)
-            {
-                const size_t n = bytes / sizeof(std::complex<float>);
-                const auto* ci = static_cast<const std::complex<float>*>(pi);
-                auto* co = reinterpret_cast<std::complex<float>*>(out->storage.data());
-                for (size_t i = 0; i < n; ++i) co[i] = ci[i] * ci[i];
-            }
-            else if (input->dtype == TF_COMPLEX128)
-            {
-                const size_t n = bytes / sizeof(std::complex<double>);
-                const auto* ci = static_cast<const std::complex<double>*>(pi);
-                auto* co = reinterpret_cast<std::complex<double>*>(out->storage.data());
-                for (size_t i = 0; i < n; ++i) co[i] = ci[i] * ci[i];
-            }
-            else
-            {
-                return nullptr;
-            }
-
-            TF_Tensor* raw = out.get();
-            cache.emplace(op, std::move(out));
-            return raw;
-        }
-
-        if (op->op_type == "Add" || op->op_type == "Mul")
+        // Binary ops: Add, Sub, Mul, Div, etc.
+        if (op->op_type == "Add" || op->op_type == "AddV2" ||
+            op->op_type == "Sub" || op->op_type == "Mul" ||
+            op->op_type == "Div" || op->op_type == "RealDiv")
         {
             if (op->inputs.size() < 2)
             {
@@ -986,84 +990,95 @@ void TF_SessionRun(
                 return nullptr;
             }
 
-            if (a->dtype != b->dtype || a->dims != b->dims)
+            const int64_t na = element_count(a->dims);
+            const int64_t nb = element_count(b->dims);
+            if (na != nb || na == 0)
             {
                 return nullptr;
             }
 
-            const size_t bytes = a->owns_storage ? a->storage.size() : a->external_len;
             auto out = std::make_unique<TF_Tensor>();
             out->dtype = a->dtype;
             out->dims = a->dims;
-            out->storage.resize(bytes);
             out->owns_storage = true;
 
-            const void* pa = a->owns_storage ? static_cast<const void*>(a->storage.data()) : a->external_data;
-            const void* pb = b->owns_storage ? static_cast<const void*>(b->storage.data()) : b->external_data;
-
-            if (!pa || !pb)
-            {
-                return nullptr;
-            }
+            const void* pa = a->owns_storage ? a->storage.data() : a->external_data;
+            const void* pb = b->owns_storage ? b->storage.data() : b->external_data;
 
             if (a->dtype == TF_FLOAT)
             {
-                const size_t n = bytes / sizeof(float);
+                out->storage.resize(static_cast<size_t>(na) * sizeof(float));
                 const float* fa = static_cast<const float*>(pa);
                 const float* fb = static_cast<const float*>(pb);
                 float* fo = reinterpret_cast<float*>(out->storage.data());
-                if (op->op_type == "Add")
+
+                for (int64_t i = 0; i < na; ++i)
                 {
-                    for (size_t i = 0; i < n; ++i) fo[i] = fa[i] + fb[i];
+                    if (op->op_type == "Add" || op->op_type == "AddV2")
+                        fo[i] = fa[i] + fb[i];
+                    else if (op->op_type == "Sub")
+                        fo[i] = fa[i] - fb[i];
+                    else if (op->op_type == "Mul")
+                        fo[i] = fa[i] * fb[i];
+                    else if (op->op_type == "Div" || op->op_type == "RealDiv")
+                        fo[i] = fa[i] / fb[i];
                 }
-                else
+            }
+            else if (a->dtype == TF_DOUBLE)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(double));
+                const double* da = static_cast<const double*>(pa);
+                const double* db = static_cast<const double*>(pb);
+                double* d_out = reinterpret_cast<double*>(out->storage.data());
+
+                for (int64_t i = 0; i < na; ++i)
                 {
-                    for (size_t i = 0; i < n; ++i) fo[i] = fa[i] * fb[i];
+                    if (op->op_type == "Add" || op->op_type == "AddV2")
+                        d_out[i] = da[i] + db[i];
+                    else if (op->op_type == "Sub")
+                        d_out[i] = da[i] - db[i];
+                    else if (op->op_type == "Mul")
+                        d_out[i] = da[i] * db[i];
+                    else if (op->op_type == "Div" || op->op_type == "RealDiv")
+                        d_out[i] = da[i] / db[i];
                 }
             }
             else if (a->dtype == TF_INT32)
             {
-                const size_t n = bytes / sizeof(int32_t);
+                out->storage.resize(static_cast<size_t>(na) * sizeof(int32_t));
                 const int32_t* ia = static_cast<const int32_t*>(pa);
                 const int32_t* ib = static_cast<const int32_t*>(pb);
                 int32_t* io = reinterpret_cast<int32_t*>(out->storage.data());
-                if (op->op_type == "Add")
+
+                for (int64_t i = 0; i < na; ++i)
                 {
-                    for (size_t i = 0; i < n; ++i) io[i] = ia[i] + ib[i];
-                }
-                else
-                {
-                    for (size_t i = 0; i < n; ++i) io[i] = ia[i] * ib[i];
-                }
-            }
-            else if (a->dtype == TF_COMPLEX64)
-            {
-                const size_t n = bytes / sizeof(std::complex<float>);
-                const auto* ca = static_cast<const std::complex<float>*>(pa);
-                const auto* cb = static_cast<const std::complex<float>*>(pb);
-                auto* co = reinterpret_cast<std::complex<float>*>(out->storage.data());
-                if (op->op_type == "Add")
-                {
-                    for (size_t i = 0; i < n; ++i) co[i] = ca[i] + cb[i];
-                }
-                else
-                {
-                    for (size_t i = 0; i < n; ++i) co[i] = ca[i] * cb[i];
+                    if (op->op_type == "Add" || op->op_type == "AddV2")
+                        io[i] = ia[i] + ib[i];
+                    else if (op->op_type == "Sub")
+                        io[i] = ia[i] - ib[i];
+                    else if (op->op_type == "Mul")
+                        io[i] = ia[i] * ib[i];
+                    else if (op->op_type == "Div" || op->op_type == "RealDiv")
+                        io[i] = ia[i] / ib[i];
                 }
             }
-            else if (a->dtype == TF_COMPLEX128)
+            else if (a->dtype == TF_INT64)
             {
-                const size_t n = bytes / sizeof(std::complex<double>);
-                const auto* ca = static_cast<const std::complex<double>*>(pa);
-                const auto* cb = static_cast<const std::complex<double>*>(pb);
-                auto* co = reinterpret_cast<std::complex<double>*>(out->storage.data());
-                if (op->op_type == "Add")
+                out->storage.resize(static_cast<size_t>(na) * sizeof(int64_t));
+                const int64_t* ia = static_cast<const int64_t*>(pa);
+                const int64_t* ib = static_cast<const int64_t*>(pb);
+                int64_t* io = reinterpret_cast<int64_t*>(out->storage.data());
+
+                for (int64_t i = 0; i < na; ++i)
                 {
-                    for (size_t i = 0; i < n; ++i) co[i] = ca[i] + cb[i];
-                }
-                else
-                {
-                    for (size_t i = 0; i < n; ++i) co[i] = ca[i] * cb[i];
+                    if (op->op_type == "Add" || op->op_type == "AddV2")
+                        io[i] = ia[i] + ib[i];
+                    else if (op->op_type == "Sub")
+                        io[i] = ia[i] - ib[i];
+                    else if (op->op_type == "Mul")
+                        io[i] = ia[i] * ib[i];
+                    else if (op->op_type == "Div" || op->op_type == "RealDiv")
+                        io[i] = ia[i] / ib[i];
                 }
             }
             else
@@ -1076,7 +1091,7 @@ void TF_SessionRun(
             return raw;
         }
 
-        // MatMul: matrix multiplication
+        // MatMul
         if (op->op_type == "MatMul")
         {
             if (op->inputs.size() < 2)
@@ -1091,21 +1106,18 @@ void TF_SessionRun(
                 return nullptr;
             }
 
-            // Both must be 2D and same dtype
-            if (a->dims.size() != 2 || b->dims.size() != 2 || a->dtype != b->dtype)
+            if (a->dims.size() != 2 || b->dims.size() != 2)
             {
                 return nullptr;
             }
 
-            // a is (m x k), b is (k x n) -> result is (m x n)
             const int64_t m = a->dims[0];
             const int64_t k = a->dims[1];
-            const int64_t k2 = b->dims[0];
             const int64_t n = b->dims[1];
 
-            if (k != k2)
+            if (b->dims[0] != k)
             {
-                return nullptr;  // Incompatible shapes
+                return nullptr;
             }
 
             auto out = std::make_unique<TF_Tensor>();
@@ -1113,12 +1125,8 @@ void TF_SessionRun(
             out->dims = {m, n};
             out->owns_storage = true;
 
-            const void* pa = a->owns_storage ? static_cast<const void*>(a->storage.data()) : a->external_data;
-            const void* pb = b->owns_storage ? static_cast<const void*>(b->storage.data()) : b->external_data;
-            if (!pa || !pb)
-            {
-                return nullptr;
-            }
+            const void* pa = a->owns_storage ? a->storage.data() : a->external_data;
+            const void* pb = b->owns_storage ? b->storage.data() : b->external_data;
 
             if (a->dtype == TF_FLOAT)
             {

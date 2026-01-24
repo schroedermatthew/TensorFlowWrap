@@ -328,6 +328,33 @@ public:
     }
     
     // ─────────────────────────────────────────────────────────────────
+    // Resolve output with bounds checking
+    // ─────────────────────────────────────────────────────────────────
+    
+    /// Resolve an operation name and index to TF_Output with bounds checking
+    [[nodiscard]] TF_Output resolve_output(const std::string& op_name, int index = 0) const {
+        if (!graph_state_ || !graph_state_->graph) {
+            throw std::runtime_error("Session::resolve_output: session has no graph");
+        }
+        
+        TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, op_name.c_str());
+        if (!op) {
+            throw std::runtime_error(tf_wrap::detail::format(
+                "Session::resolve_output: operation '{}' not found in graph", op_name));
+        }
+        
+        const int num_outputs = TF_OperationNumOutputs(op);
+        if (index < 0 || index >= num_outputs) {
+            throw std::out_of_range(tf_wrap::detail::format(
+                "Session::resolve_output: output index {} out of range for operation '{}' "
+                "(has {} outputs, valid indices are 0-{})",
+                index, op_name, num_outputs, num_outputs > 0 ? num_outputs - 1 : 0));
+        }
+        
+        return TF_Output{op, index};
+    }
+    
+    // ─────────────────────────────────────────────────────────────────
     // Run - Execute the graph
     // TF_SessionRun is thread-safe (TensorFlow's guarantee)
     // ─────────────────────────────────────────────────────────────────
@@ -349,12 +376,9 @@ public:
         input_vals.reserve(feeds.size());
         
         for (const auto& f : feeds) {
-            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, f.op_name.c_str());
-            if (!op) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "Feed operation '{}' not found", f.op_name));
-            }
-            input_ops.push_back(TF_Output{op, f.index});
+            // Use resolve_output for bounds checking
+            TF_Output output = resolve_output(f.op_name, f.index);
+            input_ops.push_back(output);
             input_vals.push_back(f.tensor);
         }
         
@@ -362,12 +386,9 @@ public:
         output_ops.reserve(fetches.size());
         
         for (const auto& f : fetches) {
-            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, f.op_name.c_str());
-            if (!op) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "Fetch operation '{}' not found", f.op_name));
-            }
-            output_ops.push_back(TF_Output{op, f.index});
+            // Use resolve_output for bounds checking
+            TF_Output output = resolve_output(f.op_name, f.index);
+            output_ops.push_back(output);
         }
         
         std::vector<TF_Operation*> target_ops;
@@ -503,23 +524,13 @@ public:
         std::vector<TF_Output> input_ops;
         input_ops.reserve(inputs.size());
         for (const auto& f : inputs) {
-            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, f.op_name.c_str());
-            if (!op) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "PartialRunSetup: input '{}' not found", f.op_name));
-            }
-            input_ops.push_back(TF_Output{op, f.index});
+            input_ops.push_back(resolve_output(f.op_name, f.index));
         }
         
         std::vector<TF_Output> output_ops;
         output_ops.reserve(outputs.size());
         for (const auto& f : outputs) {
-            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, f.op_name.c_str());
-            if (!op) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "PartialRunSetup: output '{}' not found", f.op_name));
-            }
-            output_ops.push_back(TF_Output{op, f.index});
+            output_ops.push_back(resolve_output(f.op_name, f.index));
         }
         
         std::vector<TF_Operation*> target_ops;
@@ -567,24 +578,14 @@ public:
         input_vals.reserve(feeds.size());
         
         for (const auto& f : feeds) {
-            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, f.op_name.c_str());
-            if (!op) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "PartialRun: feed '{}' not found", f.op_name));
-            }
-            input_ops.push_back(TF_Output{op, f.index});
+            input_ops.push_back(resolve_output(f.op_name, f.index));
             input_vals.push_back(f.tensor);
         }
         
         std::vector<TF_Output> output_ops;
         output_ops.reserve(fetches.size());
         for (const auto& f : fetches) {
-            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, f.op_name.c_str());
-            if (!op) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "PartialRun: fetch '{}' not found", f.op_name));
-            }
-            output_ops.push_back(TF_Output{op, f.index});
+            output_ops.push_back(resolve_output(f.op_name, f.index));
         }
         
         std::vector<TF_Operation*> target_ops;

@@ -11,6 +11,7 @@
 #include "tf_wrap/graph.hpp"
 #include "tf_wrap/session.hpp"
 #include "tf_wrap/ops.hpp"  // 160 TensorFlow operations
+#include "tf_wrap/easy.hpp" // Ergonomic layer: TensorName, Runner, Model
 
 // ============================================================================
 // TensorFlow C++20 Wrapper - Quick Reference
@@ -24,6 +25,12 @@
 //   tf_wrap::Operation      - Non-owning handle to TF_Operation
 //   tf_wrap::Status         - RAII wrapper for TF_Status
 //   tf_wrap::SessionOptions - RAII wrapper for TF_SessionOptions
+//
+// ERGONOMIC LAYER (easy.hpp):
+// ─────────────────────────────────────────────────────────────────────────────
+//   tf_wrap::TensorName     - Parse "op:index" strings
+//   tf_wrap::Runner         - Fluent API for session execution
+//   tf_wrap::Model          - High-level SavedModel facade
 //
 // THREAD SAFETY:
 // ─────────────────────────────────────────────────────────────────────────────
@@ -45,7 +52,7 @@
 //   // Or direct pointer access:
 //   float* p = tensor.data<float>();
 //
-// EXAMPLE USAGE:
+// BASIC USAGE:
 // ─────────────────────────────────────────────────────────────────────────────
 //   // Build graph
 //   tf_wrap::Graph graph;
@@ -71,10 +78,33 @@
 //       std::cout << x << " ";
 //   }
 //
+// FLUENT RUNNER API (recommended):
+// ─────────────────────────────────────────────────────────────────────────────
+//   tf_wrap::Session session(graph);
+//   auto result = tf_wrap::Runner(session)
+//       .feed("input:0", input_tensor)
+//       .fetch("output:0")
+//       .run_one();
+//
 // LOAD SAVEDMODEL (recommended for production):
 // ─────────────────────────────────────────────────────────────────────────────
-//   auto [session, graph] = tf_wrap::Session::LoadSavedModel("/path/to/model");
-//   auto result = session.Run({tf_wrap::Feed{"input", tensor}}, {tf_wrap::Fetch{"output"}});
+//   auto model = tf_wrap::Model::Load("/path/to/model");
+//   auto result = model("input:0", input_tensor, "output:0");
+//   
+//   // Or with runner for multiple inputs/outputs:
+//   auto results = model.runner()
+//       .feed("input1:0", tensor1)
+//       .feed("input2:0", tensor2)
+//       .fetch("output1:0")
+//       .fetch("output2:0")
+//       .run();
+//
+// DTYPE-INFERRED OPERATIONS:
+// ─────────────────────────────────────────────────────────────────────────────
+//   using namespace tf_wrap::easy;
+//   auto c1 = Scalar<float>(graph, "c1", 1.0f);
+//   auto c2 = Scalar<float>(graph, "c2", 2.0f);
+//   auto sum = Add(graph, "sum", c1, c2);  // dtype inferred from inputs!
 //
 // DEVICE ENUMERATION:
 // ─────────────────────────────────────────────────────────────────────────────

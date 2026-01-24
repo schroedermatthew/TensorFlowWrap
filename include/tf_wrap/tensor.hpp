@@ -39,6 +39,15 @@ extern "C" {
 #include "tf_wrap/format.hpp"
 #include "tf_wrap/status.hpp"
 
+// ============================================================================
+// P0 Safety: Platform bool size check
+// TensorFlow's TF_BOOL requires 1-byte bool for correct memory layout.
+// This static_assert prevents silent data corruption on non-conforming platforms.
+// ============================================================================
+static_assert(sizeof(bool) == 1,
+    "TensorFlowWrap requires sizeof(bool) == 1 for TF_BOOL compatibility. "
+    "Your platform has a non-standard bool size which would cause data corruption.");
+
 namespace tf_wrap {
 
 // ============================================================================
