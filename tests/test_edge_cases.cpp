@@ -1469,6 +1469,86 @@ TEST_CASE("Moved-from graph error is actionable") {
 }
 
 // ============================================================================
+// Interleaved View Tests (no Session::Run - stub safe)
+// ============================================================================
+
+TEST_CASE("tensor interleaved read write views") {
+    auto tensor = tf_wrap::SafeTensor::FromVector<float>({10}, 
+        {0.0f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f});
+    
+    {
+        auto write_view = tensor.write<float>();
+        write_view[0] = 100.0f;
+    }
+    
+    {
+        auto read_view = tensor.read<float>();
+        REQUIRE(read_view[0] == 100.0f);
+    }
+    
+    for (int i = 0; i < 10; ++i) {
+        {
+            auto write_view = tensor.write<float>();
+            write_view[i] = static_cast<float>(i * 10);
+        }
+        {
+            auto read_view = tensor.read<float>();
+            REQUIRE(read_view[i] == static_cast<float>(i * 10));
+        }
+    }
+}
+
+// ============================================================================
+// AdoptMalloc Success Tests (no Session::Run - stub safe)
+// ============================================================================
+
+TEST_CASE("adopt malloc success basic") {
+    std::vector<int64_t> shape = {2, 3};
+    size_t num_elements = 6;
+    size_t byte_size = num_elements * sizeof(float);
+    
+    float* data = static_cast<float*>(std::malloc(byte_size));
+    REQUIRE(data != nullptr);
+    
+    for (size_t i = 0; i < num_elements; ++i) {
+        data[i] = static_cast<float>(i);
+    }
+    
+    auto tensor = tf_wrap::FastTensor::AdoptMalloc<float>(shape, data, byte_size);
+    
+    REQUIRE(tensor.valid());
+    REQUIRE(tensor.num_elements() == 6);
+    REQUIRE(tensor.dtype() == TF_FLOAT);
+    
+    auto v = tensor.ToVector<float>();
+    REQUIRE(v[0] == 0.0f);
+    REQUIRE(v[5] == 5.0f);
+}
+
+TEST_CASE("adopt malloc success large tensor") {
+    std::vector<int64_t> shape = {1000, 1000};
+    size_t num_elements = 1000000;
+    size_t byte_size = num_elements * sizeof(float);
+    
+    float* data = static_cast<float*>(std::malloc(byte_size));
+    REQUIRE(data != nullptr);
+    
+    for (size_t i = 0; i < num_elements; ++i) {
+        data[i] = static_cast<float>(i % 100);
+    }
+    
+    auto tensor = tf_wrap::FastTensor::AdoptMalloc<float>(shape, data, byte_size);
+    
+    REQUIRE(tensor.shape()[0] == 1000);
+    REQUIRE(tensor.shape()[1] == 1000);
+    
+    auto v = tensor.ToVector<float>();
+    REQUIRE(v[0] == 0.0f);
+    REQUIRE(v[99] == 99.0f);
+    REQUIRE(v[100] == 0.0f);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
