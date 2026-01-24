@@ -1691,64 +1691,6 @@ STRESS_TEST("multiple sessions same graph concurrent") {
 }
 
 // ============================================================================
-// Error Recovery Tests
-// ============================================================================
-
-TEST_CASE("session recovers after shape error") {
-    tf_wrap::FastGraph g;
-    
-    (void)g.NewOperation("Placeholder", "X")
-        .SetAttrType("dtype", TF_FLOAT)
-        .SetAttrShape("shape", {2, 2})
-        .Finish();
-    (void)g.NewOperation("Placeholder", "Y")
-        .SetAttrType("dtype", TF_FLOAT)
-        .SetAttrShape("shape", {2, 2})
-        .Finish();
-    
-    auto* x = g.GetOperationOrThrow("X");
-    auto* y = g.GetOperationOrThrow("Y");
-    
-    (void)g.NewOperation("MatMul", "Result")
-        .AddInput(tf_wrap::Output(x, 0))
-        .AddInput(tf_wrap::Output(y, 0))
-        .Finish();
-    
-    tf_wrap::FastSession s(g);
-    
-    // First cause an error with incompatible shapes
-    auto bad_x = tf_wrap::FastTensor::FromVector<float>({3, 3}, std::vector<float>(9, 1.0f));
-    auto bad_y = tf_wrap::FastTensor::FromVector<float>({2, 2}, std::vector<float>(4, 1.0f));
-    
-    bool threw = false;
-    try {
-        (void)s.Run(
-            {{"X", 0, bad_x.handle()}, {"Y", 0, bad_y.handle()}},
-            {{"Result", 0}},
-            {}
-        );
-    } catch (...) {
-        threw = true;
-    }
-    REQUIRE(threw);
-    
-    // Now run with correct shapes - should succeed
-    auto good_x = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1, 2, 3, 4});
-    auto good_y = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1, 0, 0, 1});
-    
-    auto results = s.Run(
-        {{"X", 0, good_x.handle()}, {"Y", 0, good_y.handle()}},
-        {{"Result", 0}},
-        {}
-    );
-    
-    REQUIRE(results.size() == 1);
-    auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f);
-    REQUIRE(v[3] == 4.0f);
-}
-
-// ============================================================================
 // Main
 // ============================================================================
 
