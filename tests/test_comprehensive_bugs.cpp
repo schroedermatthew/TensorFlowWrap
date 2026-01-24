@@ -105,8 +105,9 @@ inline void require_throws_impl(Fn&& fn, const char* expr, const char* ex_name,
 // ============================================================================
 
 BUG_DEMO_TEST("H1-BUG: Clone during concurrent write detects torn reads") {
-    // This test demonstrates BUG H1: Clone() reads without lock
-    // With Tensor, write() takes exclusive lock but Clone() doesn't lock
+    // This test demonstrates that Clone() during concurrent write can produce
+    // inconsistent data. Without synchronization, torn reads are expected.
+    // This is documented behavior in v5.0 - users should not share mutable tensors.
     
     constexpr int TENSOR_SIZE = 1000;
     
@@ -137,7 +138,7 @@ BUG_DEMO_TEST("H1-BUG: Clone during concurrent write detects torn reads") {
     for (int t = 0; t < 4; ++t) {
         cloners.emplace_back([&]() {
             while (!stop) {
-                auto cloned = tensor.Clone();  // BUG: No lock held during copy!
+                auto cloned = tensor.Clone();  // Not synchronized - may see torn reads
                 auto data = cloned.template ToVector<float>();
                 
                 // All elements should be the same value
@@ -271,14 +272,13 @@ BUG_DEMO_TEST("H1-BUG: Clone race detection aggressive (longer duration)") {
 }
 
 // ============================================================================
-// H2: DebugString() Deadlock Tests
+// H2: DebugString() Tests (deadlock was only possible with locking)
 // ============================================================================
 
 BUG_DEMO_TEST("H2-BUG: Graph DebugString deadlock check") {
-    // This test demonstrates BUG H2: DebugString() calls num_operations()
-    // which would try to acquire the same lock if locking was enabled
-    //
-    // WARNING: This test WILL DEADLOCK if the bug is not fixed!
+    // This test originally demonstrated a potential deadlock when locking was enabled.
+    // With locking removed in v5.0, deadlock is no longer possible.
+    // Kept for historical reference and to verify DebugString still works.
     
     tf_wrap::Graph g;
     
@@ -288,9 +288,9 @@ BUG_DEMO_TEST("H2-BUG: Graph DebugString deadlock check") {
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    // Use async with timeout to detect deadlock
+    // Use async with timeout to detect deadlock (should never happen now)
     auto future = std::async(std::launch::async, [&]() {
-        return g.DebugString();  // Will deadlock before fix!
+        return g.DebugString();
     });
     
     auto status = future.wait_for(std::chrono::seconds(2));
@@ -307,7 +307,7 @@ BUG_DEMO_TEST("H2-BUG: Graph DebugString deadlock check") {
     }
 }
 
-TEST_CASE("H2: Graph DebugString works (no deadlock with NoLock)") {
+TEST_CASE("H2: Graph DebugString works") {
     tf_wrap::Graph g;
     
     auto tensor = tf_wrap::Tensor::FromScalar<float>(42.0f);
@@ -514,7 +514,7 @@ TEST_CASE("Multiple read views from same Tensor") {
     auto tensor = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
     
     auto view1 = tensor.read<float>();
-    auto view2 = tensor.read<float>();  // Both hold shared locks
+    auto view2 = tensor.read<float>();  // Multiple read views are safe
     
     REQUIRE(view1[0] == view2[0]);
     REQUIRE(view1[1] == view2[1]);

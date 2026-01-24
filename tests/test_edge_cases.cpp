@@ -849,7 +849,7 @@ TEST_CASE("Session from moved-from graph throws") {
 // CRITICAL: OperationBuilder lifecycle tests
 // ============================================================================
 
-TEST_CASE("OperationBuilder Finish releases lock immediately") {
+TEST_CASE("OperationBuilder Finish completes operation") {
     tf_wrap::Graph g;
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
@@ -860,7 +860,6 @@ TEST_CASE("OperationBuilder Finish releases lock immediately") {
         .Finish();
     
     // Should be able to create another operation immediately
-    // (lock was released by Finish)
     auto t2 = tf_wrap::Tensor::FromScalar<float>(2.0f);
     (void)g.NewOperation("Const", "B")
         .SetAttrTensor("value", t2.handle())
@@ -870,7 +869,7 @@ TEST_CASE("OperationBuilder Finish releases lock immediately") {
     REQUIRE(g.num_operations() == 2u);
 }
 
-TEST_CASE("OperationBuilder without Finish releases lock on destruction") {
+TEST_CASE("OperationBuilder without Finish is safe") {
     tf_wrap::Graph g;
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
@@ -883,7 +882,6 @@ TEST_CASE("OperationBuilder without Finish releases lock on destruction") {
     }
     
     // Should be able to create another operation
-    // (lock was released by destructor)
     auto t2 = tf_wrap::Tensor::FromScalar<float>(2.0f);
     (void)g.NewOperation("Const", "B")
         .SetAttrTensor("value", t2.handle())
@@ -1216,12 +1214,13 @@ TEST_CASE("Types with handle(): moved-from has null handle") {
 // MEDIUM: Thread safety claims verification
 // ============================================================================
 
-STRESS_TEST("Graph methods are actually serialized") {
+STRESS_TEST("Graph concurrent operation creation") {
     tf_wrap::Graph g;
     std::atomic<int> op_count{0};
     std::vector<std::thread> threads;
     
     // Multiple threads try to add operations
+    // Note: Without locking, this tests that concurrent access doesn't crash
     for (int i = 0; i < 10; ++i) {
         threads.emplace_back([&g, &op_count, i] {
             auto t = tf_wrap::Tensor::FromScalar<float>(static_cast<float>(i));
@@ -1277,7 +1276,7 @@ STRESS_TEST("Graph allows concurrent reads") {
     REQUIRE(read_count.load() == 1000);
 }
 
-STRESS_TEST("Session Run is actually serialized") {
+STRESS_TEST("Session Run is thread-safe (TensorFlow guarantee)") {
     tf_wrap::Graph g;
     auto tensor = tf_wrap::Tensor::FromScalar<float>(42.0f);
     (void)g.NewOperation("Const", "A")
@@ -1290,7 +1289,7 @@ STRESS_TEST("Session Run is actually serialized") {
     std::atomic<int> run_count{0};
     std::vector<std::thread> threads;
     
-    // Multiple threads run concurrently
+    // Multiple threads run concurrently - this is safe per TensorFlow's API
     for (int i = 0; i < 10; ++i) {
         threads.emplace_back([&s, &run_count] {
             for (int j = 0; j < 10; ++j) {
