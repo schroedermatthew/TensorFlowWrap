@@ -1091,6 +1091,82 @@ void TF_SessionRun(
             return raw;
         }
 
+        // Square (unary: x * x)
+        if (op->op_type == "Square")
+        {
+            if (op->inputs.empty())
+            {
+                return nullptr;
+            }
+
+            TF_Tensor* a = self(self, op->inputs[0].oper, cache);
+            if (!a)
+            {
+                return nullptr;
+            }
+
+            int64_t na = 1;
+            for (auto d : a->dims)
+            {
+                na *= d;
+            }
+
+            auto out = std::make_unique<TF_Tensor>();
+            out->dims = a->dims;
+            out->dtype = a->dtype;
+
+            const void* pa = a->storage.empty() ? a->external_data : a->storage.data();
+
+            if (a->dtype == TF_FLOAT)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(float));
+                const float* ia = static_cast<const float*>(pa);
+                float* io = reinterpret_cast<float*>(out->storage.data());
+                for (int64_t i = 0; i < na; ++i)
+                {
+                    io[i] = ia[i] * ia[i];
+                }
+            }
+            else if (a->dtype == TF_DOUBLE)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(double));
+                const double* ia = static_cast<const double*>(pa);
+                double* io = reinterpret_cast<double*>(out->storage.data());
+                for (int64_t i = 0; i < na; ++i)
+                {
+                    io[i] = ia[i] * ia[i];
+                }
+            }
+            else if (a->dtype == TF_INT32)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(int32_t));
+                const int32_t* ia = static_cast<const int32_t*>(pa);
+                int32_t* io = reinterpret_cast<int32_t*>(out->storage.data());
+                for (int64_t i = 0; i < na; ++i)
+                {
+                    io[i] = ia[i] * ia[i];
+                }
+            }
+            else if (a->dtype == TF_INT64)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(int64_t));
+                const int64_t* ia = static_cast<const int64_t*>(pa);
+                int64_t* io = reinterpret_cast<int64_t*>(out->storage.data());
+                for (int64_t i = 0; i < na; ++i)
+                {
+                    io[i] = ia[i] * ia[i];
+                }
+            }
+            else
+            {
+                return nullptr;
+            }
+
+            TF_Tensor* raw = out.get();
+            cache.emplace(op, std::move(out));
+            return raw;
+        }
+
         // MatMul
         if (op->op_type == "MatMul")
         {
