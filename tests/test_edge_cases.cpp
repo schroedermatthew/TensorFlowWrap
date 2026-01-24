@@ -1469,6 +1469,66 @@ TEST_CASE("Moved-from graph error is actionable") {
 }
 
 // ============================================================================
+// Cross-Policy Tests (use only Const - stub supports this)
+// ============================================================================
+
+TEST_CASE("cross policy safe session with fast graph") {
+    tf_wrap::FastGraph g;
+    auto t = tf_wrap::FastTensor::FromVector<float>({2}, {1.0f, 2.0f});
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::SafeSession s(g);
+    auto results = s.Run({}, {{"X", 0}}, {});
+    REQUIRE(results[0].ToVector<float>().size() == 2);
+}
+
+TEST_CASE("cross policy fast session with safe graph") {
+    tf_wrap::SafeGraph g;
+    auto t = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"X", 0}}, {});
+    REQUIRE(results[0].ToVector<float>().size() == 3);
+}
+
+TEST_CASE("cross policy shared tensor with fast graph") {
+    auto tensor = tf_wrap::SharedTensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
+    
+    tf_wrap::FastGraph g;
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", tensor.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"X", 0}}, {});
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v[0] == 1.0f);
+    REQUIRE(v[3] == 4.0f);
+}
+
+TEST_CASE("cross policy safe tensor with safe graph and fast session") {
+    auto tensor = tf_wrap::SafeTensor::FromScalar<int32_t>(42);
+    
+    tf_wrap::SafeGraph g;
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", tensor.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"X", 0}}, {});
+    REQUIRE(results[0].ToScalar<int32_t>() == 42);
+}
+
+// ============================================================================
 // Interleaved View Tests (no Session::Run - stub safe)
 // ============================================================================
 
@@ -1496,6 +1556,37 @@ TEST_CASE("tensor interleaved read write views") {
             REQUIRE(read_view[i] == static_cast<float>(i * 10));
         }
     }
+}
+
+TEST_CASE("tensor concurrent read views") {
+    auto tensor = tf_wrap::SharedTensor::FromVector<float>({1000},
+        std::vector<float>(1000, 42.0f));
+    
+    std::atomic<int> success_count{0};
+    
+    auto reader = [&]() {
+        for (int i = 0; i < 100; ++i) {
+            auto view = tensor.read<float>();
+            bool all_correct = true;
+            for (size_t j = 0; j < view.size(); ++j) {
+                if (view[j] != 42.0f) {
+                    all_correct = false;
+                    break;
+                }
+            }
+            if (all_correct) ++success_count;
+        }
+    };
+    
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 8; ++i) {
+        threads.emplace_back(reader);
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    REQUIRE(success_count == 800);
 }
 
 // ============================================================================
