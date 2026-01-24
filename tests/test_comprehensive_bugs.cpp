@@ -1,184 +1,34 @@
-// tests/test_comprehensive_bugs.cpp
-// Comprehensive test suite for all identified bugs and gaps
+// test_comprehensive_bugs_new.cpp
+// Edge case tests using doctest
 //
-// This file tests:
-// - H1: Clone() race condition
-// - H2: DebugString() deadlock with Graph
-// - M1: LoadSavedModel lifetime issues
-// - View lifetime safety
-// - Graph/Tensor/Session coverage
-//
-// Compile: g++ -std=c++20 -pthread -fsanitize=thread -I../include test_comprehensive_bugs.cpp ../third_party/tf_stub/tf_c_stub.cpp -o test_bugs
+// Run with: ./test_edge_cases
+// Run stress tests: ./test_edge_cases -ts=stress
+
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "doctest/doctest.h"
 
 #include "tf_wrap/all.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cstring>
+#include <cstdint>
+#include <cstdlib>
 #include <future>
 #include <iostream>
+#include <limits>
 #include <numeric>
-#include <optional>
 #include <random>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
 
-// ============================================================================
-// Test Framework
-// ============================================================================
-
-namespace tf_test {
-
-struct TestCase {
-    const char* name;
-    void (*fn)();
-    bool is_stress;
-    bool expect_fail;  // For tests that demonstrate bugs
-};
-
-inline std::vector<TestCase>& registry() {
-    static std::vector<TestCase> r;
-    return r;
-}
-
-struct Registrar {
-    Registrar(const char* name, void (*fn)(), bool is_stress = false, bool expect_fail = false) {
-        registry().push_back({name, fn, is_stress, expect_fail});
-    }
-};
-
-inline void require_impl(bool cond, const char* expr, const char* file, int line) {
-    if (cond) return;
-    throw std::runtime_error(std::string("REQUIRE failed: ") + expr + 
-                             " (" + file + ":" + std::to_string(line) + ")");
-}
-
-template<class Ex, class Fn>
-inline void require_throws_impl(Fn&& fn, const char* expr, const char* ex_name,
-                                const char* file, int line) {
-    try {
-        fn();
-        throw std::runtime_error(std::string("REQUIRE_THROWS failed: ") + expr + 
-                                 " did not throw " + ex_name +
-                                 " (" + file + ":" + std::to_string(line) + ")");
-    } catch (const Ex&) {
-        // Expected
-    } catch (const std::exception& e) {
-        throw std::runtime_error(std::string("REQUIRE_THROWS failed: ") + expr + 
-                                 " threw wrong type: " + e.what() +
-                                 " (" + file + ":" + std::to_string(line) + ")");
-    }
-}
-
-} // namespace tf_test
-
-#define TF_JOIN2(a, b) a##b
-#define TF_JOIN(a, b) TF_JOIN2(a, b)
-
-#define TEST_CASE(name) \
-    static void TF_JOIN(test_fn_, __LINE__)(); \
-    static tf_test::Registrar TF_JOIN(test_reg_, __LINE__)( \
-        name, &TF_JOIN(test_fn_, __LINE__), false, false); \
-    static void TF_JOIN(test_fn_, __LINE__)()
-
-#define STRESS_TEST(name) \
-    static void TF_JOIN(stress_fn_, __LINE__)(); \
-    static tf_test::Registrar TF_JOIN(stress_reg_, __LINE__)( \
-        name, &TF_JOIN(stress_fn_, __LINE__), true, false); \
-    static void TF_JOIN(stress_fn_, __LINE__)()
-
-// Test that demonstrates a bug (expected to fail or timeout before fix)
-#define BUG_DEMO_TEST(name) \
-    static void TF_JOIN(bug_fn_, __LINE__)(); \
-    static tf_test::Registrar TF_JOIN(bug_reg_, __LINE__)( \
-        name, &TF_JOIN(bug_fn_, __LINE__), true, true); \
-    static void TF_JOIN(bug_fn_, __LINE__)()
-
-#define REQUIRE(expr) tf_test::require_impl((expr), #expr, __FILE__, __LINE__)
-#define REQUIRE_THROWS_AS(expr, ex) \
-    tf_test::require_throws_impl<ex>([&]{ (void)(expr); }, #expr, #ex, __FILE__, __LINE__)
-
-// ============================================================================
-// H1: Clone() Race Condition Tests
-// ============================================================================
-
-BUG_DEMO_TEST("H1-BUG: Clone during concurrent write detects torn reads") {
-    // This test demonstrates that Clone() during concurrent write can produce
-    // inconsistent data. Without synchronization, torn reads are expected.
-    // This is documented behavior in v5.0 - users should not share mutable tensors.
-    
-    constexpr int TENSOR_SIZE = 1000;
-    
-    std::vector<std::int64_t> shape = {TENSOR_SIZE};
-    std::vector<float> init_data(TENSOR_SIZE, 0.0f);
-    auto tensor = tf_wrap::Tensor::FromVector<float>(shape, init_data);
-    
-    std::atomic<bool> stop{false};
-    std::atomic<int> corrupted{0};
-    std::atomic<int> write_count{0};
-    std::atomic<int> clone_count{0};
-    
-    // Writer thread: fills tensor with same value
-    std::thread writer([&]() {
-        float v = 1.0f;
-        while (!stop) {
-            {
-                auto view = tensor.template write<float>();
-                std::fill(view.begin(), view.end(), v);
-            }
-            v += 1.0f;
-            ++write_count;
-        }
-    });
-    
-    // Clone checker threads: verify cloned data is consistent
-    std::vector<std::thread> cloners;
-    for (int t = 0; t < 4; ++t) {
-        cloners.emplace_back([&]() {
-            while (!stop) {
-                auto cloned = tensor.Clone();  // Not synchronized - may see torn reads
-                auto data = cloned.template ToVector<float>();
-                
-                // All elements should be the same value
-                float first = data[0];
-                bool is_consistent = true;
-                for (std::size_t i = 1; i < data.size(); ++i) {
-                    if (data[i] != first) {
-                        is_consistent = false;
-                        break;
-                    }
-                }
-                
-                if (!is_consistent) {
-                    ++corrupted;
-                }
-                ++clone_count;
-            }
-        });
-    }
-    
-    // Run for a bit
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    stop = true;
-    
-    writer.join();
-    for (auto& t : cloners) t.join();
-    
-    std::cout << "     Writes: " << write_count 
-              << ", Clones: " << clone_count
-              << ", Corrupted: " << corrupted << "\n";
-    
-    // After H1 is fixed, this should always be 0
-    // Before fix, corrupted > 0 demonstrates the race
-    REQUIRE(corrupted == 0);
-}
-
 TEST_CASE("H1: Clone of empty tensor is safe") {
     tf_wrap::Tensor empty;
     auto clone = empty.Clone();
-    REQUIRE(clone.empty());
+    CHECK(clone.empty());
 }
 
 TEST_CASE("H1: Clone preserves data correctly (single-threaded)") {
@@ -188,9 +38,9 @@ TEST_CASE("H1: Clone preserves data correctly (single-threaded)") {
     auto orig_data = tensor.ToVector<float>();
     auto clone_data = clone.ToVector<float>();
     
-    REQUIRE(orig_data.size() == clone_data.size());
+    CHECK(orig_data.size() == clone_data.size());
     for (std::size_t i = 0; i < orig_data.size(); ++i) {
-        REQUIRE(orig_data[i] == clone_data[i]);
+        CHECK(orig_data[i] == clone_data[i]);
     }
     
     // Verify they're independent
@@ -198,10 +48,10 @@ TEST_CASE("H1: Clone preserves data correctly (single-threaded)") {
         auto view = clone.write<float>();
         view[0] = 999.0f;
     }
-    REQUIRE(tensor.ToVector<float>()[0] == 1.0f);  // Original unchanged
+    CHECK(tensor.ToVector<float>()[0] == 1.0f);  // Original unchanged
 }
 
-BUG_DEMO_TEST("H1-BUG: Clone race detection aggressive (longer duration)") {
+TEST_CASE("H1-BUG: Clone race detection aggressive (longer duration)" * doctest::may_fail()) {
     // More aggressive test with longer duration and larger tensor
     constexpr int TENSOR_SIZE = 10000;
     
@@ -268,14 +118,14 @@ BUG_DEMO_TEST("H1-BUG: Clone race detection aggressive (longer duration)") {
               << ", Inconsistent: " << inconsistent_count << "\n";
     
     // After H1 is fixed, this should always be 0
-    REQUIRE(inconsistent_count == 0);
+    CHECK(inconsistent_count == 0);
 }
 
 // ============================================================================
 // H2: DebugString() Tests (deadlock was only possible with locking)
 // ============================================================================
 
-BUG_DEMO_TEST("H2-BUG: Graph DebugString deadlock check") {
+TEST_CASE("H2-BUG: Graph DebugString deadlock check") {
     // This test originally demonstrated a potential deadlock when locking was enabled.
     // With locking removed in v5.0, deadlock is no longer possible.
     // Kept for historical reference and to verify DebugString still works.
@@ -301,8 +151,8 @@ BUG_DEMO_TEST("H2-BUG: Graph DebugString deadlock check") {
         throw std::runtime_error("Deadlock detected in Graph::DebugString");
     } else {
         std::string result = future.get();
-        REQUIRE(result.find("test_const") != std::string::npos);
-        REQUIRE(result.find("1 operations") != std::string::npos);
+        CHECK(result.find("test_const") != std::string::npos);
+        CHECK(result.find("1 operations") != std::string::npos);
         std::cout << "     No deadlock (fix applied)\n";
     }
 }
@@ -317,13 +167,13 @@ TEST_CASE("H2: Graph DebugString works") {
         .Finish();
     
     std::string debug = g.DebugString();
-    REQUIRE(debug.find("myconst") != std::string::npos);
+    CHECK(debug.find("myconst") != std::string::npos);
 }
 
 TEST_CASE("H2: Graph num_operations standalone") {
     tf_wrap::Graph g;
     
-    REQUIRE(g.num_operations() == 0);
+    CHECK(g.num_operations() == 0);
     
     auto tensor = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g.NewOperation("Const", "c1")
@@ -331,7 +181,7 @@ TEST_CASE("H2: Graph num_operations standalone") {
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    REQUIRE(g.num_operations() == 1);
+    CHECK(g.num_operations() == 1);
 }
 
 // ============================================================================
@@ -354,13 +204,13 @@ TEST_CASE("Graph all methods work") {
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    REQUIRE(g.num_operations() == 2);
-    REQUIRE(g.GetOperation("const1").has_value());
-    REQUIRE(g.GetOperation("nonexistent") == std::nullopt);
+    CHECK(g.num_operations() == 2);
+    CHECK(g.GetOperation("const1").has_value());
+    CHECK(g.GetOperation("nonexistent") == std::nullopt);
     
     // GetOperationOrThrow returns TF_Operation*
     TF_Operation* found = g.GetOperationOrThrow("const1");
-    REQUIRE(std::string(TF_OperationName(found)) == "const1");
+    CHECK(std::string(TF_OperationName(found)) == "const1");
     
     bool threw = false;
     try {
@@ -368,7 +218,7 @@ TEST_CASE("Graph all methods work") {
     } catch (const std::runtime_error&) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
 TEST_CASE("Tensor read/write thread safety") {
@@ -383,8 +233,8 @@ TEST_CASE("Tensor read/write thread safety") {
     // Reader
     {
         auto view = tensor.read<float>();
-        REQUIRE(view[0] == 100.0f);
-        REQUIRE(view[4] == 5.0f);
+        CHECK(view[0] == 100.0f);
+        CHECK(view[4] == 5.0f);
     }
 }
 
@@ -394,7 +244,7 @@ TEST_CASE("Tensor read/write thread safety") {
 // tensors are no longer thread-safe and this test is not applicable.
 // Users should not share mutable tensors across threads.
 
-STRESS_TEST("Tensor allows concurrent readers") {
+TEST_CASE("Tensor allows concurrent readers" * doctest::test_suite("stress")) {
     std::vector<std::int64_t> shape = {100};
     std::vector<float> init_data(100, 42.0f);
     auto tensor = tf_wrap::Tensor::FromVector<float>(shape, init_data);
@@ -430,7 +280,7 @@ STRESS_TEST("Tensor allows concurrent readers") {
     for (auto& t : readers) t.join();
     
     std::cout << "     Max concurrent readers: " << max_concurrent << "\n";
-    REQUIRE(max_concurrent > 1);  // Should have had concurrent readers
+    CHECK(max_concurrent > 1);  // Should have had concurrent readers
 }
 
 // ============================================================================
@@ -448,10 +298,10 @@ TEST_CASE("View keeps tensor alive after Tensor destroyed") {
     
     // View should still be valid!
     auto& view = *opt_view;
-    REQUIRE(view.size() == 3);
-    REQUIRE(view[0] == 1.0f);
-    REQUIRE(view[1] == 2.0f);
-    REQUIRE(view[2] == 3.0f);
+    CHECK(view.size() == 3);
+    CHECK(view[0] == 1.0f);
+    CHECK(view[1] == 2.0f);
+    CHECK(view[2] == 3.0f);
 }
 
 TEST_CASE("Write view keeps tensor alive") {
@@ -463,9 +313,9 @@ TEST_CASE("Write view keeps tensor alive") {
     }  // tensor destroyed, but view keeps shared_ptr to state alive
     
     auto& view = *opt_view;
-    REQUIRE(view.size() == 3);
+    CHECK(view.size() == 3);
     view[0] = 100.0f;
-    REQUIRE(view[0] == 100.0f);
+    CHECK(view[0] == 100.0f);
 }
 
 // ============================================================================
@@ -497,10 +347,10 @@ TEST_CASE("L1: Empty tensor error handling consistency") {
     tf_wrap::Tensor empty;
     
     // byte_size() returns 0 silently
-    REQUIRE(empty.byte_size() == 0);
+    CHECK(empty.byte_size() == 0);
     
     // num_elements() returns 0 for empty tensor
-    REQUIRE(empty.num_elements() == 0);
+    CHECK(empty.num_elements() == 0);
     
     // The inconsistency would be if num_elements threw but byte_size didn't
     // Both should handle empty gracefully
@@ -516,9 +366,9 @@ TEST_CASE("Multiple read views from same Tensor") {
     auto view1 = tensor.read<float>();
     auto view2 = tensor.read<float>();  // Multiple read views are safe
     
-    REQUIRE(view1[0] == view2[0]);
-    REQUIRE(view1[1] == view2[1]);
-    REQUIRE(view1[2] == view2[2]);
+    CHECK(view1[0] == view2[0]);
+    CHECK(view1[1] == view2[1]);
+    CHECK(view1[2] == view2[2]);
 }
 
 TEST_CASE("Tensor move leaves valid empty state") {
@@ -526,13 +376,13 @@ TEST_CASE("Tensor move leaves valid empty state") {
     auto t2 = std::move(t1);
     
     // t1 should be in valid empty state
-    REQUIRE(t1.empty());
-    REQUIRE(t1.handle() == nullptr);
-    REQUIRE(t1.byte_size() == 0);
+    CHECK(t1.empty());
+    CHECK(t1.handle() == nullptr);
+    CHECK(t1.byte_size() == 0);
     
     // t2 should have the data
-    REQUIRE(!t2.empty());
-    REQUIRE(t2.ToScalar<float>() == 42.0f);
+    CHECK(!t2.empty());
+    CHECK(t2.ToScalar<float>() == 42.0f);
 }
 
 TEST_CASE("Graph move: moved-from must throw on use") {
@@ -543,78 +393,16 @@ TEST_CASE("Graph move: moved-from must throw on use") {
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    REQUIRE(g1.num_operations() == 1);
+    CHECK(g1.num_operations() == 1);
     
     tf_wrap::Graph g2 = std::move(g1);
     
     // g2 should have the operation
-    REQUIRE(g2.num_operations() == 1);
-    REQUIRE(g2.valid());
+    CHECK(g2.num_operations() == 1);
+    CHECK(g2.valid());
     
     // g1 must be invalid and throw on use (not silently return empty)
-    REQUIRE(!g1.valid());
-    REQUIRE_THROWS_AS(g1.num_operations(), std::runtime_error);
+    CHECK(!g1.valid());
+    CHECK_THROWS_AS(g1.num_operations(), std::runtime_error);
 }
 
-// ============================================================================
-// Main
-// ============================================================================
-
-int main(int argc, char** argv) {
-    bool run_stress = false;
-    bool run_bug_demos = false;
-    
-    for (int i = 1; i < argc; ++i) {
-        if (std::string(argv[i]) == "--stress") run_stress = true;
-        if (std::string(argv[i]) == "--bugs") run_bug_demos = true;
-        if (std::string(argv[i]) == "--all") { run_stress = true; run_bug_demos = true; }
-    }
-    
-    int passed = 0, failed = 0, skipped = 0;
-    const auto& tests = tf_test::registry();
-    
-    std::cout << "Running comprehensive bug tests...\n\n";
-    
-    for (const auto& tc : tests) {
-        // Skip stress tests unless --stress or --all
-        if (tc.is_stress && !run_stress && !tc.expect_fail) {
-            ++skipped;
-            continue;
-        }
-        
-        // Skip bug demos unless --bugs or --all
-        if (tc.expect_fail && !run_bug_demos) {
-            ++skipped;
-            continue;
-        }
-        
-        std::cout << "[TEST]   " << tc.name << "\n";
-        
-        try {
-            tc.fn();
-            if (tc.expect_fail) {
-                std::cout << "  UNEXPECTED PASS (bug may be fixed!)\n";
-            } else {
-                std::cout << "  PASS\n";
-            }
-            ++passed;
-        } catch (const std::exception& e) {
-            if (tc.expect_fail) {
-                std::cout << "  EXPECTED FAIL: " << e.what() << "\n";
-                ++passed;  // Expected failure counts as pass
-            } else {
-                std::cout << "  FAIL: " << e.what() << "\n";
-                ++failed;
-            }
-        }
-    }
-    
-    std::cout << "\n========================================\n";
-    std::cout << "Passed: " << passed << ", Failed: " << failed << ", Skipped: " << skipped << "\n";
-    
-    if (skipped > 0) {
-        std::cout << "(Use --stress for stress tests, --bugs for bug demos, --all for everything)\n";
-    }
-    
-    return failed > 0 ? 1 : 0;
-}

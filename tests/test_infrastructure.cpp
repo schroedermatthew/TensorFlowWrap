@@ -1,14 +1,17 @@
 // tests/test_infrastructure.cpp
-// Infrastructure-dependent tests - SKIPPED on GitHub Actions CI
-// Run locally with: TF_INFRA_TESTS=1 ./test_infrastructure
+// Infrastructure-dependent tests using doctest
+//
+// Run with: TF_INFRA_TESTS=1 ./test_infrastructure
 //
 // These tests require specialized environments:
-// - GPU tests: NVIDIA GPU with CUDA
-// - Distributed tests: gRPC cluster
-// - OOM tests: Controlled memory limits
-// - Huge tensor tests: 16GB+ RAM
-// - High-thread tests: 32+ core machine
-// - Soak tests: Hours of runtime
+// - GPU tests: TF_HAS_GPU=1
+// - Distributed tests: TF_DISTRIBUTED_TARGET=grpc://...
+// - High memory tests: TF_HIGH_MEMORY=1 (16GB+ RAM)
+// - Many cores tests: TF_MANY_CORES=1 (32+ cores)
+// - Soak tests: TF_SOAK_TESTS=1 (hours of runtime)
+
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "doctest/doctest.h"
 
 #include "tf_wrap/all.hpp"
 
@@ -28,13 +31,8 @@
 #include <vector>
 
 // ============================================================================
-// Test Framework
+// Environment checks
 // ============================================================================
-
-static int g_tests_run = 0;
-static int g_tests_passed = 0;
-static int g_tests_failed = 0;
-static int g_tests_skipped = 0;
 
 static bool should_skip_infra_tests() {
     const char* env = std::getenv("TF_INFRA_TESTS");
@@ -66,49 +64,42 @@ static bool run_soak_tests() {
     return env != nullptr && std::string(env) == "1";
 }
 
-#define REQUIRE(cond) do { \
-    if (!(cond)) { \
-        std::cerr << "  FAILED: " #cond << " at line " << __LINE__ << "\n"; \
-        throw std::runtime_error("Test failed"); \
-    } \
+#define SKIP_IF_NO_INFRA() do { \
+    if (should_skip_infra_tests()) { MESSAGE("Skipped: set TF_INFRA_TESTS=1"); return; } \
 } while(0)
 
-#define INFRA_TEST(name, check_fn) \
-    void test_##name(); \
-    struct TestReg_##name { \
-        TestReg_##name() { \
-            ++g_tests_run; \
-            std::cout << "[TEST] " #name << "\n"; \
-            if (should_skip_infra_tests()) { \
-                std::cout << "  SKIPPED (set TF_INFRA_TESTS=1 to run)\n"; \
-                ++g_tests_skipped; \
-                return; \
-            } \
-            if (!check_fn()) { \
-                std::cout << "  SKIPPED (missing requirement)\n"; \
-                ++g_tests_skipped; \
-                return; \
-            } \
-            try { \
-                test_##name(); \
-                std::cout << "  PASS\n"; \
-                ++g_tests_passed; \
-            } catch (const std::exception& e) { \
-                std::cout << "  FAIL: " << e.what() << "\n"; \
-                ++g_tests_failed; \
-            } \
-        } \
-    } g_reg_##name; \
-    void test_##name()
+#define SKIP_IF_NO_GPU() do { \
+    SKIP_IF_NO_INFRA(); \
+    if (!has_gpu()) { MESSAGE("Skipped: set TF_HAS_GPU=1"); return; } \
+} while(0)
 
-// Always-true check for tests that just need TF_INFRA_TESTS=1
-static bool always_true() { return true; }
+#define SKIP_IF_NO_DISTRIBUTED() do { \
+    SKIP_IF_NO_INFRA(); \
+    if (!has_distributed()) { MESSAGE("Skipped: set TF_DISTRIBUTED_TARGET"); return; } \
+} while(0)
+
+#define SKIP_IF_NO_HIGH_MEMORY() do { \
+    SKIP_IF_NO_INFRA(); \
+    if (!has_high_memory()) { MESSAGE("Skipped: set TF_HIGH_MEMORY=1"); return; } \
+} while(0)
+
+#define SKIP_IF_NO_MANY_CORES() do { \
+    SKIP_IF_NO_INFRA(); \
+    if (!has_many_cores()) { MESSAGE("Skipped: set TF_MANY_CORES=1"); return; } \
+} while(0)
+
+#define SKIP_IF_NO_SOAK() do { \
+    SKIP_IF_NO_INFRA(); \
+    if (!run_soak_tests()) { MESSAGE("Skipped: set TF_SOAK_TESTS=1"); return; } \
+} while(0)
 
 // ============================================================================
 // GPU Device Placement Tests
 // ============================================================================
 
-INFRA_TEST(gpu_device_list_contains_gpu, has_gpu) {
+TEST_CASE("gpu_device_list_contains_gpu" * doctest::test_suite("gpu")) {
+    SKIP_IF_NO_GPU();
+    
     tf_wrap::Graph g;
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g.NewOperation("Const", "X")
@@ -122,18 +113,19 @@ INFRA_TEST(gpu_device_list_contains_gpu, has_gpu) {
     bool found_gpu = false;
     for (int i = 0; i < devices.count(); ++i) {
         auto dev = devices.at(i);
-        std::cout << "    Found device: " << dev.name << " (" << dev.type << ")\n";
+        MESSAGE("Found device: ", dev.name, " (", dev.type, ")");
         if (dev.type == "GPU") {
             found_gpu = true;
         }
     }
-    REQUIRE(found_gpu);
+    CHECK(found_gpu);
 }
 
-INFRA_TEST(gpu_explicit_device_placement, has_gpu) {
+TEST_CASE("gpu_explicit_device_placement" * doctest::test_suite("gpu")) {
+    SKIP_IF_NO_GPU();
+    
     tf_wrap::Graph g;
     
-    // Create tensor on GPU
     auto t = tf_wrap::Tensor::FromVector<float>({1000}, std::vector<float>(1000, 1.0f));
     
     (void)g.NewOperation("Const", "X")
@@ -144,7 +136,6 @@ INFRA_TEST(gpu_explicit_device_placement, has_gpu) {
     
     auto* x = g.GetOperationOrThrow("X");
     
-    // Square on GPU
     (void)g.NewOperation("Square", "Y")
         .AddInput(tf_wrap::Output(x, 0))
         .SetDevice("/device:GPU:0")
@@ -153,15 +144,16 @@ INFRA_TEST(gpu_explicit_device_placement, has_gpu) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Y", 0}}, {});
     
-    REQUIRE(results.size() == 1);
-    REQUIRE(results[0].num_elements() == 1000);
+    CHECK(results.size() == 1);
+    CHECK(results[0].num_elements() == 1000);
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(std::abs(v[0] - 1.0f) < 0.001f);  // 1^2 = 1
+    CHECK(std::abs(v[0] - 1.0f) < 0.001f);
 }
 
-INFRA_TEST(gpu_large_tensor_computation, has_gpu) {
-    // 100M floats = 400MB - should fit on most GPUs
+TEST_CASE("gpu_large_tensor_computation" * doctest::test_suite("gpu")) {
+    SKIP_IF_NO_GPU();
+    
     const size_t num_elements = 100'000'000;
     
     tf_wrap::Graph g;
@@ -190,21 +182,21 @@ INFRA_TEST(gpu_large_tensor_computation, has_gpu) {
     auto end = std::chrono::high_resolution_clock::now();
     
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "    GPU computation time: " << ms << "ms for " << num_elements << " elements\n";
+    MESSAGE("GPU computation time: ", ms, "ms for ", num_elements, " elements");
     
-    REQUIRE(results[0].num_elements() == num_elements);
+    CHECK(results[0].num_elements() == num_elements);
     
-    // Spot check
     auto v = results[0].ToVector<float>();
-    REQUIRE(std::abs(v[0] - 4.0f) < 0.001f);
-    REQUIRE(std::abs(v[num_elements/2] - 4.0f) < 0.001f);
-    REQUIRE(std::abs(v[num_elements-1] - 4.0f) < 0.001f);
+    CHECK(std::abs(v[0] - 4.0f) < 0.001f);
+    CHECK(std::abs(v[num_elements/2] - 4.0f) < 0.001f);
+    CHECK(std::abs(v[num_elements-1] - 4.0f) < 0.001f);
 }
 
-INFRA_TEST(gpu_cpu_data_transfer, has_gpu) {
+TEST_CASE("gpu_cpu_data_transfer" * doctest::test_suite("gpu")) {
+    SKIP_IF_NO_GPU();
+    
     tf_wrap::Graph g;
     
-    // Create on CPU
     auto t = tf_wrap::Tensor::FromVector<float>({1000}, std::vector<float>(1000, 3.0f));
     
     (void)g.NewOperation("Const", "CPU_Data")
@@ -215,7 +207,6 @@ INFRA_TEST(gpu_cpu_data_transfer, has_gpu) {
     
     auto* cpu_data = g.GetOperationOrThrow("CPU_Data");
     
-    // Compute on GPU (implicit transfer)
     (void)g.NewOperation("Square", "GPU_Compute")
         .AddInput(tf_wrap::Output(cpu_data, 0))
         .SetDevice("/device:GPU:0")
@@ -223,7 +214,6 @@ INFRA_TEST(gpu_cpu_data_transfer, has_gpu) {
     
     auto* gpu_compute = g.GetOperationOrThrow("GPU_Compute");
     
-    // Transfer back to CPU for output
     (void)g.NewOperation("Identity", "CPU_Output")
         .AddInput(tf_wrap::Output(gpu_compute, 0))
         .SetDevice("/device:CPU:0")
@@ -233,10 +223,12 @@ INFRA_TEST(gpu_cpu_data_transfer, has_gpu) {
     auto results = s.Run({}, {{"CPU_Output", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(std::abs(v[0] - 9.0f) < 0.001f);  // 3^2 = 9
+    CHECK(std::abs(v[0] - 9.0f) < 0.001f);
 }
 
-INFRA_TEST(gpu_multi_gpu_placement, has_gpu) {
+TEST_CASE("gpu_multi_gpu_placement" * doctest::test_suite("gpu")) {
+    SKIP_IF_NO_GPU();
+    
     tf_wrap::Graph g;
     tf_wrap::Session s_temp(g);
     auto devices = s_temp.ListDevices();
@@ -247,8 +239,8 @@ INFRA_TEST(gpu_multi_gpu_placement, has_gpu) {
     }
     
     if (gpu_count < 2) {
-        std::cout << "    Only " << gpu_count << " GPU(s), skipping multi-GPU test\n";
-        return;  // Not a failure, just can't test
+        MESSAGE("Only ", gpu_count, " GPU(s), skipping multi-GPU test");
+        return;
     }
     
     tf_wrap::Graph g2;
@@ -270,7 +262,6 @@ INFRA_TEST(gpu_multi_gpu_placement, has_gpu) {
     auto* a = g2.GetOperationOrThrow("A");
     auto* b = g2.GetOperationOrThrow("B");
     
-    // Cross-GPU operation
     (void)g2.NewOperation("AddV2", "Sum")
         .AddInput(tf_wrap::Output(a, 0))
         .AddInput(tf_wrap::Output(b, 0))
@@ -279,15 +270,17 @@ INFRA_TEST(gpu_multi_gpu_placement, has_gpu) {
     tf_wrap::Session s(g2);
     auto results = s.Run({}, {{"Sum", 0}}, {});
     
-    REQUIRE(std::abs(results[0].ToScalar<float>() - 5.0f) < 0.001f);
-    std::cout << "    Multi-GPU computation successful\n";
+    CHECK(std::abs(results[0].ToScalar<float>() - 5.0f) < 0.001f);
+    MESSAGE("Multi-GPU computation successful");
 }
 
 // ============================================================================
 // Distributed TensorFlow Tests
 // ============================================================================
 
-INFRA_TEST(distributed_connect_to_cluster, has_distributed) {
+TEST_CASE("distributed_connect_to_cluster" * doctest::test_suite("distributed")) {
+    SKIP_IF_NO_DISTRIBUTED();
+    
     const char* target = std::getenv("TF_DISTRIBUTED_TARGET");
     
     tf_wrap::Graph g;
@@ -303,11 +296,13 @@ INFRA_TEST(distributed_connect_to_cluster, has_distributed) {
     tf_wrap::Session s(g, opts);
     auto results = s.Run({}, {{"X", 0}}, {});
     
-    REQUIRE(std::abs(results[0].ToScalar<float>() - 42.0f) < 0.001f);
-    std::cout << "    Connected to: " << target << "\n";
+    CHECK(std::abs(results[0].ToScalar<float>() - 42.0f) < 0.001f);
+    MESSAGE("Connected to: ", target);
 }
 
-INFRA_TEST(distributed_remote_device_list, has_distributed) {
+TEST_CASE("distributed_remote_device_list" * doctest::test_suite("distributed")) {
+    SKIP_IF_NO_DISTRIBUTED();
+    
     const char* target = std::getenv("TF_DISTRIBUTED_TARGET");
     
     tf_wrap::Graph g;
@@ -323,23 +318,24 @@ INFRA_TEST(distributed_remote_device_list, has_distributed) {
     tf_wrap::Session s(g, opts);
     auto devices = s.ListDevices();
     
-    std::cout << "    Remote devices:\n";
+    MESSAGE("Remote devices:");
     for (int i = 0; i < devices.count(); ++i) {
         auto dev = devices.at(i);
-        std::cout << "      " << dev.name << " (" << dev.type << ")\n";
+        MESSAGE("  ", dev.name, " (", dev.type, ")");
     }
     
-    REQUIRE(devices.count() > 0);
+    CHECK(devices.count() > 0);
 }
 
-INFRA_TEST(distributed_cross_worker_computation, has_distributed) {
+TEST_CASE("distributed_cross_worker_computation" * doctest::test_suite("distributed")) {
+    SKIP_IF_NO_DISTRIBUTED();
+    
     const char* target = std::getenv("TF_DISTRIBUTED_TARGET");
     
     tf_wrap::Graph g;
     auto t1 = tf_wrap::Tensor::FromScalar<float>(10.0f);
     auto t2 = tf_wrap::Tensor::FromScalar<float>(20.0f);
     
-    // Place operations on different workers (assumes job:worker/task:0 and task:1)
     (void)g.NewOperation("Const", "A")
         .SetAttrTensor("value", t1.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -366,43 +362,42 @@ INFRA_TEST(distributed_cross_worker_computation, has_distributed) {
     tf_wrap::Session s(g, opts);
     auto results = s.Run({}, {{"Sum", 0}}, {});
     
-    REQUIRE(std::abs(results[0].ToScalar<float>() - 30.0f) < 0.001f);
-    std::cout << "    Cross-worker computation successful\n";
+    CHECK(std::abs(results[0].ToScalar<float>() - 30.0f) < 0.001f);
+    MESSAGE("Cross-worker computation successful");
 }
 
 // ============================================================================
 // OOM Handling Tests
 // ============================================================================
 
-INFRA_TEST(oom_tensor_allocation_fails_gracefully, always_true) {
-    // Try to allocate an impossibly large tensor
-    // 1 trillion floats = 4 petabytes
+TEST_CASE("oom_tensor_allocation_fails_gracefully" * doctest::test_suite("oom")) {
+    SKIP_IF_NO_INFRA();
+    
     std::vector<int64_t> huge_shape = {1'000'000, 1'000'000, 1'000};
     
     bool threw = false;
     try {
         auto tensor = tf_wrap::Tensor::Allocate<float>(huge_shape);
-        // If we get here, allocation somehow succeeded (unlikely)
-        std::cout << "    Warning: huge allocation succeeded?!\n";
+        MESSAGE("Warning: huge allocation succeeded?!");
     } catch (const std::exception& e) {
         threw = true;
-        std::cout << "    Correctly threw: " << e.what() << "\n";
+        MESSAGE("Correctly threw: ", e.what());
     }
     
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
-INFRA_TEST(oom_graph_continues_after_allocation_failure, always_true) {
+TEST_CASE("oom_graph_continues_after_allocation_failure" * doctest::test_suite("oom")) {
+    SKIP_IF_NO_INFRA();
+    
     tf_wrap::Graph g;
     
-    // First, do something that works
     auto t1 = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g.NewOperation("Const", "Good")
         .SetAttrTensor("value", t1.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    // Try to create impossibly large tensor
     bool allocation_failed = false;
     try {
         std::vector<int64_t> huge_shape = {1'000'000'000'000LL};
@@ -411,9 +406,8 @@ INFRA_TEST(oom_graph_continues_after_allocation_failure, always_true) {
         allocation_failed = true;
     }
     
-    REQUIRE(allocation_failed);
+    CHECK(allocation_failed);
     
-    // Graph should still work
     auto t2 = tf_wrap::Tensor::FromScalar<float>(2.0f);
     (void)g.NewOperation("Const", "StillGood")
         .SetAttrTensor("value", t2.handle())
@@ -423,19 +417,17 @@ INFRA_TEST(oom_graph_continues_after_allocation_failure, always_true) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Good", 0}, {"StillGood", 0}}, {});
     
-    REQUIRE(results.size() == 2);
-    REQUIRE(std::abs(results[0].ToScalar<float>() - 1.0f) < 0.001f);
-    REQUIRE(std::abs(results[1].ToScalar<float>() - 2.0f) < 0.001f);
+    CHECK(results.size() == 2);
+    CHECK(std::abs(results[0].ToScalar<float>() - 1.0f) < 0.001f);
+    CHECK(std::abs(results[1].ToScalar<float>() - 2.0f) < 0.001f);
 }
 
-INFRA_TEST(oom_session_survives_large_intermediate, has_high_memory) {
-    // This test requires a machine where we can actually allocate ~8GB
-    // and test recovery
+TEST_CASE("oom_session_survives_large_intermediate" * doctest::test_suite("oom")) {
+    SKIP_IF_NO_HIGH_MEMORY();
     
     tf_wrap::Graph g;
     
-    // Create a large tensor (2GB)
-    const size_t large_size = 500'000'000;  // 500M floats = 2GB
+    const size_t large_size = 500'000'000;
     std::vector<float> data(large_size, 1.0f);
     auto t = tf_wrap::Tensor::FromVector<float>(
         {static_cast<int64_t>(large_size)}, data);
@@ -447,34 +439,32 @@ INFRA_TEST(oom_session_survives_large_intermediate, has_high_memory) {
     
     tf_wrap::Session s(g);
     
-    // This should work
     auto results = s.Run({}, {{"Large", 0}}, {});
-    REQUIRE(results[0].num_elements() == large_size);
+    CHECK(results[0].num_elements() == large_size);
     
-    // Now try multiple large operations
-    data.clear();  // Free memory
+    data.clear();
     
     auto* large = g.GetOperationOrThrow("Large");
     (void)g.NewOperation("Square", "Squared")
         .AddInput(tf_wrap::Output(large, 0))
         .Finish();
     
-    // This creates another 2GB tensor
     results = s.Run({}, {{"Squared", 0}}, {});
-    REQUIRE(results[0].num_elements() == large_size);
+    CHECK(results[0].num_elements() == large_size);
     
-    std::cout << "    Large tensor operations completed\n";
+    MESSAGE("Large tensor operations completed");
 }
 
 // ============================================================================
 // Huge Tensor Tests (>1GB)
 // ============================================================================
 
-INFRA_TEST(huge_tensor_1b_elements, has_high_memory) {
-    // 1 billion floats = 4GB
+TEST_CASE("huge_tensor_1b_elements" * doctest::test_suite("huge")) {
+    SKIP_IF_NO_HIGH_MEMORY();
+    
     const size_t num_elements = 1'000'000'000;
     
-    std::cout << "    Allocating 4GB tensor...\n";
+    MESSAGE("Allocating 4GB tensor...");
     auto start = std::chrono::high_resolution_clock::now();
     
     auto tensor = tf_wrap::Tensor::Allocate<float>(
@@ -483,63 +473,64 @@ INFRA_TEST(huge_tensor_1b_elements, has_high_memory) {
     auto alloc_end = std::chrono::high_resolution_clock::now();
     auto alloc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         alloc_end - start).count();
-    std::cout << "    Allocation time: " << alloc_ms << "ms\n";
+    MESSAGE("Allocation time: ", alloc_ms, "ms");
     
-    REQUIRE(tensor.valid());
-    REQUIRE(tensor.num_elements() == num_elements);
+    CHECK(tensor.valid());
+    CHECK(tensor.num_elements() == num_elements);
     
-    // Write to tensor
     {
         auto view = tensor.write<float>();
-        // Just write first, middle, last
         view[0] = 1.0f;
         view[num_elements/2] = 2.0f;
         view[num_elements-1] = 3.0f;
     }
     
-    // Read back
     {
         auto view = tensor.read<float>();
-        REQUIRE(view[0] == 1.0f);
-        REQUIRE(view[num_elements/2] == 2.0f);
-        REQUIRE(view[num_elements-1] == 3.0f);
+        CHECK(view[0] == 1.0f);
+        CHECK(view[num_elements/2] == 2.0f);
+        CHECK(view[num_elements-1] == 3.0f);
     }
     
     auto end = std::chrono::high_resolution_clock::now();
     auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         end - start).count();
-    std::cout << "    Total time: " << total_ms << "ms\n";
+    MESSAGE("Total time: ", total_ms, "ms");
 }
 
-INFRA_TEST(huge_tensor_2b_elements, has_high_memory) {
-    // 2 billion floats = 8GB
+TEST_CASE("huge_tensor_2b_elements" * doctest::test_suite("huge")) {
+    SKIP_IF_NO_HIGH_MEMORY();
+    
     const size_t num_elements = 2'000'000'000;
     
-    std::cout << "    Allocating 8GB tensor...\n";
+    MESSAGE("Allocating 8GB tensor...");
     
     auto tensor = tf_wrap::Tensor::Allocate<float>(
         {static_cast<int64_t>(num_elements)});
     
-    REQUIRE(tensor.valid());
-    REQUIRE(tensor.num_elements() == num_elements);
+    CHECK(tensor.valid());
+    CHECK(tensor.num_elements() == num_elements);
     
-    std::cout << "    8GB tensor allocated successfully\n";
+    MESSAGE("8GB tensor allocated successfully");
 }
 
-INFRA_TEST(huge_tensor_multidimensional, has_high_memory) {
-    // 1000 x 1000 x 1000 = 1 billion floats = 4GB
+TEST_CASE("huge_tensor_multidimensional" * doctest::test_suite("huge")) {
+    SKIP_IF_NO_HIGH_MEMORY();
+    
     auto tensor = tf_wrap::Tensor::Allocate<float>({1000, 1000, 1000});
     
-    REQUIRE(tensor.valid());
-    REQUIRE(tensor.shape().size() == 3);
-    REQUIRE(tensor.shape()[0] == 1000);
-    REQUIRE(tensor.shape()[1] == 1000);
-    REQUIRE(tensor.shape()[2] == 1000);
-    REQUIRE(tensor.num_elements() == 1'000'000'000);
+    CHECK(tensor.valid());
+    CHECK(tensor.shape().size() == 3);
+    CHECK(tensor.shape()[0] == 1000);
+    CHECK(tensor.shape()[1] == 1000);
+    CHECK(tensor.shape()[2] == 1000);
+    CHECK(tensor.num_elements() == 1'000'000'000);
 }
 
-INFRA_TEST(huge_tensor_session_run, has_high_memory) {
-    const size_t num_elements = 500'000'000;  // 2GB - more reasonable
+TEST_CASE("huge_tensor_session_run" * doctest::test_suite("huge")) {
+    SKIP_IF_NO_HIGH_MEMORY();
+    
+    const size_t num_elements = 500'000'000;
     
     tf_wrap::Graph g;
     
@@ -556,7 +547,6 @@ INFRA_TEST(huge_tensor_session_run, has_high_memory) {
     
     tf_wrap::Session s(g);
     
-    // Create large input
     auto input = tf_wrap::Tensor::Allocate<float>(
         {static_cast<int64_t>(num_elements)});
     {
@@ -565,7 +555,7 @@ INFRA_TEST(huge_tensor_session_run, has_high_memory) {
         view[num_elements-1] = 3.0f;
     }
     
-    std::cout << "    Running computation on 2GB tensor...\n";
+    MESSAGE("Running computation on 2GB tensor...");
     auto start = std::chrono::high_resolution_clock::now();
     
     auto results = s.Run(
@@ -576,18 +566,20 @@ INFRA_TEST(huge_tensor_session_run, has_high_memory) {
     
     auto end = std::chrono::high_resolution_clock::now();
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "    Computation time: " << ms << "ms\n";
+    MESSAGE("Computation time: ", ms, "ms");
     
     auto v = results[0].read<float>();
-    REQUIRE(std::abs(v[0] - 4.0f) < 0.001f);
-    REQUIRE(std::abs(v[num_elements-1] - 9.0f) < 0.001f);
+    CHECK(std::abs(v[0] - 4.0f) < 0.001f);
+    CHECK(std::abs(v[num_elements-1] - 9.0f) < 0.001f);
 }
 
 // ============================================================================
 // High Thread Count Tests (32+)
 // ============================================================================
 
-INFRA_TEST(high_thread_64_concurrent_sessions, has_many_cores) {
+TEST_CASE("high_thread_64_concurrent_sessions" * doctest::test_suite("threads")) {
+    SKIP_IF_NO_MANY_CORES();
+    
     const int num_threads = 64;
     const int runs_per_thread = 100;
     
@@ -619,8 +611,7 @@ INFRA_TEST(high_thread_64_concurrent_sessions, has_many_cores) {
         }
     };
     
-    std::cout << "    Running " << num_threads << " threads x " 
-              << runs_per_thread << " runs...\n";
+    MESSAGE("Running ", num_threads, " threads x ", runs_per_thread, " runs...");
     
     auto start = std::chrono::high_resolution_clock::now();
     
@@ -635,14 +626,16 @@ INFRA_TEST(high_thread_64_concurrent_sessions, has_many_cores) {
     auto end = std::chrono::high_resolution_clock::now();
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     
-    std::cout << "    Completed in " << ms << "ms\n";
-    std::cout << "    Success: " << success_count << ", Errors: " << error_count << "\n";
+    MESSAGE("Completed in ", ms, "ms");
+    MESSAGE("Success: ", success_count.load(), ", Errors: ", error_count.load());
     
-    REQUIRE(error_count == 0);
-    REQUIRE(success_count == num_threads * runs_per_thread);
+    CHECK(error_count == 0);
+    CHECK(success_count == num_threads * runs_per_thread);
 }
 
-INFRA_TEST(high_thread_128_tensor_operations, has_many_cores) {
+TEST_CASE("high_thread_128_tensor_operations" * doctest::test_suite("threads")) {
+    SKIP_IF_NO_MANY_CORES();
+    
     const int num_threads = 128;
     const int ops_per_thread = 1000;
     
@@ -664,8 +657,7 @@ INFRA_TEST(high_thread_128_tensor_operations, has_many_cores) {
         }
     };
     
-    std::cout << "    Running " << num_threads << " threads x " 
-              << ops_per_thread << " tensor ops...\n";
+    MESSAGE("Running ", num_threads, " threads x ", ops_per_thread, " tensor ops...");
     
     auto start = std::chrono::high_resolution_clock::now();
     
@@ -680,19 +672,20 @@ INFRA_TEST(high_thread_128_tensor_operations, has_many_cores) {
     auto end = std::chrono::high_resolution_clock::now();
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     
-    std::cout << "    Completed in " << ms << "ms\n";
-    std::cout << "    Throughput: " << (num_threads * ops_per_thread * 1000 / ms) << " ops/sec\n";
+    MESSAGE("Completed in ", ms, "ms");
+    MESSAGE("Throughput: ", (num_threads * ops_per_thread * 1000 / ms), " ops/sec");
     
-    REQUIRE(error_count == 0);
-    REQUIRE(success_count == num_threads * ops_per_thread);
+    CHECK(error_count == 0);
+    CHECK(success_count == num_threads * ops_per_thread);
 }
 
-INFRA_TEST(high_thread_shared_graph_stress, has_many_cores) {
+TEST_CASE("high_thread_shared_graph_stress" * doctest::test_suite("threads")) {
+    SKIP_IF_NO_MANY_CORES();
+    
     const int num_threads = 64;
     
     tf_wrap::Graph g;
     
-    // Build graph with multiple threads reading
     auto t = tf_wrap::Tensor::FromScalar<float>(42.0f);
     (void)g.NewOperation("Const", "X")
         .SetAttrTensor("value", t.handle())
@@ -721,21 +714,22 @@ INFRA_TEST(high_thread_shared_graph_stress, has_many_cores) {
         th.join();
     }
     
-    std::cout << "    " << num_threads << " threads performed " 
-              << read_count << " concurrent reads\n";
+    MESSAGE(num_threads, " threads performed ", read_count.load(), " concurrent reads");
     
-    REQUIRE(read_count > 0);
+    CHECK(read_count > 0);
 }
 
 // ============================================================================
 // Soak Tests (Long Running)
 // ============================================================================
 
-INFRA_TEST(soak_1_hour_continuous_operations, run_soak_tests) {
+TEST_CASE("soak_1_hour_continuous_operations" * doctest::test_suite("soak")) {
+    SKIP_IF_NO_SOAK();
+    
     const auto duration = std::chrono::hours(1);
     const auto report_interval = std::chrono::minutes(5);
     
-    std::cout << "    Starting 1-hour soak test...\n";
+    MESSAGE("Starting 1-hour soak test...");
     
     tf_wrap::Graph g;
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -766,8 +760,7 @@ INFRA_TEST(soak_1_hour_continuous_operations, run_soak_tests) {
         auto now = std::chrono::high_resolution_clock::now();
         if (now - last_report >= report_interval) {
             auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(now - start).count();
-            std::cout << "    [" << elapsed << "m] Ops: " << total_ops 
-                      << ", Errors: " << errors << "\n";
+            MESSAGE("[", elapsed, "m] Ops: ", total_ops, ", Errors: ", errors);
             last_report = now;
         }
     }
@@ -775,24 +768,24 @@ INFRA_TEST(soak_1_hour_continuous_operations, run_soak_tests) {
     auto end = std::chrono::high_resolution_clock::now();
     auto total_seconds = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
     
-    std::cout << "    Completed: " << total_ops << " operations in " 
-              << total_seconds << " seconds\n";
-    std::cout << "    Throughput: " << (total_ops / total_seconds) << " ops/sec\n";
-    std::cout << "    Errors: " << errors << "\n";
+    MESSAGE("Completed: ", total_ops, " operations in ", total_seconds, " seconds");
+    MESSAGE("Throughput: ", (total_ops / total_seconds), " ops/sec");
+    MESSAGE("Errors: ", errors);
     
-    REQUIRE(errors == 0);
+    CHECK(errors == 0);
 }
 
-INFRA_TEST(soak_memory_stability, run_soak_tests) {
+TEST_CASE("soak_memory_stability" * doctest::test_suite("soak")) {
+    SKIP_IF_NO_SOAK();
+    
     const auto duration = std::chrono::minutes(30);
     
-    std::cout << "    Starting 30-minute memory stability test...\n";
+    MESSAGE("Starting 30-minute memory stability test...");
     
     auto start = std::chrono::high_resolution_clock::now();
     size_t iterations = 0;
     
     while (std::chrono::high_resolution_clock::now() - start < duration) {
-        // Create and destroy tensors rapidly
         for (int i = 0; i < 1000; ++i) {
             auto t = tf_wrap::Tensor::FromVector<float>({100, 100}, 
                 std::vector<float>(10000, static_cast<float>(i)));
@@ -800,7 +793,6 @@ INFRA_TEST(soak_memory_stability, run_soak_tests) {
             (void)v;
         }
         
-        // Create and destroy graphs
         for (int i = 0; i < 100; ++i) {
             tf_wrap::Graph g;
             auto t = tf_wrap::Tensor::FromScalar<float>(static_cast<float>(i));
@@ -815,17 +807,19 @@ INFRA_TEST(soak_memory_stability, run_soak_tests) {
         if (iterations % 100 == 0) {
             auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(
                 std::chrono::high_resolution_clock::now() - start).count();
-            std::cout << "    [" << elapsed << "m] Iterations: " << iterations << "\n";
+            MESSAGE("[", elapsed, "m] Iterations: ", iterations);
         }
     }
     
-    std::cout << "    Completed " << iterations << " iterations without memory issues\n";
+    MESSAGE("Completed ", iterations, " iterations without memory issues");
 }
 
-INFRA_TEST(soak_thread_creation_destruction, run_soak_tests) {
+TEST_CASE("soak_thread_creation_destruction" * doctest::test_suite("soak")) {
+    SKIP_IF_NO_SOAK();
+    
     const auto duration = std::chrono::minutes(15);
     
-    std::cout << "    Starting 15-minute thread stress test...\n";
+    MESSAGE("Starting 15-minute thread stress test...");
     
     tf_wrap::Graph g;
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -839,7 +833,6 @@ INFRA_TEST(soak_thread_creation_destruction, run_soak_tests) {
     std::atomic<size_t> total_runs{0};
     
     while (std::chrono::high_resolution_clock::now() - start < duration) {
-        // Create batch of threads
         std::vector<std::thread> threads;
         for (int i = 0; i < 16; ++i) {
             threads.emplace_back([&g, &total_runs]() {
@@ -852,7 +845,6 @@ INFRA_TEST(soak_thread_creation_destruction, run_soak_tests) {
             });
         }
         
-        // Wait for all to complete
         for (auto& th : threads) {
             th.join();
         }
@@ -862,42 +854,9 @@ INFRA_TEST(soak_thread_creation_destruction, run_soak_tests) {
         if (thread_batches % 50 == 0) {
             auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(
                 std::chrono::high_resolution_clock::now() - start).count();
-            std::cout << "    [" << elapsed << "m] Batches: " << thread_batches 
-                      << ", Total runs: " << total_runs << "\n";
+            MESSAGE("[", elapsed, "m] Batches: ", thread_batches, ", Total runs: ", total_runs.load());
         }
     }
     
-    std::cout << "    Completed " << thread_batches << " thread batches, "
-              << total_runs << " total runs\n";
-}
-
-// ============================================================================
-// Main
-// ============================================================================
-
-int main() {
-    std::cout << "\n========================================\n";
-    std::cout << "TensorFlowWrap Infrastructure Tests\n";
-    std::cout << "========================================\n\n";
-    
-    if (should_skip_infra_tests()) {
-        std::cout << "NOTE: Set TF_INFRA_TESTS=1 to run infrastructure tests\n";
-        std::cout << "Additional env vars:\n";
-        std::cout << "  TF_HAS_GPU=1           - Enable GPU tests\n";
-        std::cout << "  TF_DISTRIBUTED_TARGET  - gRPC target for distributed tests\n";
-        std::cout << "  TF_HIGH_MEMORY=1       - Enable huge tensor tests (16GB+ RAM)\n";
-        std::cout << "  TF_MANY_CORES=1        - Enable 64+ thread tests\n";
-        std::cout << "  TF_SOAK_TESTS=1        - Enable multi-hour soak tests\n";
-        std::cout << "\n";
-    }
-    
-    // Tests run via static initialization
-    
-    std::cout << "\n========================================\n";
-    std::cout << "Results: " << g_tests_passed << " passed, "
-              << g_tests_failed << " failed, "
-              << g_tests_skipped << " skipped\n";
-    std::cout << "========================================\n";
-    
-    return g_tests_failed > 0 ? 1 : 0;
+    MESSAGE("Completed ", thread_batches, " thread batches, ", total_runs.load(), " total runs");
 }

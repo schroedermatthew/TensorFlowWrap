@@ -1,63 +1,23 @@
 // tests/test_real_tf.cpp
-// Comprehensive test suite for real TensorFlow C API (not stub)
-// Tests operations, error handling, edge cases, and stress scenarios
+// Tests using real TensorFlow C library - converted to doctest
+//
+// Requires: Real TensorFlow C library (not stub)
+// Build: g++ -std=c++20 -I include -I tests tests/test_real_tf.cpp -ltensorflow -o test_real_tf
+
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "doctest/doctest.h"
 
 #include "tf_wrap/all.hpp"
 
 #include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cmath>
-#include <complex>
 #include <cstdio>
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <numeric>
-#include <random>
 #include <string>
-#include <thread>
 #include <vector>
 
-// Simple test framework
-static int g_tests_run = 0;
-static int g_tests_passed = 0;
-static int g_tests_failed = 0;
-
-#define TEST(name) \
-    void test_##name(); \
-    struct TestReg_##name { \
-        TestReg_##name() { \
-            std::cout << "[TEST] " << #name << "\n"; \
-            g_tests_run++; \
-            try { \
-                test_##name(); \
-                std::cout << "  PASS\n"; \
-                g_tests_passed++; \
-            } catch (const std::exception& e) { \
-                std::cout << "  FAIL: " << e.what() << "\n"; \
-                g_tests_failed++; \
-            } catch (...) { \
-                std::cout << "  FAIL: unknown exception\n"; \
-                g_tests_failed++; \
-            } \
-        } \
-    } g_testreg_##name; \
-    void test_##name()
-
-#define REQUIRE(cond) \
-    do { if (!(cond)) throw std::runtime_error("REQUIRE failed: " #cond); } while(0)
-
-#define REQUIRE_APPROX(a, b, eps) \
-    do { if (std::abs((a) - (b)) > (eps)) \
-        throw std::runtime_error("REQUIRE_APPROX failed: " #a " != " #b); } while(0)
-
-// =============================================================================
-// Basic Operations
-// =============================================================================
-
-TEST(const_and_identity) {
+TEST_CASE("const_and_identity") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
@@ -74,13 +34,13 @@ TEST(const_and_identity) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Y", 0}}, {});
     
-    REQUIRE(results.size() == 1);
+    CHECK(results.size() == 1);
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 3);
-    REQUIRE(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f);
+    CHECK(v.size() == 3);
+    CHECK(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f);
 }
 
-TEST(add_subtract_multiply) {
+TEST_CASE("add_subtract_multiply") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<float>({2}, {10.0f, 20.0f});
@@ -99,19 +59,19 @@ TEST(add_subtract_multiply) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Add", 0}, {"Sub", 0}, {"Mul", 0}}, {});
     
-    REQUIRE(results.size() == 3);
+    CHECK(results.size() == 3);
     
     auto add_v = results[0].ToVector<float>();
-    REQUIRE(add_v[0] == 13.0f && add_v[1] == 24.0f);
+    CHECK(add_v[0] == 13.0f && add_v[1] == 24.0f);
     
     auto sub_v = results[1].ToVector<float>();
-    REQUIRE(sub_v[0] == 7.0f && sub_v[1] == 16.0f);
+    CHECK(sub_v[0] == 7.0f && sub_v[1] == 16.0f);
     
     auto mul_v = results[2].ToVector<float>();
-    REQUIRE(mul_v[0] == 30.0f && mul_v[1] == 80.0f);
+    CHECK(mul_v[0] == 30.0f && mul_v[1] == 80.0f);
 }
 
-TEST(matmul_2x2) {
+TEST_CASE("matmul_2x2") {
     tf_wrap::Graph g;
     
     // A = [[1, 2], [3, 4]]
@@ -135,11 +95,11 @@ TEST(matmul_2x2) {
     
     // C = A @ B = [[19, 22], [43, 50]]
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 4);
-    REQUIRE(v[0] == 19.0f && v[1] == 22.0f && v[2] == 43.0f && v[3] == 50.0f);
+    CHECK(v.size() == 4);
+    CHECK(v[0] == 19.0f && v[1] == 22.0f && v[2] == 43.0f && v[3] == 50.0f);
 }
 
-TEST(reshape) {
+TEST_CASE("reshape") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({6}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
@@ -159,12 +119,12 @@ TEST(reshape) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"R", 0}}, {});
     
-    REQUIRE(results[0].rank() == 2);
-    REQUIRE(results[0].shape()[0] == 2);
-    REQUIRE(results[0].shape()[1] == 3);
+    CHECK(results[0].rank() == 2);
+    CHECK(results[0].shape()[0] == 2);
+    CHECK(results[0].shape()[1] == 3);
 }
 
-TEST(reduce_sum) {
+TEST_CASE("reduce_sum") {
     tf_wrap::Graph g;
     
     // 2x3 matrix
@@ -187,11 +147,11 @@ TEST(reduce_sum) {
     
     // Sum along axis 1: [1+2+3, 4+5+6] = [6, 15]
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 2);
-    REQUIRE(v[0] == 6.0f && v[1] == 15.0f);
+    CHECK(v.size() == 2);
+    CHECK(v[0] == 6.0f && v[1] == 15.0f);
 }
 
-TEST(relu) {
+TEST_CASE("relu") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({4}, {-2.0f, -1.0f, 1.0f, 2.0f});
@@ -208,10 +168,10 @@ TEST(relu) {
     auto results = s.Run({}, {{"R", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 0.0f && v[1] == 0.0f && v[2] == 1.0f && v[3] == 2.0f);
+    CHECK(v[0] == 0.0f && v[1] == 0.0f && v[2] == 1.0f && v[3] == 2.0f);
 }
 
-TEST(softmax) {
+TEST_CASE("softmax") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({1, 3}, {1.0f, 2.0f, 3.0f});
@@ -228,21 +188,21 @@ TEST(softmax) {
     auto results = s.Run({}, {{"S", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 3);
+    CHECK(v.size() == 3);
     
     // Softmax should sum to 1
     float sum = v[0] + v[1] + v[2];
-    REQUIRE_APPROX(sum, 1.0f, 0.0001f);
+    CHECK(doctest::Approx(sum, 1.0f, 0.0001f);
     
     // Values should be increasing
-    REQUIRE(v[0] < v[1] && v[1] < v[2]);
+    CHECK(v[0] < v[1] && v[1] < v[2]);
 }
 
 // =============================================================================
 // Placeholder and Feed
 // =============================================================================
 
-TEST(placeholder_feed) {
+TEST_CASE("placeholder_feed") {
     tf_wrap::Graph g;
     
     (void)g.NewOperation("Placeholder", "X")
@@ -261,19 +221,19 @@ TEST(placeholder_feed) {
     auto input1 = tf_wrap::Tensor::FromVector<float>({3}, {2.0f, 3.0f, 4.0f});
     auto results1 = s.Run({{"X", 0, input1.handle()}}, {{"Y", 0}}, {});
     auto v1 = results1[0].ToVector<float>();
-    REQUIRE(v1[0] == 4.0f && v1[1] == 9.0f && v1[2] == 16.0f);
+    CHECK(v1[0] == 4.0f && v1[1] == 9.0f && v1[2] == 16.0f);
     
     auto input2 = tf_wrap::Tensor::FromVector<float>({2}, {5.0f, 6.0f});
     auto results2 = s.Run({{"X", 0, input2.handle()}}, {{"Y", 0}}, {});
     auto v2 = results2[0].ToVector<float>();
-    REQUIRE(v2[0] == 25.0f && v2[1] == 36.0f);
+    CHECK(v2[0] == 25.0f && v2[1] == 36.0f);
 }
 
 // =============================================================================
 // Data Types
 // =============================================================================
 
-TEST(int32_operations) {
+TEST_CASE("int32_operations") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<int32_t>({3}, {10, 20, 30});
@@ -291,10 +251,10 @@ TEST(int32_operations) {
     auto results = s.Run({}, {{"Sum", 0}}, {});
     
     auto v = results[0].ToVector<int32_t>();
-    REQUIRE(v[0] == 11 && v[1] == 22 && v[2] == 33);
+    CHECK(v[0] == 11 && v[1] == 22 && v[2] == 33);
 }
 
-TEST(int64_operations) {
+TEST_CASE("int64_operations") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<int64_t>({2}, {1000000000000LL, 2000000000000LL});
@@ -312,10 +272,10 @@ TEST(int64_operations) {
     auto results = s.Run({}, {{"Sum", 0}}, {});
     
     auto v = results[0].ToVector<int64_t>();
-    REQUIRE(v[0] == 1000000000001LL && v[1] == 2000000000002LL);
+    CHECK(v[0] == 1000000000001LL && v[1] == 2000000000002LL);
 }
 
-TEST(double_precision) {
+TEST_CASE("double_precision") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<double>({2}, {1.0000000001, 2.0000000002});
@@ -333,15 +293,15 @@ TEST(double_precision) {
     auto results = s.Run({}, {{"Sum", 0}}, {});
     
     auto v = results[0].ToVector<double>();
-    REQUIRE_APPROX(v[0], 1.0000000002, 1e-15);
-    REQUIRE_APPROX(v[1], 2.0000000004, 1e-15);
+    CHECK(doctest::Approx(v[0], 1.0000000002, 1e-15);
+    CHECK(doctest::Approx(v[1], 2.0000000004, 1e-15);
 }
 
 // =============================================================================
 // Edge Cases
 // =============================================================================
 
-TEST(scalar_tensor) {
+TEST_CASE("scalar_tensor") {
     tf_wrap::Graph g;
     
     auto scalar = tf_wrap::Tensor::FromScalar<float>(42.0f);
@@ -351,12 +311,12 @@ TEST(scalar_tensor) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"S", 0}}, {});
     
-    REQUIRE(results[0].rank() == 0);
-    REQUIRE(results[0].num_elements() == 1);
-    REQUIRE(results[0].ToScalar<float>() == 42.0f);
+    CHECK(results[0].rank() == 0);
+    CHECK(results[0].num_elements() == 1);
+    CHECK(results[0].ToScalar<float>() == 42.0f);
 }
 
-TEST(empty_tensor) {
+TEST_CASE("empty_tensor") {
     tf_wrap::Graph g;
     
     auto empty = tf_wrap::Tensor::FromVector<float>({0}, {});
@@ -369,10 +329,10 @@ TEST(empty_tensor) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"I", 0}}, {});
     
-    REQUIRE(results[0].num_elements() == 0);
+    CHECK(results[0].num_elements() == 0);
 }
 
-TEST(large_tensor) {
+TEST_CASE("large_tensor") {
     tf_wrap::Graph g;
     
     // 1M elements
@@ -402,10 +362,10 @@ TEST(large_tensor) {
     // Sum of 0..999999 = n*(n-1)/2 = 499999500000
     float expected = 499999500000.0f;
     float actual = results[0].ToScalar<float>();
-    REQUIRE_APPROX(actual, expected, expected * 0.0001f); // 0.01% tolerance for float
+    CHECK(doctest::Approx(actual, expected, expected * 0.0001f); // 0.01% tolerance for float
 }
 
-TEST(high_rank_tensor) {
+TEST_CASE("high_rank_tensor") {
     tf_wrap::Graph g;
     
     // 5D tensor: 2x3x4x5x6 = 720 elements
@@ -420,19 +380,19 @@ TEST(high_rank_tensor) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"T", 0}}, {});
     
-    REQUIRE(results[0].rank() == 5);
-    REQUIRE(results[0].shape()[0] == 2);
-    REQUIRE(results[0].shape()[1] == 3);
-    REQUIRE(results[0].shape()[2] == 4);
-    REQUIRE(results[0].shape()[3] == 5);
-    REQUIRE(results[0].shape()[4] == 6);
+    CHECK(results[0].rank() == 5);
+    CHECK(results[0].shape()[0] == 2);
+    CHECK(results[0].shape()[1] == 3);
+    CHECK(results[0].shape()[2] == 4);
+    CHECK(results[0].shape()[3] == 5);
+    CHECK(results[0].shape()[4] == 6);
 }
 
 // =============================================================================
 // Error Handling
 // =============================================================================
 
-TEST(invalid_operation_name_throws) {
+TEST_CASE("invalid_operation_name_throws") {
     tf_wrap::Graph g;
     
     bool threw = false;
@@ -441,10 +401,10 @@ TEST(invalid_operation_name_throws) {
     } catch (const std::exception&) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
-TEST(dtype_mismatch_throws) {
+TEST_CASE("dtype_mismatch_throws") {
     auto t = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
     
     bool threw = false;
@@ -453,10 +413,10 @@ TEST(dtype_mismatch_throws) {
     } catch (const std::exception&) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
-TEST(session_run_missing_feed_throws) {
+TEST_CASE("session_run_missing_feed_throws") {
     // Create graph with placeholder but don't feed it
     tf_wrap::Graph g;
     
@@ -480,11 +440,11 @@ TEST(session_run_missing_feed_throws) {
         threw = true;
         error_msg = e.what();
     }
-    REQUIRE(threw);
+    CHECK(threw);
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(session_run_incompatible_matmul_shapes_throws) {
+TEST_CASE("session_run_incompatible_matmul_shapes_throws") {
     // Test that runtime shape validation works for placeholders.
     // MatMul requires 2D inputs; feeding 1D tensor should fail at Run() time.
     tf_wrap::Graph g;
@@ -523,11 +483,11 @@ TEST(session_run_incompatible_matmul_shapes_throws) {
         threw = true;
         error_msg = e.what();
     }
-    REQUIRE(threw);
+    CHECK(threw);
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(session_run_wrong_feed_dtype_throws) {
+TEST_CASE("session_run_wrong_feed_dtype_throws") {
     tf_wrap::Graph g;
     
     // Placeholder expects float
@@ -553,11 +513,11 @@ TEST(session_run_wrong_feed_dtype_throws) {
         threw = true;
         error_msg = e.what();
     }
-    REQUIRE(threw);
+    CHECK(threw);
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(fetch_nonexistent_operation_throws) {
+TEST_CASE("fetch_nonexistent_operation_throws") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -577,11 +537,11 @@ TEST(fetch_nonexistent_operation_throws) {
         threw = true;
         error_msg = e.what();
     }
-    REQUIRE(threw);
+    CHECK(threw);
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(invalid_output_index_throws) {
+TEST_CASE("invalid_output_index_throws") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -601,11 +561,11 @@ TEST(invalid_output_index_throws) {
         threw = true;
         error_msg = e.what();
     }
-    REQUIRE(threw);
+    CHECK(threw);
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(operation_with_wrong_input_count_throws) {
+TEST_CASE("operation_with_wrong_input_count_throws") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -627,11 +587,11 @@ TEST(operation_with_wrong_input_count_throws) {
         threw = true;
         error_msg = e.what();
     }
-    REQUIRE(threw);
+    CHECK(threw);
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(operation_type_mismatch_throws) {
+TEST_CASE("operation_type_mismatch_throws") {
     tf_wrap::Graph g;
     
     // Create float and int tensors
@@ -663,11 +623,11 @@ TEST(operation_type_mismatch_throws) {
         threw = true;
         error_msg = e.what();
     }
-    REQUIRE(threw);
+    CHECK(threw);
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(matmul_incompatible_shapes_at_finish_throws) {
+TEST_CASE("matmul_incompatible_shapes_at_finish_throws") {
     // Real TensorFlow validates shapes at Finish() time when shapes are known statically
     tf_wrap::Graph g;
     
@@ -700,11 +660,11 @@ TEST(matmul_incompatible_shapes_at_finish_throws) {
         threw = true;
         error_msg = e.what();
     }
-    REQUIRE(threw);
+    CHECK(threw);
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(reshape_incompatible_size_at_finish_throws) {
+TEST_CASE("reshape_incompatible_size_at_finish_throws") {
     // Real TensorFlow validates reshape compatibility at Finish() time when shapes are known
     tf_wrap::Graph g;
     
@@ -737,11 +697,11 @@ TEST(reshape_incompatible_size_at_finish_throws) {
         threw = true;
         error_msg = e.what();
     }
-    REQUIRE(threw);
+    CHECK(threw);
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(duplicate_operation_name_throws) {
+TEST_CASE("duplicate_operation_name_throws") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -763,11 +723,11 @@ TEST(duplicate_operation_name_throws) {
         threw = true;
         error_msg = e.what();
     }
-    REQUIRE(threw);
+    CHECK(threw);
     std::cout << "    (Error: " << error_msg.substr(0, 60) << "...)\n";
 }
 
-TEST(error_messages_are_helpful) {
+TEST_CASE("error_messages_are_helpful") {
     // Test that error messages contain useful info
     tf_wrap::Graph g;
     
@@ -779,14 +739,14 @@ TEST(error_messages_are_helpful) {
     }
     
     // Error should mention the operation name
-    REQUIRE(error_msg.find("my_missing_op") != std::string::npos);
+    CHECK(error_msg.find("my_missing_op") != std::string::npos);
 }
 
 // =============================================================================
 // Value Verification Tests - Actually verify computation results
 // =============================================================================
 
-TEST(value_div_and_floordiv) {
+TEST_CASE("value_div_and_floordiv") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<float>({3}, {7.0f, 8.0f, 9.0f});
@@ -805,17 +765,17 @@ TEST(value_div_and_floordiv) {
     auto results = s.Run({}, {{"Div", 0}, {"FloorDiv", 0}}, {});
     
     auto div_v = results[0].ToVector<float>();
-    REQUIRE_APPROX(div_v[0], 3.5f, 0.0001f);
-    REQUIRE_APPROX(div_v[1], 2.6667f, 0.001f);
-    REQUIRE_APPROX(div_v[2], 2.25f, 0.0001f);
+    CHECK(doctest::Approx(div_v[0], 3.5f, 0.0001f);
+    CHECK(doctest::Approx(div_v[1], 2.6667f, 0.001f);
+    CHECK(doctest::Approx(div_v[2], 2.25f, 0.0001f);
     
     auto floor_v = results[1].ToVector<float>();
-    REQUIRE(floor_v[0] == 3.0f);
-    REQUIRE(floor_v[1] == 2.0f);
-    REQUIRE(floor_v[2] == 2.0f);
+    CHECK(floor_v[0] == 3.0f);
+    CHECK(floor_v[1] == 2.0f);
+    CHECK(floor_v[2] == 2.0f);
 }
 
-TEST(value_mod_and_pow) {
+TEST_CASE("value_mod_and_pow") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<float>({3}, {7.0f, 10.0f, 2.0f});
@@ -834,17 +794,17 @@ TEST(value_mod_and_pow) {
     auto results = s.Run({}, {{"Mod", 0}, {"Pow", 0}}, {});
     
     auto mod_v = results[0].ToVector<float>();
-    REQUIRE(mod_v[0] == 1.0f);  // 7 % 3 = 1
-    REQUIRE(mod_v[1] == 2.0f);  // 10 % 4 = 2
-    REQUIRE(mod_v[2] == 2.0f);  // 2 % 8 = 2
+    CHECK(mod_v[0] == 1.0f);  // 7 % 3 = 1
+    CHECK(mod_v[1] == 2.0f);  // 10 % 4 = 2
+    CHECK(mod_v[2] == 2.0f);  // 2 % 8 = 2
     
     auto pow_v = results[1].ToVector<float>();
-    REQUIRE(pow_v[0] == 343.0f);    // 7^3
-    REQUIRE(pow_v[1] == 10000.0f);  // 10^4
-    REQUIRE(pow_v[2] == 256.0f);    // 2^8
+    CHECK(pow_v[0] == 343.0f);    // 7^3
+    CHECK(pow_v[1] == 10000.0f);  // 10^4
+    CHECK(pow_v[2] == 256.0f);    // 2^8
 }
 
-TEST(value_trig_functions) {
+TEST_CASE("value_trig_functions") {
     tf_wrap::Graph g;
     
     const float pi = 3.14159265358979f;
@@ -861,19 +821,19 @@ TEST(value_trig_functions) {
     auto results = s.Run({}, {{"Sin", 0}, {"Cos", 0}, {"Tan", 0}}, {});
     
     auto sin_v = results[0].ToVector<float>();
-    REQUIRE_APPROX(sin_v[0], 0.0f, 0.0001f);      // sin(0)
-    REQUIRE_APPROX(sin_v[1], 0.5f, 0.0001f);      // sin(pi/6)
-    REQUIRE_APPROX(sin_v[2], 0.7071f, 0.001f);    // sin(pi/4)
-    REQUIRE_APPROX(sin_v[3], 1.0f, 0.0001f);      // sin(pi/2)
+    CHECK(doctest::Approx(sin_v[0], 0.0f, 0.0001f);      // sin(0)
+    CHECK(doctest::Approx(sin_v[1], 0.5f, 0.0001f);      // sin(pi/6)
+    CHECK(doctest::Approx(sin_v[2], 0.7071f, 0.001f);    // sin(pi/4)
+    CHECK(doctest::Approx(sin_v[3], 1.0f, 0.0001f);      // sin(pi/2)
     
     auto cos_v = results[1].ToVector<float>();
-    REQUIRE_APPROX(cos_v[0], 1.0f, 0.0001f);      // cos(0)
-    REQUIRE_APPROX(cos_v[1], 0.866f, 0.001f);     // cos(pi/6)
-    REQUIRE_APPROX(cos_v[2], 0.7071f, 0.001f);    // cos(pi/4)
-    REQUIRE_APPROX(cos_v[3], 0.0f, 0.0001f);      // cos(pi/2)
+    CHECK(doctest::Approx(cos_v[0], 1.0f, 0.0001f);      // cos(0)
+    CHECK(doctest::Approx(cos_v[1], 0.866f, 0.001f);     // cos(pi/6)
+    CHECK(doctest::Approx(cos_v[2], 0.7071f, 0.001f);    // cos(pi/4)
+    CHECK(doctest::Approx(cos_v[3], 0.0f, 0.0001f);      // cos(pi/2)
 }
 
-TEST(value_exp_log) {
+TEST_CASE("value_exp_log") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({4}, {0.0f, 1.0f, 2.0f, -1.0f});
@@ -894,19 +854,19 @@ TEST(value_exp_log) {
     auto results = s.Run({}, {{"Exp", 0}, {"Log", 0}}, {});
     
     auto exp_v = results[0].ToVector<float>();
-    REQUIRE_APPROX(exp_v[0], 1.0f, 0.0001f);       // e^0
-    REQUIRE_APPROX(exp_v[1], 2.7183f, 0.001f);     // e^1
-    REQUIRE_APPROX(exp_v[2], 7.3891f, 0.001f);     // e^2
-    REQUIRE_APPROX(exp_v[3], 0.3679f, 0.001f);     // e^-1
+    CHECK(doctest::Approx(exp_v[0], 1.0f, 0.0001f);       // e^0
+    CHECK(doctest::Approx(exp_v[1], 2.7183f, 0.001f);     // e^1
+    CHECK(doctest::Approx(exp_v[2], 7.3891f, 0.001f);     // e^2
+    CHECK(doctest::Approx(exp_v[3], 0.3679f, 0.001f);     // e^-1
     
     auto log_v = results[1].ToVector<float>();
-    REQUIRE_APPROX(log_v[0], 0.0f, 0.0001f);       // ln(1)
-    REQUIRE_APPROX(log_v[1], 1.0f, 0.0001f);       // ln(e)
-    REQUIRE_APPROX(log_v[2], 2.3026f, 0.001f);     // ln(10)
-    REQUIRE_APPROX(log_v[3], -2.3026f, 0.001f);    // ln(0.1)
+    CHECK(doctest::Approx(log_v[0], 0.0f, 0.0001f);       // ln(1)
+    CHECK(doctest::Approx(log_v[1], 1.0f, 0.0001f);       // ln(e)
+    CHECK(doctest::Approx(log_v[2], 2.3026f, 0.001f);     // ln(10)
+    CHECK(doctest::Approx(log_v[3], -2.3026f, 0.001f);    // ln(0.1)
 }
 
-TEST(value_sqrt_square_abs) {
+TEST_CASE("value_sqrt_square_abs") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({4}, {4.0f, 9.0f, 16.0f, 25.0f});
@@ -926,16 +886,16 @@ TEST(value_sqrt_square_abs) {
     auto results = s.Run({}, {{"Sqrt", 0}, {"Square", 0}, {"Abs", 0}}, {});
     
     auto sqrt_v = results[0].ToVector<float>();
-    REQUIRE(sqrt_v[0] == 2.0f && sqrt_v[1] == 3.0f && sqrt_v[2] == 4.0f && sqrt_v[3] == 5.0f);
+    CHECK(sqrt_v[0] == 2.0f && sqrt_v[1] == 3.0f && sqrt_v[2] == 4.0f && sqrt_v[3] == 5.0f);
     
     auto square_v = results[1].ToVector<float>();
-    REQUIRE(square_v[0] == 9.0f && square_v[1] == 25.0f && square_v[2] == 49.0f && square_v[3] == 0.0f);
+    CHECK(square_v[0] == 9.0f && square_v[1] == 25.0f && square_v[2] == 49.0f && square_v[3] == 0.0f);
     
     auto abs_v = results[2].ToVector<float>();
-    REQUIRE(abs_v[0] == 3.0f && abs_v[1] == 5.0f && abs_v[2] == 7.0f && abs_v[3] == 0.0f);
+    CHECK(abs_v[0] == 3.0f && abs_v[1] == 5.0f && abs_v[2] == 7.0f && abs_v[3] == 0.0f);
 }
 
-TEST(value_comparison_ops) {
+TEST_CASE("value_comparison_ops") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 2.0f});
@@ -955,25 +915,25 @@ TEST(value_comparison_ops) {
     auto results = s.Run({}, {{"Less", 0}, {"Greater", 0}, {"Equal", 0}}, {});
     
     auto less_v = results[0].ToVector<bool>();
-    REQUIRE(less_v[0] == true);   // 1 < 2
-    REQUIRE(less_v[1] == false);  // 2 < 2
-    REQUIRE(less_v[2] == false);  // 3 < 1
-    REQUIRE(less_v[3] == false);  // 2 < 2
+    CHECK(less_v[0] == true);   // 1 < 2
+    CHECK(less_v[1] == false);  // 2 < 2
+    CHECK(less_v[2] == false);  // 3 < 1
+    CHECK(less_v[3] == false);  // 2 < 2
     
     auto greater_v = results[1].ToVector<bool>();
-    REQUIRE(greater_v[0] == false);  // 1 > 2
-    REQUIRE(greater_v[1] == false);  // 2 > 2
-    REQUIRE(greater_v[2] == true);   // 3 > 1
-    REQUIRE(greater_v[3] == false);  // 2 > 2
+    CHECK(greater_v[0] == false);  // 1 > 2
+    CHECK(greater_v[1] == false);  // 2 > 2
+    CHECK(greater_v[2] == true);   // 3 > 1
+    CHECK(greater_v[3] == false);  // 2 > 2
     
     auto equal_v = results[2].ToVector<bool>();
-    REQUIRE(equal_v[0] == false);  // 1 == 2
-    REQUIRE(equal_v[1] == true);   // 2 == 2
-    REQUIRE(equal_v[2] == false);  // 3 == 1
-    REQUIRE(equal_v[3] == true);   // 2 == 2
+    CHECK(equal_v[0] == false);  // 1 == 2
+    CHECK(equal_v[1] == true);   // 2 == 2
+    CHECK(equal_v[2] == false);  // 3 == 1
+    CHECK(equal_v[3] == true);   // 2 == 2
 }
 
-TEST(value_activation_functions) {
+TEST_CASE("value_activation_functions") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({6}, {-2.0f, -1.0f, -0.5f, 0.0f, 0.5f, 2.0f});
@@ -990,22 +950,22 @@ TEST(value_activation_functions) {
     auto results = s.Run({}, {{"Relu", 0}, {"Relu6", 0}, {"Sigmoid", 0}, {"Tanh", 0}}, {});
     
     auto relu_v = results[0].ToVector<float>();
-    REQUIRE(relu_v[0] == 0.0f && relu_v[1] == 0.0f && relu_v[2] == 0.0f);
-    REQUIRE(relu_v[3] == 0.0f && relu_v[4] == 0.5f && relu_v[5] == 2.0f);
+    CHECK(relu_v[0] == 0.0f && relu_v[1] == 0.0f && relu_v[2] == 0.0f);
+    CHECK(relu_v[3] == 0.0f && relu_v[4] == 0.5f && relu_v[5] == 2.0f);
     
     auto relu6_v = results[1].ToVector<float>();
-    REQUIRE(relu6_v[0] == 0.0f && relu6_v[5] == 2.0f);  // Note: 2 < 6, so not clipped
+    CHECK(relu6_v[0] == 0.0f && relu6_v[5] == 2.0f);  // Note: 2 < 6, so not clipped
     
     auto sigmoid_v = results[2].ToVector<float>();
-    REQUIRE_APPROX(sigmoid_v[3], 0.5f, 0.0001f);  // sigmoid(0) = 0.5
-    REQUIRE(sigmoid_v[0] < 0.5f && sigmoid_v[5] > 0.5f);  // Negative gives < 0.5, positive > 0.5
+    CHECK(doctest::Approx(sigmoid_v[3], 0.5f, 0.0001f);  // sigmoid(0) = 0.5
+    CHECK(sigmoid_v[0] < 0.5f && sigmoid_v[5] > 0.5f);  // Negative gives < 0.5, positive > 0.5
     
     auto tanh_v = results[3].ToVector<float>();
-    REQUIRE_APPROX(tanh_v[3], 0.0f, 0.0001f);  // tanh(0) = 0
-    REQUIRE(tanh_v[0] < 0.0f && tanh_v[5] > 0.0f);  // Negative gives negative, positive gives positive
+    CHECK(doctest::Approx(tanh_v[3], 0.0f, 0.0001f);  // tanh(0) = 0
+    CHECK(tanh_v[0] < 0.0f && tanh_v[5] > 0.0f);  // Negative gives negative, positive gives positive
 }
 
-TEST(value_reduction_mean_max_min) {
+TEST_CASE("value_reduction_mean_max_min") {
     tf_wrap::Graph g;
     
     // 2x3 matrix
@@ -1026,18 +986,18 @@ TEST(value_reduction_mean_max_min) {
     auto results = s.Run({}, {{"Mean", 0}, {"Max", 0}, {"Min", 0}}, {});
     
     auto mean_v = results[0].ToVector<float>();
-    REQUIRE(mean_v.size() == 2);
-    REQUIRE(mean_v[0] == 2.0f);  // (1+2+3)/3
-    REQUIRE(mean_v[1] == 5.0f);  // (4+5+6)/3
+    CHECK(mean_v.size() == 2);
+    CHECK(mean_v[0] == 2.0f);  // (1+2+3)/3
+    CHECK(mean_v[1] == 5.0f);  // (4+5+6)/3
     
     auto max_v = results[1].ToVector<float>();
-    REQUIRE(max_v[0] == 3.0f && max_v[1] == 6.0f);
+    CHECK(max_v[0] == 3.0f && max_v[1] == 6.0f);
     
     auto min_v = results[2].ToVector<float>();
-    REQUIRE(min_v[0] == 1.0f && min_v[1] == 4.0f);
+    CHECK(min_v[0] == 1.0f && min_v[1] == 4.0f);
 }
 
-TEST(value_argmax_argmin) {
+TEST_CASE("value_argmax_argmin") {
     tf_wrap::Graph g;
     
     // 2x4 matrix
@@ -1063,15 +1023,15 @@ TEST(value_argmax_argmin) {
     auto results = s.Run({}, {{"ArgMax", 0}, {"ArgMin", 0}}, {});
     
     auto argmax_v = results[0].ToVector<int64_t>();
-    REQUIRE(argmax_v[0] == 2);  // index of 4.0 in row 0
-    REQUIRE(argmax_v[1] == 3);  // index of 8.0 in row 1
+    CHECK(argmax_v[0] == 2);  // index of 4.0 in row 0
+    CHECK(argmax_v[1] == 3);  // index of 8.0 in row 1
     
     auto argmin_v = results[1].ToVector<int64_t>();
-    REQUIRE(argmin_v[0] == 1 || argmin_v[0] == 3);  // index of 1.0 in row 0 (first occurrence)
-    REQUIRE(argmin_v[1] == 2);  // index of 1.0 in row 1
+    CHECK(argmin_v[0] == 1 || argmin_v[0] == 3);  // index of 1.0 in row 0 (first occurrence)
+    CHECK(argmin_v[1] == 2);  // index of 1.0 in row 1
 }
 
-TEST(value_transpose) {
+TEST_CASE("value_transpose") {
     tf_wrap::Graph g;
     
     // 2x3 matrix
@@ -1094,17 +1054,17 @@ TEST(value_transpose) {
     
     // Original: [[1, 2, 3], [4, 5, 6]]
     // Transposed: [[1, 4], [2, 5], [3, 6]]
-    REQUIRE(results[0].rank() == 2);
-    REQUIRE(results[0].shape()[0] == 3);
-    REQUIRE(results[0].shape()[1] == 2);
+    CHECK(results[0].rank() == 2);
+    CHECK(results[0].shape()[0] == 3);
+    CHECK(results[0].shape()[1] == 2);
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f && v[1] == 4.0f);  // first row
-    REQUIRE(v[2] == 2.0f && v[3] == 5.0f);  // second row
-    REQUIRE(v[4] == 3.0f && v[5] == 6.0f);  // third row
+    CHECK(v[0] == 1.0f && v[1] == 4.0f);  // first row
+    CHECK(v[2] == 2.0f && v[3] == 5.0f);  // second row
+    CHECK(v[4] == 3.0f && v[5] == 6.0f);  // third row
 }
 
-TEST(value_gather) {
+TEST_CASE("value_gather") {
     tf_wrap::Graph g;
     
     auto params = tf_wrap::Tensor::FromVector<float>({4}, {10.0f, 20.0f, 30.0f, 40.0f});
@@ -1126,13 +1086,13 @@ TEST(value_gather) {
     auto results = s.Run({}, {{"Gather", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 3);
-    REQUIRE(v[0] == 40.0f);  // params[3]
-    REQUIRE(v[1] == 10.0f);  // params[0]
-    REQUIRE(v[2] == 30.0f);  // params[2]
+    CHECK(v.size() == 3);
+    CHECK(v[0] == 40.0f);  // params[3]
+    CHECK(v[1] == 10.0f);  // params[0]
+    CHECK(v[2] == 30.0f);  // params[2]
 }
 
-TEST(value_where_select) {
+TEST_CASE("value_where_select") {
     tf_wrap::Graph g;
     
     auto cond = tf_wrap::Tensor::FromVector<bool>({4}, {true, false, true, false});
@@ -1157,13 +1117,13 @@ TEST(value_where_select) {
     auto results = s.Run({}, {{"Select", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f);   // cond[0]=true, select x
-    REQUIRE(v[1] == 20.0f);  // cond[1]=false, select y
-    REQUIRE(v[2] == 3.0f);   // cond[2]=true, select x
-    REQUIRE(v[3] == 40.0f);  // cond[3]=false, select y
+    CHECK(v[0] == 1.0f);   // cond[0]=true, select x
+    CHECK(v[1] == 20.0f);  // cond[1]=false, select y
+    CHECK(v[2] == 3.0f);   // cond[2]=true, select x
+    CHECK(v[3] == 40.0f);  // cond[3]=false, select y
 }
 
-TEST(value_concat) {
+TEST_CASE("value_concat") {
     tf_wrap::Graph g;
     
     auto t1 = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
@@ -1190,11 +1150,11 @@ TEST(value_concat) {
     auto results = s.Run({}, {{"Concat", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 5);
-    REQUIRE(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f && v[3] == 4.0f && v[4] == 5.0f);
+    CHECK(v.size() == 5);
+    CHECK(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f && v[3] == 4.0f && v[4] == 5.0f);
 }
 
-TEST(value_slice) {
+TEST_CASE("value_slice") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({6}, {0.0f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f});
@@ -1219,11 +1179,11 @@ TEST(value_slice) {
     auto results = s.Run({}, {{"Slice", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 3);
-    REQUIRE(v[0] == 2.0f && v[1] == 3.0f && v[2] == 4.0f);
+    CHECK(v.size() == 3);
+    CHECK(v[0] == 2.0f && v[1] == 3.0f && v[2] == 4.0f);
 }
 
-TEST(value_cast_dtypes) {
+TEST_CASE("value_cast_dtypes") {
     tf_wrap::Graph g;
     
     auto t_float = tf_wrap::Tensor::FromVector<float>({3}, {1.5f, 2.7f, -3.9f});
@@ -1248,17 +1208,17 @@ TEST(value_cast_dtypes) {
     auto results = s.Run({}, {{"ToInt32", 0}, {"ToInt64", 0}}, {});
     
     auto int32_v = results[0].ToVector<int32_t>();
-    REQUIRE(int32_v[0] == 1);
-    REQUIRE(int32_v[1] == 2);
-    REQUIRE(int32_v[2] == -3);
+    CHECK(int32_v[0] == 1);
+    CHECK(int32_v[1] == 2);
+    CHECK(int32_v[2] == -3);
     
     auto int64_v = results[1].ToVector<int64_t>();
-    REQUIRE(int64_v[0] == 1);
-    REQUIRE(int64_v[1] == 2);
-    REQUIRE(int64_v[2] == -3);
+    CHECK(int64_v[0] == 1);
+    CHECK(int64_v[1] == 2);
+    CHECK(int64_v[2] == -3);
 }
 
-TEST(value_logical_ops) {
+TEST_CASE("value_logical_ops") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<bool>({4}, {true, true, false, false});
@@ -1278,16 +1238,16 @@ TEST(value_logical_ops) {
     auto results = s.Run({}, {{"And", 0}, {"Or", 0}, {"Not", 0}}, {});
     
     auto and_v = results[0].ToVector<bool>();
-    REQUIRE(and_v[0] == true && and_v[1] == false && and_v[2] == false && and_v[3] == false);
+    CHECK(and_v[0] == true && and_v[1] == false && and_v[2] == false && and_v[3] == false);
     
     auto or_v = results[1].ToVector<bool>();
-    REQUIRE(or_v[0] == true && or_v[1] == true && or_v[2] == true && or_v[3] == false);
+    CHECK(or_v[0] == true && or_v[1] == true && or_v[2] == true && or_v[3] == false);
     
     auto not_v = results[2].ToVector<bool>();
-    REQUIRE(not_v[0] == false && not_v[1] == false && not_v[2] == true && not_v[3] == true);
+    CHECK(not_v[0] == false && not_v[1] == false && not_v[2] == true && not_v[3] == true);
 }
 
-TEST(value_maximum_minimum) {
+TEST_CASE("value_maximum_minimum") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<float>({4}, {1.0f, 5.0f, 3.0f, 8.0f});
@@ -1306,13 +1266,13 @@ TEST(value_maximum_minimum) {
     auto results = s.Run({}, {{"Max", 0}, {"Min", 0}}, {});
     
     auto max_v = results[0].ToVector<float>();
-    REQUIRE(max_v[0] == 2.0f && max_v[1] == 5.0f && max_v[2] == 6.0f && max_v[3] == 8.0f);
+    CHECK(max_v[0] == 2.0f && max_v[1] == 5.0f && max_v[2] == 6.0f && max_v[3] == 8.0f);
     
     auto min_v = results[1].ToVector<float>();
-    REQUIRE(min_v[0] == 1.0f && min_v[1] == 4.0f && min_v[2] == 3.0f && min_v[3] == 7.0f);
+    CHECK(min_v[0] == 1.0f && min_v[1] == 4.0f && min_v[2] == 3.0f && min_v[3] == 7.0f);
 }
 
-TEST(value_fill_ones_zeros_like) {
+TEST_CASE("value_fill_ones_zeros_like") {
     tf_wrap::Graph g;
     
     auto dims = tf_wrap::Tensor::FromVector<int32_t>({2}, {2, 3});
@@ -1340,19 +1300,19 @@ TEST(value_fill_ones_zeros_like) {
     auto results = s.Run({}, {{"Fill", 0}, {"Ones", 0}, {"Zeros", 0}}, {});
     
     auto fill_v = results[0].ToVector<float>();
-    REQUIRE(fill_v.size() == 6);
-    for (auto v : fill_v) REQUIRE(v == 5.0f);
+    CHECK(fill_v.size() == 6);
+    for (auto v : fill_v) CHECK(v == 5.0f);
     
     auto ones_v = results[1].ToVector<float>();
-    REQUIRE(ones_v.size() == 6);
-    for (auto v : ones_v) REQUIRE(v == 1.0f);
+    CHECK(ones_v.size() == 6);
+    for (auto v : ones_v) CHECK(v == 1.0f);
     
     auto zeros_v = results[2].ToVector<float>();
-    REQUIRE(zeros_v.size() == 6);
-    for (auto v : zeros_v) REQUIRE(v == 0.0f);
+    CHECK(zeros_v.size() == 6);
+    for (auto v : zeros_v) CHECK(v == 0.0f);
 }
 
-TEST(value_tile) {
+TEST_CASE("value_tile") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
@@ -1373,13 +1333,13 @@ TEST(value_tile) {
     auto results = s.Run({}, {{"Tile", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 6);
-    REQUIRE(v[0] == 1.0f && v[1] == 2.0f);
-    REQUIRE(v[2] == 1.0f && v[3] == 2.0f);
-    REQUIRE(v[4] == 1.0f && v[5] == 2.0f);
+    CHECK(v.size() == 6);
+    CHECK(v[0] == 1.0f && v[1] == 2.0f);
+    CHECK(v[2] == 1.0f && v[3] == 2.0f);
+    CHECK(v[4] == 1.0f && v[5] == 2.0f);
 }
 
-TEST(value_range) {
+TEST_CASE("value_range") {
     tf_wrap::Graph g;
     
     auto start = tf_wrap::Tensor::FromScalar<float>(0.0f);
@@ -1404,11 +1364,11 @@ TEST(value_range) {
     auto results = s.Run({}, {{"Range", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 5);
-    REQUIRE(v[0] == 0.0f && v[1] == 1.0f && v[2] == 2.0f && v[3] == 3.0f && v[4] == 4.0f);
+    CHECK(v.size() == 5);
+    CHECK(v[0] == 0.0f && v[1] == 1.0f && v[2] == 2.0f && v[3] == 3.0f && v[4] == 4.0f);
 }
 
-TEST(value_reduction_prod) {
+TEST_CASE("value_reduction_prod") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
@@ -1429,12 +1389,12 @@ TEST(value_reduction_prod) {
     auto results = s.Run({}, {{"Prod", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 2);
-    REQUIRE(v[0] == 6.0f);    // 1*2*3
-    REQUIRE(v[1] == 120.0f);  // 4*5*6
+    CHECK(v.size() == 2);
+    CHECK(v[0] == 6.0f);    // 1*2*3
+    CHECK(v[1] == 120.0f);  // 4*5*6
 }
 
-TEST(value_reduction_any_all) {
+TEST_CASE("value_reduction_any_all") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<bool>({2, 3}, {true, false, true, true, true, true});
@@ -1460,16 +1420,16 @@ TEST(value_reduction_any_all) {
     auto results = s.Run({}, {{"Any", 0}, {"All", 0}}, {});
     
     auto any_v = results[0].ToVector<bool>();
-    REQUIRE(any_v.size() == 2);
-    REQUIRE(any_v[0] == true);   // row 0: T,F,T -> any=true
-    REQUIRE(any_v[1] == true);   // row 1: T,T,T -> any=true
+    CHECK(any_v.size() == 2);
+    CHECK(any_v[0] == true);   // row 0: T,F,T -> any=true
+    CHECK(any_v[1] == true);   // row 1: T,T,T -> any=true
     
     auto all_v = results[1].ToVector<bool>();
-    REQUIRE(all_v[0] == false);  // row 0: T,F,T -> all=false
-    REQUIRE(all_v[1] == true);   // row 1: T,T,T -> all=true
+    CHECK(all_v[0] == false);  // row 0: T,F,T -> all=false
+    CHECK(all_v[1] == true);   // row 1: T,T,T -> all=true
 }
 
-TEST(value_batchmatmul) {
+TEST_CASE("value_batchmatmul") {
     tf_wrap::Graph g;
     
     // Batch of 2 matrices: each is 2x2
@@ -1495,14 +1455,14 @@ TEST(value_batchmatmul) {
     auto results = s.Run({}, {{"BMM", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 8);
+    CHECK(v.size() == 8);
     // C[0] = A[0] @ B[0] = A[0] @ I = A[0] = [[1,2],[3,4]]
-    REQUIRE(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f && v[3] == 4.0f);
+    CHECK(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f && v[3] == 4.0f);
     // C[1] = A[1] @ B[1] = [[5,6],[7,8]] @ [[2,0],[0,2]] = [[10,12],[14,16]]
-    REQUIRE(v[4] == 10.0f && v[5] == 12.0f && v[6] == 14.0f && v[7] == 16.0f);
+    CHECK(v[4] == 10.0f && v[5] == 12.0f && v[6] == 14.0f && v[7] == 16.0f);
 }
 
-TEST(value_conv2d_simple) {
+TEST_CASE("value_conv2d_simple") {
     tf_wrap::Graph g;
     
     // Input: NHWC format - batch=1, height=3, width=3, channels=1
@@ -1532,10 +1492,10 @@ TEST(value_conv2d_simple) {
     auto results = s.Run({}, {{"Conv", 0}}, {});
     
     // Output shape: [1, 2, 2, 1] with VALID padding
-    REQUIRE(results[0].shape()[0] == 1);
-    REQUIRE(results[0].shape()[1] == 2);
-    REQUIRE(results[0].shape()[2] == 2);
-    REQUIRE(results[0].shape()[3] == 1);
+    CHECK(results[0].shape()[0] == 1);
+    CHECK(results[0].shape()[1] == 2);
+    CHECK(results[0].shape()[2] == 2);
+    CHECK(results[0].shape()[3] == 1);
     
     auto v = results[0].ToVector<float>();
     // Conv with sum filter:
@@ -1543,13 +1503,13 @@ TEST(value_conv2d_simple) {
     // [0,1]: 2+3+5+6 = 16
     // [1,0]: 4+5+7+8 = 24
     // [1,1]: 5+6+8+9 = 28
-    REQUIRE(v[0] == 12.0f);
-    REQUIRE(v[1] == 16.0f);
-    REQUIRE(v[2] == 24.0f);
-    REQUIRE(v[3] == 28.0f);
+    CHECK(v[0] == 12.0f);
+    CHECK(v[1] == 16.0f);
+    CHECK(v[2] == 24.0f);
+    CHECK(v[3] == 28.0f);
 }
 
-TEST(value_maxpool_simple) {
+TEST_CASE("value_maxpool_simple") {
     tf_wrap::Graph g;
     
     // Input: NHWC format - batch=1, height=4, width=4, channels=1
@@ -1574,8 +1534,8 @@ TEST(value_maxpool_simple) {
     auto results = s.Run({}, {{"MaxPool", 0}}, {});
     
     // Output shape: [1, 2, 2, 1]
-    REQUIRE(results[0].shape()[1] == 2);
-    REQUIRE(results[0].shape()[2] == 2);
+    CHECK(results[0].shape()[1] == 2);
+    CHECK(results[0].shape()[2] == 2);
     
     auto v = results[0].ToVector<float>();
     // Max in each 2x2 window with stride 2:
@@ -1583,13 +1543,13 @@ TEST(value_maxpool_simple) {
     // [0,1]: max(3,4,7,8) = 8
     // [1,0]: max(9,10,13,14) = 14
     // [1,1]: max(11,12,15,16) = 16
-    REQUIRE(v[0] == 6.0f);
-    REQUIRE(v[1] == 8.0f);
-    REQUIRE(v[2] == 14.0f);
-    REQUIRE(v[3] == 16.0f);
+    CHECK(v[0] == 6.0f);
+    CHECK(v[1] == 8.0f);
+    CHECK(v[2] == 14.0f);
+    CHECK(v[3] == 16.0f);
 }
 
-TEST(value_avgpool_simple) {
+TEST_CASE("value_avgpool_simple") {
     tf_wrap::Graph g;
     
     // Input: NHWC format - batch=1, height=4, width=4, channels=1
@@ -1619,13 +1579,13 @@ TEST(value_avgpool_simple) {
     // [0,1]: (3+4+7+8)/4 = 5.5
     // [1,0]: (9+10+13+14)/4 = 11.5
     // [1,1]: (11+12+15+16)/4 = 13.5
-    REQUIRE_APPROX(v[0], 3.5f, 0.0001f);
-    REQUIRE_APPROX(v[1], 5.5f, 0.0001f);
-    REQUIRE_APPROX(v[2], 11.5f, 0.0001f);
-    REQUIRE_APPROX(v[3], 13.5f, 0.0001f);
+    CHECK(doctest::Approx(v[0], 3.5f, 0.0001f);
+    CHECK(doctest::Approx(v[1], 5.5f, 0.0001f);
+    CHECK(doctest::Approx(v[2], 11.5f, 0.0001f);
+    CHECK(doctest::Approx(v[3], 13.5f, 0.0001f);
 }
 
-TEST(value_softmax_crossentropy) {
+TEST_CASE("value_softmax_crossentropy") {
     tf_wrap::Graph g;
     
     // Logits: 2 samples, 3 classes
@@ -1653,20 +1613,20 @@ TEST(value_softmax_crossentropy) {
     auto results = s.Run({}, {{"XEnt", 0}}, {});  // output 0 is loss
     
     auto loss = results[0].ToVector<float>();
-    REQUIRE(loss.size() == 2);
+    CHECK(loss.size() == 2);
     
     // For sample 0: logits [1,2,3], true class 2
     // softmax([1,2,3]) ≈ [0.09, 0.24, 0.67]
     // cross-entropy = -log(0.67) ≈ 0.407
-    REQUIRE(loss[0] > 0.3f && loss[0] < 0.5f);
+    CHECK(loss[0] > 0.3f && loss[0] < 0.5f);
     
     // For sample 1: logits [3,2,1], true class 0  
     // softmax([3,2,1]) ≈ [0.67, 0.24, 0.09]
     // cross-entropy = -log(0.67) ≈ 0.407
-    REQUIRE(loss[1] > 0.3f && loss[1] < 0.5f);
+    CHECK(loss[1] > 0.3f && loss[1] < 0.5f);
 }
 
-TEST(value_sparse_softmax_crossentropy) {
+TEST_CASE("value_sparse_softmax_crossentropy") {
     tf_wrap::Graph g;
     
     // Logits: 2 samples, 3 classes
@@ -1692,14 +1652,14 @@ TEST(value_sparse_softmax_crossentropy) {
     auto results = s.Run({}, {{"SparseXEnt", 0}}, {});  // output 0 is loss
     
     auto loss = results[0].ToVector<float>();
-    REQUIRE(loss.size() == 2);
+    CHECK(loss.size() == 2);
     
     // Same expected values as dense version
-    REQUIRE(loss[0] > 0.3f && loss[0] < 0.5f);
-    REQUIRE(loss[1] > 0.3f && loss[1] < 0.5f);
+    CHECK(loss[0] > 0.3f && loss[0] < 0.5f);
+    CHECK(loss[1] > 0.3f && loss[1] < 0.5f);
 }
 
-TEST(value_biasadd) {
+TEST_CASE("value_biasadd") {
     tf_wrap::Graph g;
     
     // Value: batch=2, features=3
@@ -1724,11 +1684,11 @@ TEST(value_biasadd) {
     auto v = results[0].ToVector<float>();
     // Row 0: [1+10, 2+20, 3+30] = [11, 22, 33]
     // Row 1: [4+10, 5+20, 6+30] = [14, 25, 36]
-    REQUIRE(v[0] == 11.0f && v[1] == 22.0f && v[2] == 33.0f);
-    REQUIRE(v[3] == 14.0f && v[4] == 25.0f && v[5] == 36.0f);
+    CHECK(v[0] == 11.0f && v[1] == 22.0f && v[2] == 33.0f);
+    CHECK(v[3] == 14.0f && v[4] == 25.0f && v[5] == 36.0f);
 }
 
-TEST(value_leaky_relu) {
+TEST_CASE("value_leaky_relu") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({4}, {-2.0f, -1.0f, 1.0f, 2.0f});
@@ -1746,13 +1706,13 @@ TEST(value_leaky_relu) {
     
     auto v = results[0].ToVector<float>();
     // LeakyReLU: x if x > 0, alpha*x otherwise
-    REQUIRE_APPROX(v[0], -0.2f, 0.0001f);  // -2 * 0.1
-    REQUIRE_APPROX(v[1], -0.1f, 0.0001f);  // -1 * 0.1
-    REQUIRE(v[2] == 1.0f);
-    REQUIRE(v[3] == 2.0f);
+    CHECK(doctest::Approx(v[0], -0.2f, 0.0001f);  // -2 * 0.1
+    CHECK(doctest::Approx(v[1], -0.1f, 0.0001f);  // -1 * 0.1
+    CHECK(v[2] == 1.0f);
+    CHECK(v[3] == 2.0f);
 }
 
-TEST(value_elu_selu) {
+TEST_CASE("value_elu_selu") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({4}, {-1.0f, 0.0f, 1.0f, 2.0f});
@@ -1768,21 +1728,21 @@ TEST(value_elu_selu) {
     
     auto elu_v = results[0].ToVector<float>();
     // ELU: x if x > 0, exp(x)-1 otherwise
-    REQUIRE_APPROX(elu_v[0], -0.6321f, 0.001f);  // exp(-1)-1 ≈ -0.632
-    REQUIRE(elu_v[1] == 0.0f);
-    REQUIRE(elu_v[2] == 1.0f);
-    REQUIRE(elu_v[3] == 2.0f);
+    CHECK(doctest::Approx(elu_v[0], -0.6321f, 0.001f);  // exp(-1)-1 ≈ -0.632
+    CHECK(elu_v[1] == 0.0f);
+    CHECK(elu_v[2] == 1.0f);
+    CHECK(elu_v[3] == 2.0f);
     
     auto selu_v = results[1].ToVector<float>();
     // SELU: scale * (x if x > 0, alpha*(exp(x)-1) otherwise)
     // scale ≈ 1.0507, alpha ≈ 1.6733
-    REQUIRE(selu_v[0] < 0.0f);  // negative output for negative input
-    REQUIRE(selu_v[1] == 0.0f);
-    REQUIRE(selu_v[2] > 1.0f);  // scaled positive
-    REQUIRE(selu_v[3] > 2.0f);  // scaled positive
+    CHECK(selu_v[0] < 0.0f);  // negative output for negative input
+    CHECK(selu_v[1] == 0.0f);
+    CHECK(selu_v[2] > 1.0f);  // scaled positive
+    CHECK(selu_v[3] > 2.0f);  // scaled positive
 }
 
-TEST(value_clip_by_value) {
+TEST_CASE("value_clip_by_value") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({5}, {-5.0f, 0.0f, 5.0f, 10.0f, 15.0f});
@@ -1807,14 +1767,14 @@ TEST(value_clip_by_value) {
     auto results = s.Run({}, {{"Clip", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 0.0f);   // -5 clipped to 0
-    REQUIRE(v[1] == 0.0f);   // 0 unchanged
-    REQUIRE(v[2] == 5.0f);   // 5 unchanged
-    REQUIRE(v[3] == 10.0f);  // 10 unchanged
-    REQUIRE(v[4] == 10.0f);  // 15 clipped to 10
+    CHECK(v[0] == 0.0f);   // -5 clipped to 0
+    CHECK(v[1] == 0.0f);   // 0 unchanged
+    CHECK(v[2] == 5.0f);   // 5 unchanged
+    CHECK(v[3] == 10.0f);  // 10 unchanged
+    CHECK(v[4] == 10.0f);  // 15 clipped to 10
 }
 
-TEST(value_pad) {
+TEST_CASE("value_pad") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
@@ -1835,8 +1795,8 @@ TEST(value_pad) {
     auto results = s.Run({}, {{"Pad", 0}}, {});
     
     // Output should be 4x4 (2+1+1 in each dim)
-    REQUIRE(results[0].shape()[0] == 4);
-    REQUIRE(results[0].shape()[1] == 4);
+    CHECK(results[0].shape()[0] == 4);
+    CHECK(results[0].shape()[1] == 4);
     
     auto v = results[0].ToVector<float>();
     // Original 2x2 should be in center, padded with zeros
@@ -1844,13 +1804,13 @@ TEST(value_pad) {
     // Row 1: [0, 1, 2, 0]
     // Row 2: [0, 3, 4, 0]
     // Row 3: [0, 0, 0, 0]
-    REQUIRE(v[0] == 0.0f && v[1] == 0.0f && v[2] == 0.0f && v[3] == 0.0f);
-    REQUIRE(v[4] == 0.0f && v[5] == 1.0f && v[6] == 2.0f && v[7] == 0.0f);
-    REQUIRE(v[8] == 0.0f && v[9] == 3.0f && v[10] == 4.0f && v[11] == 0.0f);
-    REQUIRE(v[12] == 0.0f && v[13] == 0.0f && v[14] == 0.0f && v[15] == 0.0f);
+    CHECK(v[0] == 0.0f && v[1] == 0.0f && v[2] == 0.0f && v[3] == 0.0f);
+    CHECK(v[4] == 0.0f && v[5] == 1.0f && v[6] == 2.0f && v[7] == 0.0f);
+    CHECK(v[8] == 0.0f && v[9] == 3.0f && v[10] == 4.0f && v[11] == 0.0f);
+    CHECK(v[12] == 0.0f && v[13] == 0.0f && v[14] == 0.0f && v[15] == 0.0f);
 }
 
-TEST(value_reverse) {
+TEST_CASE("value_reverse") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
@@ -1872,11 +1832,11 @@ TEST(value_reverse) {
     
     auto v = results[0].ToVector<float>();
     // Reverse each row: [[1,2,3],[4,5,6]] -> [[3,2,1],[6,5,4]]
-    REQUIRE(v[0] == 3.0f && v[1] == 2.0f && v[2] == 1.0f);
-    REQUIRE(v[3] == 6.0f && v[4] == 5.0f && v[5] == 4.0f);
+    CHECK(v[0] == 3.0f && v[1] == 2.0f && v[2] == 1.0f);
+    CHECK(v[3] == 6.0f && v[4] == 5.0f && v[5] == 4.0f);
 }
 
-TEST(value_stack_unstack) {
+TEST_CASE("value_stack_unstack") {
     tf_wrap::Graph g;
     
     auto t1 = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
@@ -1900,15 +1860,15 @@ TEST(value_stack_unstack) {
     auto results = s.Run({}, {{"Stack", 0}}, {});
     
     // Stacked along axis 0: shape [2, 3]
-    REQUIRE(results[0].shape()[0] == 2);
-    REQUIRE(results[0].shape()[1] == 3);
+    CHECK(results[0].shape()[0] == 2);
+    CHECK(results[0].shape()[1] == 3);
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f);
-    REQUIRE(v[3] == 4.0f && v[4] == 5.0f && v[5] == 6.0f);
+    CHECK(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f);
+    CHECK(v[3] == 4.0f && v[4] == 5.0f && v[5] == 6.0f);
 }
 
-TEST(value_squeeze_expanddims) {
+TEST_CASE("value_squeeze_expanddims") {
     tf_wrap::Graph g;
     
     auto t = tf_wrap::Tensor::FromVector<float>({1, 3, 1}, {1.0f, 2.0f, 3.0f});
@@ -1939,20 +1899,20 @@ TEST(value_squeeze_expanddims) {
     auto results = s.Run({}, {{"Squeeze", 0}, {"Expand", 0}}, {});
     
     // Squeeze [1,3,1] -> [3]
-    REQUIRE(results[0].rank() == 1);
-    REQUIRE(results[0].shape()[0] == 3);
+    CHECK(results[0].rank() == 1);
+    CHECK(results[0].shape()[0] == 3);
     
     // ExpandDims [3] with axis=1 -> [3,1]
-    REQUIRE(results[1].rank() == 2);
-    REQUIRE(results[1].shape()[0] == 3);
-    REQUIRE(results[1].shape()[1] == 1);
+    CHECK(results[1].rank() == 2);
+    CHECK(results[1].shape()[0] == 3);
+    CHECK(results[1].shape()[1] == 1);
 }
 
 // =============================================================================
 // FILE I/O TESTS - Actually test file operations with real filesystem
 // =============================================================================
 
-TEST(value_file_write_read) {
+TEST_CASE("value_file_write_read") {
     // Create a temp file path
     const char* test_content = "Hello TensorFlow C API!";
     const char* temp_path = "/tmp/tfwrap_test_file.txt";
@@ -1982,13 +1942,13 @@ TEST(value_file_write_read) {
     auto results = s.Run({}, {{"ReadFile", 0}}, {});
     
     auto content = results[0].ToString();
-    REQUIRE(content == test_content);
+    CHECK(content == test_content);
     
     // Cleanup
     std::remove(temp_path);
 }
 
-TEST(value_file_write_op) {
+TEST_CASE("value_file_write_op") {
     const char* temp_path = "/tmp/tfwrap_test_write.txt";
     const char* test_content = "Written by TensorFlow!";
     
@@ -2023,7 +1983,7 @@ TEST(value_file_write_op) {
     std::ifstream ifs(temp_path);
     std::string read_content((std::istreambuf_iterator<char>(ifs)),
                               std::istreambuf_iterator<char>());
-    REQUIRE(read_content == test_content);
+    CHECK(read_content == test_content);
     
     // Cleanup
     std::remove(temp_path);
@@ -2033,7 +1993,7 @@ TEST(value_file_write_op) {
 // IMAGE DECODE TESTS - Minimal valid images embedded as byte arrays
 // =============================================================================
 
-TEST(value_decode_png) {
+TEST_CASE("value_decode_png") {
     // Minimal valid 1x1 red PNG (69 bytes)
     // Generated with Python: zlib-compressed raw RGB data
     static const uint8_t red_1x1_png[] = {
@@ -2067,19 +2027,19 @@ TEST(value_decode_png) {
     auto results = s.Run({}, {{"Decode", 0}}, {});
     
     // Should be 1x1x3 tensor (height, width, channels)
-    REQUIRE(results[0].rank() == 3);
-    REQUIRE(results[0].shape()[0] == 1);  // height
-    REQUIRE(results[0].shape()[1] == 1);  // width
-    REQUIRE(results[0].shape()[2] == 3);  // RGB channels
+    CHECK(results[0].rank() == 3);
+    CHECK(results[0].shape()[0] == 1);  // height
+    CHECK(results[0].shape()[1] == 1);  // width
+    CHECK(results[0].shape()[2] == 3);  // RGB channels
     
     auto pixels = results[0].ToVector<uint8_t>();
     // Red pixel: R=255, G=0, B=0
-    REQUIRE(pixels[0] == 255);  // R
-    REQUIRE(pixels[1] == 0);    // G
-    REQUIRE(pixels[2] == 0);    // B
+    CHECK(pixels[0] == 255);  // R
+    CHECK(pixels[1] == 0);    // G
+    CHECK(pixels[2] == 0);    // B
 }
 
-TEST(value_decode_jpeg) {
+TEST_CASE("value_decode_jpeg") {
     // Valid 1x1 blue JPEG (635 bytes) generated by PIL
     static const uint8_t blue_1x1_jpeg[] = {
         0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
@@ -2158,19 +2118,19 @@ TEST(value_decode_jpeg) {
     auto results = s.Run({}, {{"Decode", 0}}, {});
     
     // Should be 1x1x3 tensor
-    REQUIRE(results[0].rank() == 3);
-    REQUIRE(results[0].shape()[0] == 1);
-    REQUIRE(results[0].shape()[1] == 1);
-    REQUIRE(results[0].shape()[2] == 3);
+    CHECK(results[0].rank() == 3);
+    CHECK(results[0].shape()[0] == 1);
+    CHECK(results[0].shape()[1] == 1);
+    CHECK(results[0].shape()[2] == 3);
     
     auto pixels = results[0].ToVector<uint8_t>();
     // Blue pixel: R≈0, G≈0, B≈255 (JPEG is lossy so allow some tolerance)
-    REQUIRE(pixels[0] < 30);    // R should be low
-    REQUIRE(pixels[1] < 30);    // G should be low
-    REQUIRE(pixels[2] > 200);   // B should be high
+    CHECK(pixels[0] < 30);    // R should be low
+    CHECK(pixels[1] < 30);    // G should be low
+    CHECK(pixels[2] > 200);   // B should be high
 }
 
-TEST(value_encode_png) {
+TEST_CASE("value_encode_png") {
     tf_wrap::Graph g;
     
     // Create a 2x2 RGB image: red, green, blue, white
@@ -2199,18 +2159,18 @@ TEST(value_encode_png) {
     auto png_bytes = results[0].ToString();
     
     // Verify PNG magic bytes
-    REQUIRE(png_bytes.size() > 8);
-    REQUIRE(static_cast<uint8_t>(png_bytes[0]) == 0x89);
-    REQUIRE(png_bytes[1] == 'P');
-    REQUIRE(png_bytes[2] == 'N');
-    REQUIRE(png_bytes[3] == 'G');
+    CHECK(png_bytes.size() > 8);
+    CHECK(static_cast<uint8_t>(png_bytes[0]) == 0x89);
+    CHECK(png_bytes[1] == 'P');
+    CHECK(png_bytes[2] == 'N');
+    CHECK(png_bytes[3] == 'G');
 }
 
 // =============================================================================
 // CONV2D VARIANT TESTS - Different padding, strides, dilations
 // =============================================================================
 
-TEST(value_conv2d_same_padding) {
+TEST_CASE("value_conv2d_same_padding") {
     tf_wrap::Graph g;
     
     // Input: 1x5x5x1
@@ -2239,13 +2199,13 @@ TEST(value_conv2d_same_padding) {
     auto results = s.Run({}, {{"Conv", 0}}, {});
     
     // With SAME padding, output should be 1x5x5x1 (same as input)
-    REQUIRE(results[0].shape()[0] == 1);
-    REQUIRE(results[0].shape()[1] == 5);
-    REQUIRE(results[0].shape()[2] == 5);
-    REQUIRE(results[0].shape()[3] == 1);
+    CHECK(results[0].shape()[0] == 1);
+    CHECK(results[0].shape()[1] == 5);
+    CHECK(results[0].shape()[2] == 5);
+    CHECK(results[0].shape()[3] == 1);
 }
 
-TEST(value_conv2d_strided) {
+TEST_CASE("value_conv2d_strided") {
     tf_wrap::Graph g;
     
     // Input: 1x6x6x1
@@ -2273,15 +2233,15 @@ TEST(value_conv2d_strided) {
     auto results = s.Run({}, {{"Conv", 0}}, {});
     
     // With 6x6 input, 2x2 filter, stride 2, VALID: output is (6-2)/2+1 = 3
-    REQUIRE(results[0].shape()[1] == 3);
-    REQUIRE(results[0].shape()[2] == 3);
+    CHECK(results[0].shape()[1] == 3);
+    CHECK(results[0].shape()[2] == 3);
     
     auto v = results[0].ToVector<float>();
     // First output: sum of [1,2,7,8] = 18
-    REQUIRE(v[0] == 18.0f);
+    CHECK(v[0] == 18.0f);
 }
 
-TEST(value_conv2d_dilated) {
+TEST_CASE("value_conv2d_dilated") {
     tf_wrap::Graph g;
     
     // Input: 1x7x7x1 (need larger input for dilated conv)
@@ -2311,11 +2271,11 @@ TEST(value_conv2d_dilated) {
     
     // With 7x7 input, 3x3 filter with dilation 2: effective filter size is 5x5
     // Output: (7-5)/1+1 = 3
-    REQUIRE(results[0].shape()[1] == 3);
-    REQUIRE(results[0].shape()[2] == 3);
+    CHECK(results[0].shape()[1] == 3);
+    CHECK(results[0].shape()[2] == 3);
 }
 
-TEST(value_depthwise_conv2d) {
+TEST_CASE("value_depthwise_conv2d") {
     tf_wrap::Graph g;
     
     // Input: 1x4x4x2 (2 channels)
@@ -2344,22 +2304,22 @@ TEST(value_depthwise_conv2d) {
     auto results = s.Run({}, {{"DepthwiseConv", 0}}, {});
     
     // Output: 1x3x3x2
-    REQUIRE(results[0].shape()[0] == 1);
-    REQUIRE(results[0].shape()[1] == 3);
-    REQUIRE(results[0].shape()[2] == 3);
-    REQUIRE(results[0].shape()[3] == 2);
+    CHECK(results[0].shape()[0] == 1);
+    CHECK(results[0].shape()[1] == 3);
+    CHECK(results[0].shape()[2] == 3);
+    CHECK(results[0].shape()[3] == 2);
     
     auto v = results[0].ToVector<float>();
     // Each position: sum of 4 ones with filter [1,1,1,1] = 4
-    REQUIRE(v[0] == 4.0f);
-    REQUIRE(v[1] == 4.0f);
+    CHECK(v[0] == 4.0f);
+    CHECK(v[1] == 4.0f);
 }
 
 // =============================================================================
 // BATCHNORM TESTS - Both training and inference modes
 // =============================================================================
 
-TEST(value_batchnorm_inference) {
+TEST_CASE("value_batchnorm_inference") {
     tf_wrap::Graph g;
     
     // Input: batch=2, height=1, width=1, channels=2
@@ -2404,11 +2364,11 @@ TEST(value_batchnorm_inference) {
     // Normalized: (x - mean) / sqrt(variance + epsilon) * scale + offset
     // Sample 1, channel 0: (1 - 2) / sqrt(1.001) ≈ -0.9995
     // Sample 1, channel 1: (2 - 3) / sqrt(1.001) ≈ -0.9995
-    REQUIRE_APPROX(v[0], -0.9995f, 0.01f);
-    REQUIRE_APPROX(v[1], -0.9995f, 0.01f);
+    CHECK(doctest::Approx(v[0], -0.9995f, 0.01f);
+    CHECK(doctest::Approx(v[1], -0.9995f, 0.01f);
 }
 
-TEST(value_batchnorm_training) {
+TEST_CASE("value_batchnorm_training") {
     tf_wrap::Graph g;
     
     // Input: batch=4, height=1, width=1, channels=1
@@ -2453,24 +2413,24 @@ TEST(value_batchnorm_training) {
     auto batch_var = results[2].ToVector<float>();
     
     // Batch mean should be (1+2+3+4)/4 = 2.5
-    REQUIRE_APPROX(batch_mean[0], 2.5f, 0.01f);
+    CHECK(doctest::Approx(batch_mean[0], 2.5f, 0.01f);
     
     // Batch variance: TF may use population or sample variance
     // Population: 1.25, Sample (Bessel): 1.6667
     // Just check it's in reasonable range
-    REQUIRE(batch_var[0] > 1.0f);
-    REQUIRE(batch_var[0] < 2.0f);
+    CHECK(batch_var[0] > 1.0f);
+    CHECK(batch_var[0] < 2.0f);
     
     // Normalized values should have mean≈0
     float y_mean = (y[0] + y[1] + y[2] + y[3]) / 4.0f;
-    REQUIRE_APPROX(y_mean, 0.0f, 0.01f);
+    CHECK(doctest::Approx(y_mean, 0.0f, 0.01f);
 }
 
 // =============================================================================
 // RANDOM OP TESTS - Statistical validation of distributions
 // =============================================================================
 
-TEST(value_random_uniform_distribution) {
+TEST_CASE("value_random_uniform_distribution") {
     tf_wrap::Graph g;
     
     // Generate 10000 random values
@@ -2492,7 +2452,7 @@ TEST(value_random_uniform_distribution) {
     auto results = s.Run({}, {{"Random", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 10000);
+    CHECK(v.size() == 10000);
     
     // Compute statistics
     float sum = 0.0f, sum_sq = 0.0f;
@@ -2508,13 +2468,13 @@ TEST(value_random_uniform_distribution) {
     float variance = (sum_sq / 10000.0f) - (mean * mean);
     
     // Uniform[0,1] has mean=0.5, variance=1/12≈0.0833
-    REQUIRE_APPROX(mean, 0.5f, 0.02f);        // Mean should be ~0.5
-    REQUIRE_APPROX(variance, 0.0833f, 0.01f); // Variance should be ~1/12
-    REQUIRE(min_val >= 0.0f);                  // All values in [0,1)
-    REQUIRE(max_val < 1.0f);
+    CHECK(doctest::Approx(mean, 0.5f, 0.02f);        // Mean should be ~0.5
+    CHECK(doctest::Approx(variance, 0.0833f, 0.01f); // Variance should be ~1/12
+    CHECK(min_val >= 0.0f);                  // All values in [0,1)
+    CHECK(max_val < 1.0f);
 }
 
-TEST(value_random_normal_distribution) {
+TEST_CASE("value_random_normal_distribution") {
     tf_wrap::Graph g;
     
     auto shape = tf_wrap::Tensor::FromVector<int32_t>({1}, {10000});
@@ -2547,11 +2507,11 @@ TEST(value_random_normal_distribution) {
     float variance = (sum_sq / 10000.0f) - (mean * mean);
     
     // Standard normal has mean=0, variance=1
-    REQUIRE_APPROX(mean, 0.0f, 0.05f);      // Mean should be ~0
-    REQUIRE_APPROX(variance, 1.0f, 0.1f);   // Variance should be ~1
+    CHECK(doctest::Approx(mean, 0.0f, 0.05f);      // Mean should be ~0
+    CHECK(doctest::Approx(variance, 1.0f, 0.1f);   // Variance should be ~1
 }
 
-TEST(value_truncated_normal_distribution) {
+TEST_CASE("value_truncated_normal_distribution") {
     tf_wrap::Graph g;
     
     auto shape = tf_wrap::Tensor::FromVector<int32_t>({1}, {10000});
@@ -2580,11 +2540,11 @@ TEST(value_truncated_normal_distribution) {
         if (x > max_val) max_val = x;
     }
     
-    REQUIRE(min_val >= -2.0f);
-    REQUIRE(max_val <= 2.0f);
+    CHECK(min_val >= -2.0f);
+    CHECK(max_val <= 2.0f);
 }
 
-TEST(value_random_shuffle) {
+TEST_CASE("value_random_shuffle") {
     tf_wrap::Graph g;
     
     // Create a sequence 0-99
@@ -2610,22 +2570,22 @@ TEST(value_random_shuffle) {
     auto shuffled = results[0].ToVector<int32_t>();
     
     // Should have same size
-    REQUIRE(shuffled.size() == 100);
+    CHECK(shuffled.size() == 100);
     
     // Should contain all original values (just reordered)
     std::vector<int32_t> sorted_shuffled = shuffled;
     std::sort(sorted_shuffled.begin(), sorted_shuffled.end());
-    REQUIRE(sorted_shuffled == original);
+    CHECK(sorted_shuffled == original);
     
     // Should be different from original (extremely unlikely to be same)
-    REQUIRE(shuffled != original);
+    CHECK(shuffled != original);
 }
 
 // =============================================================================
 // POOL VARIANT TESTS
 // =============================================================================
 
-TEST(value_maxpool_with_argmax) {
+TEST_CASE("value_maxpool_with_argmax") {
     tf_wrap::Graph g;
     
     // Input: 1x4x4x1
@@ -2658,20 +2618,20 @@ TEST(value_maxpool_with_argmax) {
     auto argmax = results[1].ToVector<int64_t>();
     
     // Top-left 2x2: max is 9
-    REQUIRE(maxvals[0] == 9.0f);
+    CHECK(maxvals[0] == 9.0f);
     // Top-right 2x2: max is 8
-    REQUIRE(maxvals[1] == 8.0f);
+    CHECK(maxvals[1] == 8.0f);
     // Bottom-left 2x2: max is 14
-    REQUIRE(maxvals[2] == 14.0f);
+    CHECK(maxvals[2] == 14.0f);
     // Bottom-right 2x2: max is 16
-    REQUIRE(maxvals[3] == 16.0f);
+    CHECK(maxvals[3] == 16.0f);
     
     // Argmax gives flattened index of max element
     // 9 is at position 5 in flattened input
-    REQUIRE(argmax[0] == 5);
+    CHECK(argmax[0] == 5);
 }
 
-TEST(value_avgpool_same_padding) {
+TEST_CASE("value_avgpool_same_padding") {
     tf_wrap::Graph g;
     
     // Input: 1x5x5x1 (odd size to test SAME padding behavior)
@@ -2697,17 +2657,17 @@ TEST(value_avgpool_same_padding) {
     auto results = s.Run({}, {{"AvgPool", 0}}, {});
     
     // SAME padding with stride 2 on 5x5: ceil(5/2) = 3
-    REQUIRE(results[0].shape()[1] == 3);
-    REQUIRE(results[0].shape()[2] == 3);
+    CHECK(results[0].shape()[1] == 3);
+    CHECK(results[0].shape()[2] == 3);
     
     auto v = results[0].ToVector<float>();
     // All inputs are 1, so average should be 1 everywhere
     for (size_t i = 0; i < v.size(); i++) {
-        REQUIRE(v[i] == 1.0f);
+        CHECK(v[i] == 1.0f);
     }
 }
 
-TEST(toscalar_multielement_throws) {
+TEST_CASE("toscalar_multielement_throws") {
     auto t = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
     
     bool threw = false;
@@ -2716,10 +2676,10 @@ TEST(toscalar_multielement_throws) {
     } catch (const std::exception&) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
-TEST(fromvector_shape_mismatch_throws) {
+TEST_CASE("fromvector_shape_mismatch_throws") {
     bool threw = false;
     try {
         // Shape says 10 elements, but vector has 5
@@ -2729,14 +2689,14 @@ TEST(fromvector_shape_mismatch_throws) {
     } catch (const std::exception&) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
 // =============================================================================
 // Stress Tests
 // =============================================================================
 
-TEST(rapid_graph_creation) {
+TEST_CASE("rapid_graph_creation") {
     auto start = std::chrono::steady_clock::now();
     
     for (int i = 0; i < 100; ++i) {
@@ -2752,7 +2712,7 @@ TEST(rapid_graph_creation) {
     std::cout << "    (100 graphs in " << ms << "ms)\n";
 }
 
-TEST(rapid_session_runs) {
+TEST_CASE("rapid_session_runs") {
     tf_wrap::Graph g;
     
     (void)g.NewOperation("Placeholder", "X").SetAttrType("dtype", TF_FLOAT).Finish();
@@ -2774,7 +2734,7 @@ TEST(rapid_session_runs) {
     std::cout << "    (1000 runs in " << ms << "ms)\n";
 }
 
-TEST(concurrent_sessions) {
+TEST_CASE("concurrent_sessions") {
     // Create a shared graph
     tf_wrap::Graph g;
     
@@ -2816,15 +2776,15 @@ TEST(concurrent_sessions) {
         t.join();
     }
     
-    REQUIRE(!error);
-    REQUIRE(total_runs == 400);
+    CHECK(!error);
+    CHECK(total_runs == 400);
 }
 
 // =============================================================================
 // Soak Test (long running)
 // =============================================================================
 
-TEST(soak_test_30_seconds) {
+TEST_CASE("soak_test_30_seconds") {
     std::cout << "    Running for 30 seconds...\n";
     
     tf_wrap::Graph g;
@@ -2858,14 +2818,14 @@ TEST(soak_test_30_seconds) {
     }
     
     std::cout << "    Completed " << iterations << " iterations\n";
-    REQUIRE(iterations > 1000); // Should do way more than this
+    CHECK(iterations > 1000); // Should do way more than this
 }
 
 // =============================================================================
 // Fuzz Test
 // =============================================================================
 
-TEST(fuzz_random_tensor_shapes) {
+TEST_CASE("fuzz_random_tensor_shapes") {
     std::mt19937 rng(12345);
     std::uniform_int_distribution<int> rank_dist(0, 4);
     std::uniform_int_distribution<int> dim_dist(1, 20);
@@ -2887,8 +2847,8 @@ TEST(fuzz_random_tensor_shapes) {
         
         // Create tensor and verify
         auto t = tf_wrap::Tensor::FromVector<float>(shape, data);
-        REQUIRE(t.rank() == rank);
-        REQUIRE(t.num_elements() == static_cast<std::size_t>(total));
+        CHECK(t.rank() == rank);
+        CHECK(t.num_elements() == static_cast<std::size_t>(total));
         
         // Roundtrip through graph
         tf_wrap::Graph g;
@@ -2898,10 +2858,10 @@ TEST(fuzz_random_tensor_shapes) {
         auto results = s.Run({}, {{"T", 0}}, {});
         
         auto out = results[0].ToVector<float>();
-        REQUIRE(out.size() == data.size());
+        CHECK(out.size() == data.size());
         
         for (size_t i = 0; i < data.size(); ++i) {
-            REQUIRE_APPROX(out[i], data[i], 0.0001f);
+            CHECK(doctest::Approx(out[i], data[i], 0.0001f);
         }
     }
 }
@@ -2910,7 +2870,7 @@ TEST(fuzz_random_tensor_shapes) {
 // ADDITIONAL MATH OPS - Acos, Asin, Atan, Cosh, Sinh, Ceil, Floor, etc.
 // =============================================================================
 
-TEST(value_inverse_trig) {
+TEST_CASE("value_inverse_trig") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({3}, {0.0f, 0.5f, 1.0f});
@@ -2929,17 +2889,17 @@ TEST(value_inverse_trig) {
     auto atan_v = results[2].ToVector<float>();
     
     // acos(0) = pi/2, acos(1) = 0
-    REQUIRE_APPROX(acos_v[0], 1.5708f, 0.001f);
-    REQUIRE_APPROX(acos_v[2], 0.0f, 0.001f);
+    CHECK(doctest::Approx(acos_v[0], 1.5708f, 0.001f);
+    CHECK(doctest::Approx(acos_v[2], 0.0f, 0.001f);
     // asin(0) = 0, asin(1) = pi/2
-    REQUIRE_APPROX(asin_v[0], 0.0f, 0.001f);
-    REQUIRE_APPROX(asin_v[2], 1.5708f, 0.001f);
+    CHECK(doctest::Approx(asin_v[0], 0.0f, 0.001f);
+    CHECK(doctest::Approx(asin_v[2], 1.5708f, 0.001f);
     // atan(0) = 0, atan(1) = pi/4
-    REQUIRE_APPROX(atan_v[0], 0.0f, 0.001f);
-    REQUIRE_APPROX(atan_v[2], 0.7854f, 0.001f);
+    CHECK(doctest::Approx(atan_v[0], 0.0f, 0.001f);
+    CHECK(doctest::Approx(atan_v[2], 0.7854f, 0.001f);
 }
 
-TEST(value_hyperbolic) {
+TEST_CASE("value_hyperbolic") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({3}, {0.0f, 1.0f, -1.0f});
@@ -2956,14 +2916,14 @@ TEST(value_hyperbolic) {
     auto sinh_v = results[1].ToVector<float>();
     
     // cosh(0) = 1, cosh(1) ≈ 1.543
-    REQUIRE_APPROX(cosh_v[0], 1.0f, 0.001f);
-    REQUIRE_APPROX(cosh_v[1], 1.543f, 0.01f);
+    CHECK(doctest::Approx(cosh_v[0], 1.0f, 0.001f);
+    CHECK(doctest::Approx(cosh_v[1], 1.543f, 0.01f);
     // sinh(0) = 0, sinh(1) ≈ 1.175
-    REQUIRE_APPROX(sinh_v[0], 0.0f, 0.001f);
-    REQUIRE_APPROX(sinh_v[1], 1.175f, 0.01f);
+    CHECK(doctest::Approx(sinh_v[0], 0.0f, 0.001f);
+    CHECK(doctest::Approx(sinh_v[1], 1.175f, 0.01f);
 }
 
-TEST(value_rounding_ops) {
+TEST_CASE("value_rounding_ops") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({4}, {1.2f, 1.7f, -1.2f, -1.7f});
@@ -2982,15 +2942,15 @@ TEST(value_rounding_ops) {
     auto floor_v = results[1].ToVector<float>();
     auto round_v = results[2].ToVector<float>();
     
-    REQUIRE(ceil_v[0] == 2.0f);
-    REQUIRE(ceil_v[2] == -1.0f);
-    REQUIRE(floor_v[0] == 1.0f);
-    REQUIRE(floor_v[2] == -2.0f);
-    REQUIRE(round_v[0] == 1.0f);
-    REQUIRE(round_v[1] == 2.0f);
+    CHECK(ceil_v[0] == 2.0f);
+    CHECK(ceil_v[2] == -1.0f);
+    CHECK(floor_v[0] == 1.0f);
+    CHECK(floor_v[2] == -2.0f);
+    CHECK(round_v[0] == 1.0f);
+    CHECK(round_v[1] == 2.0f);
 }
 
-TEST(value_neg_reciprocal_rsqrt_sign) {
+TEST_CASE("value_neg_reciprocal_rsqrt_sign") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({4}, {4.0f, -2.0f, 0.25f, 9.0f});
@@ -3010,17 +2970,17 @@ TEST(value_neg_reciprocal_rsqrt_sign) {
     auto rsqrt_v = results[2].ToVector<float>();
     auto sign_v = results[3].ToVector<float>();
     
-    REQUIRE(neg_v[0] == -4.0f);
-    REQUIRE(neg_v[1] == 2.0f);
-    REQUIRE(recip_v[0] == 0.25f);
-    REQUIRE(recip_v[2] == 4.0f);
-    REQUIRE(rsqrt_v[0] == 0.5f);  // 1/sqrt(4) = 0.5
-    REQUIRE(rsqrt_v[3] == 1.0f/3.0f);  // 1/sqrt(9) = 1/3
-    REQUIRE(sign_v[0] == 1.0f);
-    REQUIRE(sign_v[1] == -1.0f);
+    CHECK(neg_v[0] == -4.0f);
+    CHECK(neg_v[1] == 2.0f);
+    CHECK(recip_v[0] == 0.25f);
+    CHECK(recip_v[2] == 4.0f);
+    CHECK(rsqrt_v[0] == 0.5f);  // 1/sqrt(4) = 0.5
+    CHECK(rsqrt_v[3] == 1.0f/3.0f);  // 1/sqrt(9) = 1/3
+    CHECK(sign_v[0] == 1.0f);
+    CHECK(sign_v[1] == -1.0f);
 }
 
-TEST(value_expm1_log1p) {
+TEST_CASE("value_expm1_log1p") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({3}, {0.0f, 1.0f, 0.001f});
@@ -3037,18 +2997,18 @@ TEST(value_expm1_log1p) {
     auto log1p_v = results[1].ToVector<float>();
     
     // expm1(0) = 0, expm1(1) = e-1 ≈ 1.718
-    REQUIRE_APPROX(expm1_v[0], 0.0f, 0.001f);
-    REQUIRE_APPROX(expm1_v[1], 1.718f, 0.01f);
+    CHECK(doctest::Approx(expm1_v[0], 0.0f, 0.001f);
+    CHECK(doctest::Approx(expm1_v[1], 1.718f, 0.01f);
     // log1p(0) = 0, log1p(1) = ln(2) ≈ 0.693
-    REQUIRE_APPROX(log1p_v[0], 0.0f, 0.001f);
-    REQUIRE_APPROX(log1p_v[1], 0.693f, 0.01f);
+    CHECK(doctest::Approx(log1p_v[0], 0.0f, 0.001f);
+    CHECK(doctest::Approx(log1p_v[1], 0.693f, 0.01f);
 }
 
 // =============================================================================
 // COMPARISON OPS - GreaterEqual, LessEqual, NotEqual
 // =============================================================================
 
-TEST(value_comparison_extended) {
+TEST_CASE("value_comparison_extended") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 2.0f});
@@ -3071,20 +3031,20 @@ TEST(value_comparison_extended) {
     auto ne = results[2].ToVector<bool>();
     
     // a=[1,2,3,2], b=[2,2,2,3]
-    REQUIRE(ge[0] == false);  // 1 >= 2
-    REQUIRE(ge[1] == true);   // 2 >= 2
-    REQUIRE(ge[2] == true);   // 3 >= 2
-    REQUIRE(le[0] == true);   // 1 <= 2
-    REQUIRE(le[2] == false);  // 3 <= 2
-    REQUIRE(ne[0] == true);   // 1 != 2
-    REQUIRE(ne[1] == false);  // 2 != 2
+    CHECK(ge[0] == false);  // 1 >= 2
+    CHECK(ge[1] == true);   // 2 >= 2
+    CHECK(ge[2] == true);   // 3 >= 2
+    CHECK(le[0] == true);   // 1 <= 2
+    CHECK(le[2] == false);  // 3 <= 2
+    CHECK(ne[0] == true);   // 1 != 2
+    CHECK(ne[1] == false);  // 2 != 2
 }
 
 // =============================================================================
 // SHAPE/SIZE OPS - Shape, ShapeN, Size, Rank
 // =============================================================================
 
-TEST(value_shape_size_rank) {
+TEST_CASE("value_shape_size_rank") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({2, 3, 4}, std::vector<float>(24, 1.0f));
@@ -3102,19 +3062,19 @@ TEST(value_shape_size_rank) {
     auto size = results[1].ToScalar<int32_t>();
     auto rank = results[2].ToScalar<int32_t>();
     
-    REQUIRE(shape.size() == 3);
-    REQUIRE(shape[0] == 2);
-    REQUIRE(shape[1] == 3);
-    REQUIRE(shape[2] == 4);
-    REQUIRE(size == 24);
-    REQUIRE(rank == 3);
+    CHECK(shape.size() == 3);
+    CHECK(shape[0] == 2);
+    CHECK(shape[1] == 3);
+    CHECK(shape[2] == 4);
+    CHECK(size == 24);
+    CHECK(rank == 3);
 }
 
 // =============================================================================
 // TENSOR MANIPULATION - BroadcastTo, Split, StridedSlice, etc.
 // =============================================================================
 
-TEST(value_broadcast_to) {
+TEST_CASE("value_broadcast_to") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
@@ -3133,15 +3093,15 @@ TEST(value_broadcast_to) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Broadcast", 0}}, {});
     
-    REQUIRE(results[0].shape()[0] == 2);
-    REQUIRE(results[0].shape()[1] == 3);
+    CHECK(results[0].shape()[0] == 2);
+    CHECK(results[0].shape()[1] == 3);
     auto v = results[0].ToVector<float>();
     // [[1,2,3], [1,2,3]]
-    REQUIRE(v[0] == 1.0f);
-    REQUIRE(v[3] == 1.0f);
+    CHECK(v[0] == 1.0f);
+    CHECK(v[3] == 1.0f);
 }
 
-TEST(value_split) {
+TEST_CASE("value_split") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({6}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
@@ -3161,13 +3121,13 @@ TEST(value_split) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Split", 0}, {"Split", 1}, {"Split", 2}}, {});
     
-    REQUIRE(results[0].ToVector<float>()[0] == 1.0f);
-    REQUIRE(results[0].ToVector<float>()[1] == 2.0f);
-    REQUIRE(results[1].ToVector<float>()[0] == 3.0f);
-    REQUIRE(results[2].ToVector<float>()[0] == 5.0f);
+    CHECK(results[0].ToVector<float>()[0] == 1.0f);
+    CHECK(results[0].ToVector<float>()[1] == 2.0f);
+    CHECK(results[1].ToVector<float>()[0] == 3.0f);
+    CHECK(results[2].ToVector<float>()[0] == 5.0f);
 }
 
-TEST(value_strided_slice) {
+TEST_CASE("value_strided_slice") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({6}, {0.0f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f});
@@ -3197,12 +3157,12 @@ TEST(value_strided_slice) {
     
     auto v = results[0].ToVector<float>();
     // x[1:5:2] = [1, 3]
-    REQUIRE(v.size() == 2);
-    REQUIRE(v[0] == 1.0f);
-    REQUIRE(v[1] == 3.0f);
+    CHECK(v.size() == 2);
+    CHECK(v[0] == 1.0f);
+    CHECK(v[1] == 3.0f);
 }
 
-TEST(value_unpack) {
+TEST_CASE("value_unpack") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
@@ -3220,13 +3180,13 @@ TEST(value_unpack) {
     
     auto v0 = results[0].ToVector<float>();
     auto v1 = results[1].ToVector<float>();
-    REQUIRE(v0[0] == 1.0f);
-    REQUIRE(v0[1] == 2.0f);
-    REQUIRE(v0[2] == 3.0f);
-    REQUIRE(v1[0] == 4.0f);
+    CHECK(v0[0] == 1.0f);
+    CHECK(v0[1] == 2.0f);
+    CHECK(v0[2] == 3.0f);
+    CHECK(v1[0] == 4.0f);
 }
 
-TEST(value_scatter_nd) {
+TEST_CASE("value_scatter_nd") {
     tf_wrap::Graph g;
     
     auto indices = tf_wrap::Tensor::FromVector<int32_t>({2, 1}, {0, 2});
@@ -3251,13 +3211,13 @@ TEST(value_scatter_nd) {
     auto results = s.Run({}, {{"Scatter", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 10.0f);
-    REQUIRE(v[1] == 0.0f);
-    REQUIRE(v[2] == 20.0f);
-    REQUIRE(v[3] == 0.0f);
+    CHECK(v[0] == 10.0f);
+    CHECK(v[1] == 0.0f);
+    CHECK(v[2] == 20.0f);
+    CHECK(v[3] == 0.0f);
 }
 
-TEST(value_gather_nd) {
+TEST_CASE("value_gather_nd") {
     tf_wrap::Graph g;
     
     auto params = tf_wrap::Tensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
@@ -3278,11 +3238,11 @@ TEST(value_gather_nd) {
     auto results = s.Run({}, {{"Gather", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f);  // params[0,0]
-    REQUIRE(v[1] == 6.0f);  // params[1,2]
+    CHECK(v[0] == 1.0f);  // params[0,0]
+    CHECK(v[1] == 6.0f);  // params[1,2]
 }
 
-TEST(value_select_v2) {
+TEST_CASE("value_select_v2") {
     tf_wrap::Graph g;
     
     auto cond = tf_wrap::Tensor::FromVector<bool>({4}, {true, false, true, false});
@@ -3307,13 +3267,13 @@ TEST(value_select_v2) {
     auto results = s.Run({}, {{"Select", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f);   // true -> a
-    REQUIRE(v[1] == 20.0f);  // false -> b
-    REQUIRE(v[2] == 3.0f);   // true -> a
-    REQUIRE(v[3] == 40.0f);  // false -> b
+    CHECK(v[0] == 1.0f);   // true -> a
+    CHECK(v[1] == 20.0f);  // false -> b
+    CHECK(v[2] == 3.0f);   // true -> a
+    CHECK(v[3] == 40.0f);  // false -> b
 }
 
-TEST(value_mirror_pad) {
+TEST_CASE("value_mirror_pad") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
@@ -3336,16 +3296,16 @@ TEST(value_mirror_pad) {
     
     auto v = results[0].ToVector<float>();
     // REFLECT: [2, 1, 2, 3, 2]
-    REQUIRE(v.size() == 5);
-    REQUIRE(v[0] == 2.0f);
-    REQUIRE(v[4] == 2.0f);
+    CHECK(v.size() == 5);
+    CHECK(v[0] == 2.0f);
+    CHECK(v[4] == 2.0f);
 }
 
 // =============================================================================
 // ACTIVATIONS - Softplus, Softsign, LogSoftmax
 // =============================================================================
 
-TEST(value_softplus_softsign) {
+TEST_CASE("value_softplus_softsign") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({3}, {-1.0f, 0.0f, 1.0f});
@@ -3362,14 +3322,14 @@ TEST(value_softplus_softsign) {
     auto ss = results[1].ToVector<float>();
     
     // softplus(x) = log(1 + exp(x))
-    REQUIRE_APPROX(sp[1], 0.693f, 0.01f);  // softplus(0) = ln(2)
+    CHECK(doctest::Approx(sp[1], 0.693f, 0.01f);  // softplus(0) = ln(2)
     // softsign(x) = x / (1 + |x|)
-    REQUIRE_APPROX(ss[0], -0.5f, 0.01f);   // -1/(1+1) = -0.5
-    REQUIRE_APPROX(ss[1], 0.0f, 0.01f);    // 0
-    REQUIRE_APPROX(ss[2], 0.5f, 0.01f);    // 1/(1+1) = 0.5
+    CHECK(doctest::Approx(ss[0], -0.5f, 0.01f);   // -1/(1+1) = -0.5
+    CHECK(doctest::Approx(ss[1], 0.0f, 0.01f);    // 0
+    CHECK(doctest::Approx(ss[2], 0.5f, 0.01f);    // 1/(1+1) = 0.5
 }
 
-TEST(value_log_softmax) {
+TEST_CASE("value_log_softmax") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({1, 3}, {1.0f, 2.0f, 3.0f});
@@ -3385,16 +3345,16 @@ TEST(value_log_softmax) {
     // log_softmax = x - log(sum(exp(x)))
     // sum(exp) = e^1 + e^2 + e^3 ≈ 30.19
     // log(30.19) ≈ 3.408
-    REQUIRE_APPROX(v[0], -2.408f, 0.01f);
-    REQUIRE_APPROX(v[1], -1.408f, 0.01f);
-    REQUIRE_APPROX(v[2], -0.408f, 0.01f);
+    CHECK(doctest::Approx(v[0], -2.408f, 0.01f);
+    CHECK(doctest::Approx(v[1], -1.408f, 0.01f);
+    CHECK(doctest::Approx(v[2], -0.408f, 0.01f);
 }
 
 // =============================================================================
 // LINALG OPS - Cholesky, MatrixInverse, Determinant, QR, SVD
 // =============================================================================
 
-TEST(value_matrix_inverse) {
+TEST_CASE("value_matrix_inverse") {
     tf_wrap::Graph g;
     
     // 2x2 matrix: [[4, 7], [2, 6]]
@@ -3409,13 +3369,13 @@ TEST(value_matrix_inverse) {
     auto results = s.Run({}, {{"Inv", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE_APPROX(v[0], 0.6f, 0.01f);
-    REQUIRE_APPROX(v[1], -0.7f, 0.01f);
-    REQUIRE_APPROX(v[2], -0.2f, 0.01f);
-    REQUIRE_APPROX(v[3], 0.4f, 0.01f);
+    CHECK(doctest::Approx(v[0], 0.6f, 0.01f);
+    CHECK(doctest::Approx(v[1], -0.7f, 0.01f);
+    CHECK(doctest::Approx(v[2], -0.2f, 0.01f);
+    CHECK(doctest::Approx(v[3], 0.4f, 0.01f);
 }
 
-TEST(value_matrix_determinant) {
+TEST_CASE("value_matrix_determinant") {
     tf_wrap::Graph g;
     
     // det([[4, 7], [2, 6]]) = 4*6 - 7*2 = 10
@@ -3428,10 +3388,10 @@ TEST(value_matrix_determinant) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Det", 0}}, {});
     
-    REQUIRE_APPROX(results[0].ToScalar<float>(), 10.0f, 0.01f);
+    CHECK(doctest::Approx(results[0].ToScalar<float>(), 10.0f, 0.01f);
 }
 
-TEST(value_cholesky) {
+TEST_CASE("value_cholesky") {
     tf_wrap::Graph g;
     
     // Symmetric positive definite: [[4, 2], [2, 2]]
@@ -3446,17 +3406,17 @@ TEST(value_cholesky) {
     auto results = s.Run({}, {{"Chol", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE_APPROX(v[0], 2.0f, 0.01f);
-    REQUIRE_APPROX(v[1], 0.0f, 0.01f);
-    REQUIRE_APPROX(v[2], 1.0f, 0.01f);
-    REQUIRE_APPROX(v[3], 1.0f, 0.01f);
+    CHECK(doctest::Approx(v[0], 2.0f, 0.01f);
+    CHECK(doctest::Approx(v[1], 0.0f, 0.01f);
+    CHECK(doctest::Approx(v[2], 1.0f, 0.01f);
+    CHECK(doctest::Approx(v[3], 1.0f, 0.01f);
 }
 
 // =============================================================================
 // IMAGE RESIZE OPS
 // =============================================================================
 
-TEST(value_resize_bilinear) {
+TEST_CASE("value_resize_bilinear") {
     tf_wrap::Graph g;
     
     // 2x2 image, resize to 4x4
@@ -3477,18 +3437,18 @@ TEST(value_resize_bilinear) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Resize", 0}}, {});
     
-    REQUIRE(results[0].shape()[1] == 4);
-    REQUIRE(results[0].shape()[2] == 4);
+    CHECK(results[0].shape()[1] == 4);
+    CHECK(results[0].shape()[2] == 4);
     auto v = results[0].ToVector<float>();
     // Corners should be original values
-    REQUIRE_APPROX(v[0], 1.0f, 0.1f);
+    CHECK(doctest::Approx(v[0], 1.0f, 0.1f);
 }
 
 // =============================================================================
 // CONTROL/DEBUG OPS - NoOp, StopGradient, Identity variants
 // =============================================================================
 
-TEST(value_noop_stopgradient) {
+TEST_CASE("value_noop_stopgradient") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
@@ -3504,12 +3464,12 @@ TEST(value_noop_stopgradient) {
     auto results = s.Run({}, {{"Stop", 0}}, {"Noop"});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f);
-    REQUIRE(v[1] == 2.0f);
-    REQUIRE(v[2] == 3.0f);
+    CHECK(v[0] == 1.0f);
+    CHECK(v[1] == 2.0f);
+    CHECK(v[2] == 3.0f);
 }
 
-TEST(value_identity_n) {
+TEST_CASE("value_identity_n") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
@@ -3528,15 +3488,15 @@ TEST(value_identity_n) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"IdN", 0}, {"IdN", 1}}, {});
     
-    REQUIRE(results[0].ToVector<float>()[0] == 1.0f);
-    REQUIRE(results[1].ToVector<float>()[0] == 3.0f);
+    CHECK(results[0].ToVector<float>()[0] == 1.0f);
+    CHECK(results[1].ToVector<float>()[0] == 3.0f);
 }
 
 // =============================================================================
 // MISC OPS - LinSpace, Bitcast, Concat (original), Where, Add (original)
 // =============================================================================
 
-TEST(value_linspace) {
+TEST_CASE("value_linspace") {
     tf_wrap::Graph g;
     
     auto start = tf_wrap::Tensor::FromScalar<float>(0.0f);
@@ -3561,13 +3521,13 @@ TEST(value_linspace) {
     auto results = s.Run({}, {{"LinSpace", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 5);
-    REQUIRE(v[0] == 0.0f);
-    REQUIRE(v[2] == 5.0f);
-    REQUIRE(v[4] == 10.0f);
+    CHECK(v.size() == 5);
+    CHECK(v[0] == 0.0f);
+    CHECK(v[2] == 5.0f);
+    CHECK(v[4] == 10.0f);
 }
 
-TEST(value_concat_original) {
+TEST_CASE("value_concat_original") {
     // Test Concat (not ConcatV2 which we already test)
     tf_wrap::Graph g;
     
@@ -3593,12 +3553,12 @@ TEST(value_concat_original) {
     auto results = s.Run({}, {{"Cat", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 4);
-    REQUIRE(v[0] == 1.0f);
-    REQUIRE(v[2] == 3.0f);
+    CHECK(v.size() == 4);
+    CHECK(v[0] == 1.0f);
+    CHECK(v[2] == 3.0f);
 }
 
-TEST(value_add_original) {
+TEST_CASE("value_add_original") {
     // Test Add (not AddV2)
     tf_wrap::Graph g;
     
@@ -3620,12 +3580,12 @@ TEST(value_add_original) {
     auto results = s.Run({}, {{"Add", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 11.0f);
-    REQUIRE(v[1] == 22.0f);
-    REQUIRE(v[2] == 33.0f);
+    CHECK(v[0] == 11.0f);
+    CHECK(v[1] == 22.0f);
+    CHECK(v[2] == 33.0f);
 }
 
-TEST(value_where_indices) {
+TEST_CASE("value_where_indices") {
     tf_wrap::Graph g;
     
     // Where returns indices of true values
@@ -3640,18 +3600,18 @@ TEST(value_where_indices) {
     auto results = s.Run({}, {{"Where", 0}}, {});
     
     // Returns [[0], [2], [4]] for true indices
-    REQUIRE(results[0].shape()[0] == 3);  // 3 true values
+    CHECK(results[0].shape()[0] == 3);  // 3 true values
     auto v = results[0].ToVector<int64_t>();
-    REQUIRE(v[0] == 0);
-    REQUIRE(v[1] == 2);
-    REQUIRE(v[2] == 4);
+    CHECK(v[0] == 0);
+    CHECK(v[1] == 2);
+    CHECK(v[2] == 4);
 }
 
 // =============================================================================
 // REMAINING OPS - Complete coverage
 // =============================================================================
 
-TEST(value_gather_v2) {
+TEST_CASE("value_gather_v2") {
     tf_wrap::Graph g;
     
     auto params = tf_wrap::Tensor::FromVector<float>({4}, {10.0f, 20.0f, 30.0f, 40.0f});
@@ -3676,12 +3636,12 @@ TEST(value_gather_v2) {
     auto results = s.Run({}, {{"Gather", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 10.0f);
-    REQUIRE(v[1] == 30.0f);
-    REQUIRE(v[2] == 40.0f);
+    CHECK(v[0] == 10.0f);
+    CHECK(v[1] == 30.0f);
+    CHECK(v[2] == 40.0f);
 }
 
-TEST(value_batch_matmul_v2) {
+TEST_CASE("value_batch_matmul_v2") {
     tf_wrap::Graph g;
     
     // Batch of 2 matrices: 2x2
@@ -3708,14 +3668,14 @@ TEST(value_batch_matmul_v2) {
     
     auto v = results[0].ToVector<float>();
     // Batch 0: [[1,2],[3,4]] @ [[5,6],[7,8]] = [[19,22],[43,50]]
-    REQUIRE(v[0] == 19.0f);
-    REQUIRE(v[1] == 22.0f);
+    CHECK(v[0] == 19.0f);
+    CHECK(v[1] == 22.0f);
     // Batch 1: identity @ b = b
-    REQUIRE(v[4] == 2.0f);
-    REQUIRE(v[5] == 3.0f);
+    CHECK(v[4] == 2.0f);
+    CHECK(v[5] == 3.0f);
 }
 
-TEST(value_pad_v2) {
+TEST_CASE("value_pad_v2") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
@@ -3740,14 +3700,14 @@ TEST(value_pad_v2) {
     auto results = s.Run({}, {{"Pad", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 7);
-    REQUIRE(v[0] == 99.0f);
-    REQUIRE(v[1] == 99.0f);
-    REQUIRE(v[2] == 1.0f);
-    REQUIRE(v[5] == 99.0f);
+    CHECK(v.size() == 7);
+    CHECK(v[0] == 99.0f);
+    CHECK(v[1] == 99.0f);
+    CHECK(v[2] == 1.0f);
+    CHECK(v[5] == 99.0f);
 }
 
-TEST(value_split_v) {
+TEST_CASE("value_split_v") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({10}, {0.0f,1.0f,2.0f,3.0f,4.0f,5.0f,6.0f,7.0f,8.0f,9.0f});
@@ -3772,15 +3732,15 @@ TEST(value_split_v) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Split", 0}, {"Split", 1}, {"Split", 2}}, {});
     
-    REQUIRE(results[0].ToVector<float>().size() == 2);
-    REQUIRE(results[1].ToVector<float>().size() == 3);
-    REQUIRE(results[2].ToVector<float>().size() == 5);
-    REQUIRE(results[0].ToVector<float>()[0] == 0.0f);
-    REQUIRE(results[1].ToVector<float>()[0] == 2.0f);
-    REQUIRE(results[2].ToVector<float>()[0] == 5.0f);
+    CHECK(results[0].ToVector<float>().size() == 2);
+    CHECK(results[1].ToVector<float>().size() == 3);
+    CHECK(results[2].ToVector<float>().size() == 5);
+    CHECK(results[0].ToVector<float>()[0] == 0.0f);
+    CHECK(results[1].ToVector<float>()[0] == 2.0f);
+    CHECK(results[2].ToVector<float>()[0] == 5.0f);
 }
 
-TEST(value_real_div) {
+TEST_CASE("value_real_div") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<float>({3}, {10.0f, 15.0f, 21.0f});
@@ -3801,12 +3761,12 @@ TEST(value_real_div) {
     auto results = s.Run({}, {{"Div", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 5.0f);
-    REQUIRE(v[1] == 5.0f);
-    REQUIRE(v[2] == 3.0f);
+    CHECK(v[0] == 5.0f);
+    CHECK(v[1] == 5.0f);
+    CHECK(v[2] == 3.0f);
 }
 
-TEST(value_shape_n) {
+TEST_CASE("value_shape_n") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<float>({2, 3}, std::vector<float>(6, 1.0f));
@@ -3828,14 +3788,14 @@ TEST(value_shape_n) {
     
     auto shape_a = results[0].ToVector<int32_t>();
     auto shape_b = results[1].ToVector<int32_t>();
-    REQUIRE(shape_a.size() == 2);
-    REQUIRE(shape_a[0] == 2);
-    REQUIRE(shape_a[1] == 3);
-    REQUIRE(shape_b.size() == 3);
-    REQUIRE(shape_b[0] == 4);
+    CHECK(shape_a.size() == 2);
+    CHECK(shape_a[0] == 2);
+    CHECK(shape_a[1] == 3);
+    CHECK(shape_b.size() == 3);
+    CHECK(shape_b[0] == 4);
 }
 
-TEST(value_bitcast) {
+TEST_CASE("value_bitcast") {
     tf_wrap::Graph g;
     
     // Bitcast float32 to int32 (same bit pattern)
@@ -3854,10 +3814,10 @@ TEST(value_bitcast) {
     
     auto v = results[0].ToVector<int32_t>();
     // 1.0f in IEEE 754 = 0x3f800000 = 1065353216
-    REQUIRE(v[0] == 1065353216);
+    CHECK(v[0] == 1065353216);
 }
 
-TEST(value_lrn) {
+TEST_CASE("value_lrn") {
     tf_wrap::Graph g;
     
     // Local Response Normalization
@@ -3878,12 +3838,12 @@ TEST(value_lrn) {
     auto results = s.Run({}, {{"LRN", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 4);
+    CHECK(v.size() == 4);
     // Values should be normalized (smaller than input)
-    REQUIRE(v[0] < 1.0f);
+    CHECK(v[0] < 1.0f);
 }
 
-TEST(value_avgpool3d) {
+TEST_CASE("value_avgpool3d") {
     tf_wrap::Graph g;
     
     // 3D input: batch=1, depth=2, height=2, width=2, channels=1
@@ -3905,10 +3865,10 @@ TEST(value_avgpool3d) {
     
     auto v = results[0].ToVector<float>();
     // Average of all 8 values = 4.5
-    REQUIRE_APPROX(v[0], 4.5f, 0.01f);
+    CHECK(doctest::Approx(v[0], 4.5f, 0.01f);
 }
 
-TEST(value_maxpool3d) {
+TEST_CASE("value_maxpool3d") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({1, 2, 2, 2, 1}, 
@@ -3929,10 +3889,10 @@ TEST(value_maxpool3d) {
     
     auto v = results[0].ToVector<float>();
     // Max of all 8 values = 8
-    REQUIRE(v[0] == 8.0f);
+    CHECK(v[0] == 8.0f);
 }
 
-TEST(value_resize_bicubic) {
+TEST_CASE("value_resize_bicubic") {
     tf_wrap::Graph g;
     
     auto image = tf_wrap::Tensor::FromVector<float>({1, 2, 2, 1}, {1.0f, 2.0f, 3.0f, 4.0f});
@@ -3952,11 +3912,11 @@ TEST(value_resize_bicubic) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Resize", 0}}, {});
     
-    REQUIRE(results[0].shape()[1] == 4);
-    REQUIRE(results[0].shape()[2] == 4);
+    CHECK(results[0].shape()[1] == 4);
+    CHECK(results[0].shape()[2] == 4);
 }
 
-TEST(value_resize_nearest_neighbor) {
+TEST_CASE("value_resize_nearest_neighbor") {
     tf_wrap::Graph g;
     
     auto image = tf_wrap::Tensor::FromVector<float>({1, 2, 2, 1}, {1.0f, 2.0f, 3.0f, 4.0f});
@@ -3976,14 +3936,14 @@ TEST(value_resize_nearest_neighbor) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Resize", 0}}, {});
     
-    REQUIRE(results[0].shape()[1] == 4);
-    REQUIRE(results[0].shape()[2] == 4);
+    CHECK(results[0].shape()[1] == 4);
+    CHECK(results[0].shape()[2] == 4);
     // Nearest neighbor should replicate values
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f);
+    CHECK(v[0] == 1.0f);
 }
 
-TEST(value_crop_and_resize) {
+TEST_CASE("value_crop_and_resize") {
     tf_wrap::Graph g;
     
     // 4x4 image
@@ -4013,11 +3973,11 @@ TEST(value_crop_and_resize) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Crop", 0}}, {});
     
-    REQUIRE(results[0].shape()[1] == 2);
-    REQUIRE(results[0].shape()[2] == 2);
+    CHECK(results[0].shape()[1] == 2);
+    CHECK(results[0].shape()[2] == 2);
 }
 
-TEST(value_qr_decomposition) {
+TEST_CASE("value_qr_decomposition") {
     tf_wrap::Graph g;
     
     // 3x2 matrix
@@ -4035,13 +3995,13 @@ TEST(value_qr_decomposition) {
     auto results = s.Run({}, {{"QR", 0}, {"QR", 1}}, {});
     
     // Q is 3x2, R is 2x2
-    REQUIRE(results[0].shape()[0] == 3);
-    REQUIRE(results[0].shape()[1] == 2);
-    REQUIRE(results[1].shape()[0] == 2);
-    REQUIRE(results[1].shape()[1] == 2);
+    CHECK(results[0].shape()[0] == 3);
+    CHECK(results[0].shape()[1] == 2);
+    CHECK(results[1].shape()[0] == 2);
+    CHECK(results[1].shape()[1] == 2);
 }
 
-TEST(value_svd_decomposition) {
+TEST_CASE("value_svd_decomposition") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
@@ -4060,11 +4020,11 @@ TEST(value_svd_decomposition) {
     
     // S is singular values
     auto s_vals = results[0].ToVector<float>();
-    REQUIRE(s_vals.size() == 2);  // min(2,3) = 2 singular values
-    REQUIRE(s_vals[0] > 0.0f);    // Singular values are positive
+    CHECK(s_vals.size() == 2);  // min(2,3) = 2 singular values
+    CHECK(s_vals[0] > 0.0f);    // Singular values are positive
 }
 
-TEST(value_multinomial) {
+TEST_CASE("value_multinomial") {
     tf_wrap::Graph g;
     
     // Log-probabilities (unnormalized)
@@ -4086,17 +4046,17 @@ TEST(value_multinomial) {
     auto results = s.Run({}, {{"Sample", 0}}, {});
     
     auto samples = results[0].ToVector<int64_t>();
-    REQUIRE(samples.size() == 100);
+    CHECK(samples.size() == 100);
     
     // Count how many times index 3 was sampled (should be most)
     int count_3 = 0;
     for (auto s : samples) {
         if (s == 3) count_3++;
     }
-    REQUIRE(count_3 > 80);  // Should be heavily biased toward 3
+    CHECK(count_3 > 80);  // Should be heavily biased toward 3
 }
 
-TEST(value_prevent_gradient) {
+TEST_CASE("value_prevent_gradient") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
@@ -4111,12 +4071,12 @@ TEST(value_prevent_gradient) {
     auto results = s.Run({}, {{"PG", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f);
-    REQUIRE(v[1] == 2.0f);
-    REQUIRE(v[2] == 3.0f);
+    CHECK(v[0] == 1.0f);
+    CHECK(v[1] == 2.0f);
+    CHECK(v[2] == 3.0f);
 }
 
-TEST(value_check_numerics) {
+TEST_CASE("value_check_numerics") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
@@ -4133,10 +4093,10 @@ TEST(value_check_numerics) {
     
     // Should pass through unchanged for valid numerics
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f);
+    CHECK(v[0] == 1.0f);
 }
 
-TEST(value_fused_batchnorm_v1) {
+TEST_CASE("value_fused_batchnorm_v1") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({2, 1, 1, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
@@ -4171,11 +4131,11 @@ TEST(value_fused_batchnorm_v1) {
     auto results = s.Run({}, {{"BN", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 4);
+    CHECK(v.size() == 4);
 }
 
 // Variable ops require special handling - test graph construction only
-TEST(graph_variable_ops) {
+TEST_CASE("graph_variable_ops") {
     tf_wrap::Graph g;
     
     // VarHandleOp creates a resource handle
@@ -4191,11 +4151,11 @@ TEST(graph_variable_ops) {
         .Finish();
     
     // Verify ops exist in graph
-    REQUIRE(g.GetOperationOrThrow("Var") != nullptr);
-    REQUIRE(g.GetOperationOrThrow("VarV2") != nullptr);
+    CHECK(g.GetOperationOrThrow("Var") != nullptr);
+    CHECK(g.GetOperationOrThrow("VarV2") != nullptr);
 }
 
-TEST(graph_variable_assign_ops) {
+TEST_CASE("graph_variable_assign_ops") {
     tf_wrap::Graph g;
     
     // Create variable handle
@@ -4238,13 +4198,13 @@ TEST(graph_variable_assign_ops) {
         .Finish();
     
     // Verify all ops created
-    REQUIRE(g.GetOperationOrThrow("Assign") != nullptr);
-    REQUIRE(g.GetOperationOrThrow("Read") != nullptr);
-    REQUIRE(g.GetOperationOrThrow("AddAssign") != nullptr);
-    REQUIRE(g.GetOperationOrThrow("SubAssign") != nullptr);
+    CHECK(g.GetOperationOrThrow("Assign") != nullptr);
+    CHECK(g.GetOperationOrThrow("Read") != nullptr);
+    CHECK(g.GetOperationOrThrow("AddAssign") != nullptr);
+    CHECK(g.GetOperationOrThrow("SubAssign") != nullptr);
 }
 
-TEST(graph_assert_print) {
+TEST_CASE("graph_assert_print") {
     tf_wrap::Graph g;
     
     auto cond = tf_wrap::Tensor::FromScalar<bool>(true);
@@ -4270,11 +4230,11 @@ TEST(graph_assert_print) {
         .SetAttrTypeList("U", std::vector<TF_DataType>{TF_FLOAT})
         .Finish();
     
-    REQUIRE(g.GetOperationOrThrow("Assert") != nullptr);
-    REQUIRE(g.GetOperationOrThrow("Print") != nullptr);
+    CHECK(g.GetOperationOrThrow("Assert") != nullptr);
+    CHECK(g.GetOperationOrThrow("Print") != nullptr);
 }
 
-TEST(value_string_join) {
+TEST_CASE("value_string_join") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromString("Hello");
@@ -4295,10 +4255,10 @@ TEST(value_string_join) {
     auto results = s.Run({}, {{"Join", 0}}, {});
     
     auto str = results[0].ToString();
-    REQUIRE(str == "Hello World");
+    CHECK(str == "Hello World");
 }
 
-TEST(graph_einsum) {
+TEST_CASE("graph_einsum") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<float>({2, 3}, std::vector<float>(6, 1.0f));
@@ -4321,13 +4281,13 @@ TEST(graph_einsum) {
     auto results = s.Run({}, {{"Ein", 0}}, {});
     
     // Result should be 2x2 matrix
-    REQUIRE(results[0].shape()[0] == 2);
-    REQUIRE(results[0].shape()[1] == 2);
+    CHECK(results[0].shape()[0] == 2);
+    CHECK(results[0].shape()[1] == 2);
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 3.0f);  // Each element is sum of 3 ones
+    CHECK(v[0] == 3.0f);  // Each element is sum of 3 ones
 }
 
-TEST(graph_conv2d_backprop_input) {
+TEST_CASE("graph_conv2d_backprop_input") {
     tf_wrap::Graph g;
     
     auto input_sizes = tf_wrap::Tensor::FromVector<int32_t>({4}, {1, 4, 4, 1});
@@ -4353,11 +4313,11 @@ TEST(graph_conv2d_backprop_input) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"ConvBack", 0}}, {});
     
-    REQUIRE(results[0].shape()[1] == 4);
-    REQUIRE(results[0].shape()[2] == 4);
+    CHECK(results[0].shape()[1] == 4);
+    CHECK(results[0].shape()[2] == 4);
 }
 
-TEST(graph_matching_files) {
+TEST_CASE("graph_matching_files") {
     tf_wrap::Graph g;
     
     // Pattern to match (won't find anything, but tests op construction)
@@ -4374,10 +4334,10 @@ TEST(graph_matching_files) {
     auto results = s.Run({}, {{"Match", 0}}, {});
     
     // Should return empty tensor (no matches)
-    REQUIRE(results[0].shape()[0] == 0);
+    CHECK(results[0].shape()[0] == 0);
 }
 
-TEST(graph_nms) {
+TEST_CASE("graph_nms") {
     tf_wrap::Graph g;
     
     // 3 boxes: [y1, x1, y2, x2]
@@ -4416,12 +4376,12 @@ TEST(graph_nms) {
     
     auto indices = results[0].ToVector<int32_t>();
     // Should keep box 0 and box 2 (box 1 overlaps with 0)
-    REQUIRE(indices.size() == 2);
-    REQUIRE(indices[0] == 0);
-    REQUIRE(indices[1] == 2);
+    CHECK(indices.size() == 2);
+    CHECK(indices[0] == 0);
+    CHECK(indices[1] == 2);
 }
 
-TEST(graph_regex_replace) {
+TEST_CASE("graph_regex_replace") {
     tf_wrap::Graph g;
     
     auto input = tf_wrap::Tensor::FromString("hello123world456");
@@ -4447,10 +4407,10 @@ TEST(graph_regex_replace) {
     auto results = s.Run({}, {{"Replace", 0}}, {});
     
     auto str = results[0].ToString();
-    REQUIRE(str == "helloXworldX");
+    CHECK(str == "helloXworldX");
 }
 
-TEST(graph_string_split) {
+TEST_CASE("graph_string_split") {
     // StringSplit requires a 1D string tensor (batch of strings) and scalar delimiter
     // Our FromString creates scalars, so we just test graph construction without execution
     tf_wrap::Graph g;
@@ -4474,10 +4434,10 @@ TEST(graph_string_split) {
     
     // StringSplit returns sparse tensor (indices, values, shape)
     // Just verify the op was created successfully
-    REQUIRE(g.GetOperationOrThrow("Split") != nullptr);
+    CHECK(g.GetOperationOrThrow("Split") != nullptr);
 }
 
-TEST(graph_encode_jpeg) {
+TEST_CASE("graph_encode_jpeg") {
     tf_wrap::Graph g;
     
     // 2x2 RGB image
@@ -4497,13 +4457,13 @@ TEST(graph_encode_jpeg) {
     
     // Should produce JPEG bytes
     auto jpeg_bytes = results[0].ToString();
-    REQUIRE(jpeg_bytes.size() > 0);
+    CHECK(jpeg_bytes.size() > 0);
     // JPEG magic bytes: FF D8 FF
-    REQUIRE(static_cast<uint8_t>(jpeg_bytes[0]) == 0xFF);
-    REQUIRE(static_cast<uint8_t>(jpeg_bytes[1]) == 0xD8);
+    CHECK(static_cast<uint8_t>(jpeg_bytes[0]) == 0xFF);
+    CHECK(static_cast<uint8_t>(jpeg_bytes[1]) == 0xD8);
 }
 
-TEST(graph_nms_v1) {
+TEST_CASE("graph_nms_v1") {
     tf_wrap::Graph g;
     
     // 2 boxes
@@ -4533,10 +4493,10 @@ TEST(graph_nms_v1) {
     auto results = s.Run({}, {{"NMS", 0}}, {});
     
     auto indices = results[0].ToVector<int32_t>();
-    REQUIRE(indices.size() == 2);
+    CHECK(indices.size() == 2);
 }
 
-TEST(graph_variable_v1) {
+TEST_CASE("graph_variable_v1") {
     tf_wrap::Graph g;
     
     // Old-style Variable op (ref semantics)
@@ -4545,14 +4505,14 @@ TEST(graph_variable_v1) {
         .SetAttrShape("shape", {3})
         .Finish();
     
-    REQUIRE(g.GetOperationOrThrow("Var") != nullptr);
+    CHECK(g.GetOperationOrThrow("Var") != nullptr);
 }
 
 // =============================================================================
 // PREVIOUSLY UNTESTED: DeviceList, RunMetadata, AddControlInput, ToGraphDef
 // =============================================================================
 
-TEST(session_list_devices) {
+TEST_CASE("session_list_devices") {
     tf_wrap::Graph g;
     
     // Create minimal graph
@@ -4565,32 +4525,32 @@ TEST(session_list_devices) {
     auto devices = s.ListDevices();
     
     // Should have at least one CPU device
-    REQUIRE(devices.count() >= 1);
+    CHECK(devices.count() >= 1);
     
     // Get all devices
     auto all_devices = devices.all();
-    REQUIRE(all_devices.size() >= 1);
+    CHECK(all_devices.size() >= 1);
     
     // Check first device properties
     auto first = devices.at(0);
-    REQUIRE(!first.name.empty());
-    REQUIRE(!first.type.empty());
-    REQUIRE(first.is_cpu() || first.is_gpu());
+    CHECK(!first.name.empty());
+    CHECK(!first.type.empty());
+    CHECK(first.is_cpu() || first.is_gpu());
     
     // Find CPU device
     bool found_cpu = false;
     for (const auto& dev : all_devices) {
         if (dev.is_cpu()) {
             found_cpu = true;
-            REQUIRE(dev.type == "CPU");
+            CHECK(dev.type == "CPU");
         }
     }
-    REQUIRE(found_cpu);
+    CHECK(found_cpu);
 }
 
 // NOTE: session_run_with_metadata test removed - RunWithMetadata not implemented in v5.0
 
-TEST(graph_add_control_input) {
+TEST_CASE("graph_add_control_input") {
     tf_wrap::Graph g;
     
     // Create two independent operations
@@ -4614,10 +4574,10 @@ TEST(graph_add_control_input) {
     auto results = s.Run({}, {{"Z", 0}}, {});
     
     // Z should return Y's value (2.0)
-    REQUIRE(results[0].ToScalar<float>() == 2.0f);
+    CHECK(results[0].ToScalar<float>() == 2.0f);
 }
 
-TEST(graph_add_control_input_ordering) {
+TEST_CASE("graph_add_control_input_ordering") {
     tf_wrap::Graph g;
     
     // Create a chain of operations with control dependencies
@@ -4657,10 +4617,10 @@ TEST(graph_add_control_input_ordering) {
     auto results = s.Run({}, {{"C", 0}}, {});
     
     // C should return 30.0, proving the graph executed correctly
-    REQUIRE(results[0].ToScalar<float>() == 30.0f);
+    CHECK(results[0].ToScalar<float>() == 30.0f);
 }
 
-TEST(graph_to_graph_def) {
+TEST_CASE("graph_to_graph_def") {
     tf_wrap::Graph g;
     
     // Build a simple graph
@@ -4682,15 +4642,15 @@ TEST(graph_to_graph_def) {
     auto graph_def = g.ToGraphDef();
     
     // Should have produced a non-empty serialization
-    REQUIRE(graph_def.size() > 0);
+    CHECK(graph_def.size() > 0);
     
     // GraphDef is a protobuf - check for some expected bytes
     // Protobuf wire format: field numbers and types in first few bytes
     // Not checking specific content since protobuf format may vary
-    REQUIRE(graph_def.size() > 10);  // Should be substantial
+    CHECK(graph_def.size() > 10);  // Should be substantial
 }
 
-TEST(graph_to_graph_def_roundtrip_check) {
+TEST_CASE("graph_to_graph_def_roundtrip_check") {
     tf_wrap::Graph g;
     
     // Create graph with multiple node types
@@ -4705,21 +4665,21 @@ TEST(graph_to_graph_def_roundtrip_check) {
     
     // Get GraphDef
     auto graph_def = g.ToGraphDef();
-    REQUIRE(graph_def.size() > 0);
+    CHECK(graph_def.size() > 0);
     
     // Verify the original graph still works
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Root", 0}}, {});
     
     // sqrt(square(5)) = 5
-    REQUIRE_APPROX(results[0].ToScalar<float>(), 5.0f, 0.001f);
+    CHECK(doctest::Approx(results[0].ToScalar<float>(), 5.0f, 0.001f);
 }
 
 // =============================================================================
 // LARGE TENSOR TESTS
 // =============================================================================
 
-TEST(large_tensor_1m_elements) {
+TEST_CASE("large_tensor_1m_elements") {
     // 1 million float elements = 4MB
     constexpr int64_t SIZE = 1000000;
     
@@ -4730,17 +4690,17 @@ TEST(large_tensor_1m_elements) {
     
     auto tensor = tf_wrap::Tensor::FromVector<float>({SIZE}, data);
     
-    REQUIRE(tensor.num_elements() == SIZE);
-    REQUIRE(tensor.byte_size() == SIZE * sizeof(float));
+    CHECK(tensor.num_elements() == SIZE);
+    CHECK(tensor.byte_size() == SIZE * sizeof(float));
     
     auto retrieved = tensor.ToVector<float>();
-    REQUIRE(retrieved.size() == SIZE);
-    REQUIRE(retrieved[0] == 0.0f);
-    REQUIRE(retrieved[999] == 999.0f);
-    REQUIRE(retrieved[1000] == 0.0f);
+    CHECK(retrieved.size() == SIZE);
+    CHECK(retrieved[0] == 0.0f);
+    CHECK(retrieved[999] == 999.0f);
+    CHECK(retrieved[1000] == 0.0f);
 }
 
-TEST(large_tensor_10m_elements) {
+TEST_CASE("large_tensor_10m_elements") {
     // 10 million float elements = 40MB
     constexpr int64_t SIZE = 10000000;
     
@@ -4748,11 +4708,11 @@ TEST(large_tensor_10m_elements) {
     
     auto tensor = tf_wrap::Tensor::FromVector<float>({SIZE}, data);
     
-    REQUIRE(tensor.num_elements() == SIZE);
-    REQUIRE(tensor.byte_size() == SIZE * sizeof(float));
+    CHECK(tensor.num_elements() == SIZE);
+    CHECK(tensor.byte_size() == SIZE * sizeof(float));
 }
 
-TEST(large_tensor_multidim) {
+TEST_CASE("large_tensor_multidim") {
     // 1000 x 1000 x 10 = 10M elements = 40MB
     constexpr int64_t D0 = 1000, D1 = 1000, D2 = 10;
     constexpr int64_t SIZE = D0 * D1 * D2;
@@ -4761,14 +4721,14 @@ TEST(large_tensor_multidim) {
     
     auto tensor = tf_wrap::Tensor::FromVector<float>({D0, D1, D2}, data);
     
-    REQUIRE(tensor.shape().size() == 3);
-    REQUIRE(tensor.shape()[0] == D0);
-    REQUIRE(tensor.shape()[1] == D1);
-    REQUIRE(tensor.shape()[2] == D2);
-    REQUIRE(tensor.num_elements() == SIZE);
+    CHECK(tensor.shape().size() == 3);
+    CHECK(tensor.shape()[0] == D0);
+    CHECK(tensor.shape()[1] == D1);
+    CHECK(tensor.shape()[2] == D2);
+    CHECK(tensor.num_elements() == SIZE);
 }
 
-TEST(large_tensor_reduce_sum) {
+TEST_CASE("large_tensor_reduce_sum") {
     // Test that TF can handle large tensor operations
     constexpr int64_t SIZE = 1000000;
     
@@ -4795,10 +4755,10 @@ TEST(large_tensor_reduce_sum) {
     auto results = s.Run({}, {{"Total", 0}}, {});
     
     // Sum of 1M ones should be 1M
-    REQUIRE_APPROX(results[0].ToScalar<float>(), static_cast<float>(SIZE), 1.0f);
+    CHECK(doctest::Approx(results[0].ToScalar<float>(), static_cast<float>(SIZE), 1.0f);
 }
 
-TEST(large_tensor_matmul) {
+TEST_CASE("large_tensor_matmul") {
     // 500x500 matrix multiplication
     constexpr int64_t N = 500;
     
@@ -4827,8 +4787,8 @@ TEST(large_tensor_matmul) {
     
     // Each element of result = sum of N products of 1*2 = 2N
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == N * N);
-    REQUIRE_APPROX(v[0], static_cast<float>(2 * N), 0.1f);
+    CHECK(v.size() == N * N);
+    CHECK(doctest::Approx(v[0], static_cast<float>(2 * N), 0.1f);
 }
 
 // =============================================================================
@@ -4862,7 +4822,7 @@ inline std::string get_test_savedmodel_path() {
     return "";  // Not found
 }
 
-TEST(savedmodel_error_nonexistent_path) {
+TEST_CASE("savedmodel_error_nonexistent_path") {
     // LoadSavedModel should throw when path doesn't exist
     bool threw = false;
     try {
@@ -4874,12 +4834,12 @@ TEST(savedmodel_error_nonexistent_path) {
         threw = true;
         // Error message should mention the path or error
         std::string msg = e.what();
-        REQUIRE(!msg.empty());
+        CHECK(!msg.empty());
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
-TEST(savedmodel_error_invalid_directory) {
+TEST_CASE("savedmodel_error_invalid_directory") {
     // Create empty directory (no saved_model.pb)
     auto tmp_dir = std::filesystem::temp_directory_path() / "tfwrap_empty_model";
     std::filesystem::create_directories(tmp_dir);
@@ -4894,10 +4854,10 @@ TEST(savedmodel_error_invalid_directory) {
     }
     
     std::filesystem::remove_all(tmp_dir);
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
-TEST(savedmodel_load_and_run) {
+TEST_CASE("savedmodel_load_and_run") {
     std::string model_path = get_test_savedmodel_path();
     if (model_path.empty()) {
         std::cout << "  SKIP: No test SavedModel found (set TEST_SAVEDMODEL_PATH or run CI)\n";
@@ -4968,20 +4928,20 @@ TEST(savedmodel_load_and_run) {
         {}
     );
     
-    REQUIRE(results.size() == 1);
+    CHECK(results.size() == 1);
     
     auto output = results[0].ToVector<float>();
-    REQUIRE(output.size() == 3);
+    CHECK(output.size() == 3);
     
     // Expected: [1*2+1, 2*2+1, 3*2+1] = [3, 5, 7]
-    REQUIRE_APPROX(output[0], 3.0f, 0.001f);
-    REQUIRE_APPROX(output[1], 5.0f, 0.001f);
-    REQUIRE_APPROX(output[2], 7.0f, 0.001f);
+    CHECK(doctest::Approx(output[0], 3.0f, 0.001f);
+    CHECK(doctest::Approx(output[1], 5.0f, 0.001f);
+    CHECK(doctest::Approx(output[2], 7.0f, 0.001f);
     
     std::cout << "  ✓ SavedModel inference correct: [1,2,3] -> [3,5,7]\n";
 }
 
-TEST(savedmodel_graph_is_frozen) {
+TEST_CASE("savedmodel_graph_is_frozen") {
     std::string model_path = get_test_savedmodel_path();
     if (model_path.empty()) {
         std::cout << "  SKIP: No test SavedModel found\n";
@@ -5001,12 +4961,12 @@ TEST(savedmodel_graph_is_frozen) {
     } catch (const std::runtime_error& e) {
         threw = true;
         std::string msg = e.what();
-        REQUIRE(msg.find("frozen") != std::string::npos);
+        CHECK(msg.find("frozen") != std::string::npos);
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
-TEST(savedmodel_devices_available) {
+TEST_CASE("savedmodel_devices_available") {
     std::string model_path = get_test_savedmodel_path();
     if (model_path.empty()) {
         std::cout << "  SKIP: No test SavedModel found\n";
@@ -5017,20 +4977,20 @@ TEST(savedmodel_devices_available) {
     
     // Should be able to list devices on loaded session
     auto devices = session.ListDevices();
-    REQUIRE(devices.count() >= 1);
+    CHECK(devices.count() >= 1);
     
     bool has_cpu = false;
     for (const auto& dev : devices.all()) {
         if (dev.is_cpu()) has_cpu = true;
     }
-    REQUIRE(has_cpu);
+    CHECK(has_cpu);
 }
 
 // =============================================================================
 // MOVE SEMANTICS VERIFICATION (catches bugs like frozen_ not being preserved)
 // =============================================================================
 
-TEST(move_tensor_preserves_all_state) {
+TEST_CASE("move_tensor_preserves_all_state") {
     // Create tensor with specific properties
     std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
     auto t1 = tf_wrap::Tensor::FromVector<float>({2, 3}, data);
@@ -5044,33 +5004,33 @@ TEST(move_tensor_preserves_all_state) {
     auto t2 = std::move(t1);
     
     // Verify ALL state preserved in t2
-    REQUIRE(t2.shape() == orig_shape);
-    REQUIRE(t2.dtype() == orig_dtype);
-    REQUIRE(t2.ToVector<float>() == orig_data);
-    REQUIRE(t2.rank() == 2);
-    REQUIRE(t2.num_elements() == 6);
-    REQUIRE(t2.valid());
-    REQUIRE(!t2.empty());  // Has elements
+    CHECK(t2.shape() == orig_shape);
+    CHECK(t2.dtype() == orig_dtype);
+    CHECK(t2.ToVector<float>() == orig_data);
+    CHECK(t2.rank() == 2);
+    CHECK(t2.num_elements() == 6);
+    CHECK(t2.valid());
+    CHECK(!t2.empty());  // Has elements
 }
 
-TEST(tensor_valid_vs_empty_semantics) {
+TEST_CASE("tensor_valid_vs_empty_semantics") {
     // Normal tensor: valid and not empty
     auto t1 = tf_wrap::Tensor::FromScalar<float>(42.0f);
-    REQUIRE(t1.valid());   // Has handle
-    REQUIRE(!t1.empty());  // Has elements
+    CHECK(t1.valid());   // Has handle
+    CHECK(!t1.empty());  // Has elements
     
     // Zero-element tensor: valid but empty
     auto t2 = tf_wrap::Tensor::FromVector<float>({0}, {});
-    REQUIRE(t2.valid());   // Has handle
-    REQUIRE(t2.empty());   // No elements
+    CHECK(t2.valid());   // Has handle
+    CHECK(t2.empty());   // No elements
     
     // Moved-from tensor: not valid and empty
     auto t3 = std::move(t1);
-    REQUIRE(!t1.valid());  // No handle (moved-from)
-    REQUIRE(t1.empty());   // No elements (and no handle)
+    CHECK(!t1.valid());  // No handle (moved-from)
+    CHECK(t1.empty());   // No elements (and no handle)
 }
 
-TEST(move_graph_preserves_all_state) {
+TEST_CASE("move_graph_preserves_all_state") {
     tf_wrap::Graph g1;
     
     // Add some operations
@@ -5088,14 +5048,14 @@ TEST(move_graph_preserves_all_state) {
     auto g2 = std::move(g1);
     
     // Verify ALL state preserved in g2
-    REQUIRE(g2.num_operations() == orig_num_ops);
-    REQUIRE(g2.GetOperationOrThrow("X") == orig_op_x);
-    REQUIRE(g2.GetOperationOrThrow("Y") == orig_op_y);
-    REQUIRE(g2.valid());
-    REQUIRE(!g2.is_frozen());
+    CHECK(g2.num_operations() == orig_num_ops);
+    CHECK(g2.GetOperationOrThrow("X") == orig_op_x);
+    CHECK(g2.GetOperationOrThrow("Y") == orig_op_y);
+    CHECK(g2.valid());
+    CHECK(!g2.is_frozen());
 }
 
-TEST(move_graph_preserves_frozen_state) {
+TEST_CASE("move_graph_preserves_frozen_state") {
     tf_wrap::Graph g1;
     
     auto x = tf_wrap::Tensor::FromScalar<float>(42.0f);
@@ -5103,13 +5063,13 @@ TEST(move_graph_preserves_frozen_state) {
     
     // Freeze the graph
     g1.freeze();
-    REQUIRE(g1.is_frozen());
+    CHECK(g1.is_frozen());
     
     // Move - THIS IS THE BUG WE CAUGHT
     auto g2 = std::move(g1);
     
     // Verify frozen state is preserved
-    REQUIRE(g2.is_frozen());
+    CHECK(g2.is_frozen());
     
     // Verify can't add operations
     bool threw = false;
@@ -5119,10 +5079,10 @@ TEST(move_graph_preserves_frozen_state) {
     } catch (const std::runtime_error&) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
-TEST(move_session_preserves_functionality) {
+TEST_CASE("move_session_preserves_functionality") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
@@ -5134,7 +5094,7 @@ TEST(move_session_preserves_functionality) {
     
     // Run once before move
     auto r1 = s1.Run({}, {{"Y", 0}}, {});
-    REQUIRE(r1[0].ToVector<float>()[0] == 1.0f);
+    CHECK(r1[0].ToVector<float>()[0] == 1.0f);
     
     // Move
     auto s2 = std::move(s1);
@@ -5142,16 +5102,16 @@ TEST(move_session_preserves_functionality) {
     // Verify session still works after move
     auto r2 = s2.Run({}, {{"Y", 0}}, {});
     auto v = r2[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f);
-    REQUIRE(v[1] == 4.0f);
-    REQUIRE(v[2] == 9.0f);
+    CHECK(v[0] == 1.0f);
+    CHECK(v[1] == 4.0f);
+    CHECK(v[2] == 9.0f);
     
     // Verify ListDevices works after move
     auto devices = s2.ListDevices();
-    REQUIRE(devices.count() >= 1);
+    CHECK(devices.count() >= 1);
 }
 
-TEST(move_assignment_graph) {
+TEST_CASE("move_assignment_graph") {
     tf_wrap::Graph g1;
     auto x = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g1.NewOperation("Const", "A").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
@@ -5165,12 +5125,12 @@ TEST(move_assignment_graph) {
     g2 = std::move(g1);
     
     // g2 should now have g1's state
-    REQUIRE(g2.is_frozen());
-    REQUIRE(g2.GetOperation("A").has_value());  // A exists (from g1)
-    REQUIRE(!g2.GetOperation("B").has_value()); // B gone (old g2 deleted)
+    CHECK(g2.is_frozen());
+    CHECK(g2.GetOperation("A").has_value());  // A exists (from g1)
+    CHECK(!g2.GetOperation("B").has_value()); // B gone (old g2 deleted)
 }
 
-TEST(move_assignment_session) {
+TEST_CASE("move_assignment_session") {
     tf_wrap::Graph g1;
     auto x = tf_wrap::Tensor::FromScalar<float>(5.0f);
     (void)g1.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
@@ -5186,14 +5146,14 @@ TEST(move_assignment_session) {
     
     // s2 should now run g1's graph
     auto r = s2.Run({}, {{"X", 0}}, {});
-    REQUIRE(r[0].ToScalar<float>() == 5.0f);
+    CHECK(r[0].ToScalar<float>() == 5.0f);
 }
 
 // =============================================================================
 // OBJECT LIFETIME TESTS
 // =============================================================================
 
-TEST(graph_usable_after_session_destroyed) {
+TEST_CASE("graph_usable_after_session_destroyed") {
     tf_wrap::Graph g;
     auto x = tf_wrap::Tensor::FromScalar<float>(42.0f);
     (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
@@ -5201,20 +5161,20 @@ TEST(graph_usable_after_session_destroyed) {
     {
         tf_wrap::Session s(g);
         auto r = s.Run({}, {{"X", 0}}, {});
-        REQUIRE(r[0].ToScalar<float>() == 42.0f);
+        CHECK(r[0].ToScalar<float>() == 42.0f);
     } // Session destroyed here
     
     // Graph should still be valid (though frozen)
-    REQUIRE(g.valid());
-    REQUIRE(g.GetOperation("X").has_value());
+    CHECK(g.valid());
+    CHECK(g.GetOperation("X").has_value());
     
     // Can create new session from same graph
     tf_wrap::Session s2(g);
     auto r2 = s2.Run({}, {{"X", 0}}, {});
-    REQUIRE(r2[0].ToScalar<float>() == 42.0f);
+    CHECK(r2[0].ToScalar<float>() == 42.0f);
 }
 
-TEST(multiple_sessions_same_graph) {
+TEST_CASE("multiple_sessions_same_graph") {
     tf_wrap::Graph g;
     auto x = tf_wrap::Tensor::FromScalar<float>(7.0f);
     (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
@@ -5226,15 +5186,15 @@ TEST(multiple_sessions_same_graph) {
     auto r1 = s1.Run({}, {{"X", 0}}, {});
     auto r2 = s2.Run({}, {{"X", 0}}, {});
     
-    REQUIRE(r1[0].ToScalar<float>() == 7.0f);
-    REQUIRE(r2[0].ToScalar<float>() == 7.0f);
+    CHECK(r1[0].ToScalar<float>() == 7.0f);
+    CHECK(r2[0].ToScalar<float>() == 7.0f);
 }
 
 // =============================================================================
 // ERROR RECOVERY TESTS
 // =============================================================================
 
-TEST(session_usable_after_run_error) {
+TEST_CASE("session_usable_after_run_error") {
     tf_wrap::Graph g;
     auto x = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g.NewOperation("Const", "X").SetAttrTensor("value", x.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
@@ -5248,14 +5208,14 @@ TEST(session_usable_after_run_error) {
     } catch (const std::runtime_error&) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
     
     // Session should still be usable
     auto r = s.Run({}, {{"X", 0}}, {});
-    REQUIRE(r[0].ToScalar<float>() == 1.0f);
+    CHECK(r[0].ToScalar<float>() == 1.0f);
 }
 
-TEST(graph_usable_after_operation_error) {
+TEST_CASE("graph_usable_after_operation_error") {
     tf_wrap::Graph g;
     
     // Add a valid operation
@@ -5269,53 +5229,53 @@ TEST(graph_usable_after_operation_error) {
     } catch (const std::runtime_error&) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
     
     // Graph should still be usable
-    REQUIRE(g.GetOperation("X").has_value());
+    CHECK(g.GetOperation("X").has_value());
     
     // Can still add more valid operations
     auto y = tf_wrap::Tensor::FromScalar<float>(2.0f);
     (void)g.NewOperation("Const", "Y").SetAttrTensor("value", y.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
-    REQUIRE(g.GetOperation("Y").has_value());
+    CHECK(g.GetOperation("Y").has_value());
 }
 
 // =============================================================================
 // EDGE CASE INPUT TESTS
 // =============================================================================
 
-TEST(tensor_zero_size_dimension) {
+TEST_CASE("tensor_zero_size_dimension") {
     // Tensor with shape {3, 0} - valid but has zero elements
     std::vector<float> empty_data;
     auto t = tf_wrap::Tensor::FromVector<float>({3, 0}, empty_data);
     
-    REQUIRE(t.shape().size() == 2);
-    REQUIRE(t.shape()[0] == 3);
-    REQUIRE(t.shape()[1] == 0);
-    REQUIRE(t.num_elements() == 0);
-    REQUIRE(t.valid());  // Handle exists
-    REQUIRE(t.empty());  // No elements (STL semantics)
+    CHECK(t.shape().size() == 2);
+    CHECK(t.shape()[0] == 3);
+    CHECK(t.shape()[1] == 0);
+    CHECK(t.num_elements() == 0);
+    CHECK(t.valid());  // Handle exists
+    CHECK(t.empty());  // No elements (STL semantics)
 }
 
-TEST(tensor_zero_in_middle_of_shape) {
+TEST_CASE("tensor_zero_in_middle_of_shape") {
     // Tensor with shape {2, 0, 3} - valid but empty
     std::vector<float> empty_data;
     auto t = tf_wrap::Tensor::FromVector<float>({2, 0, 3}, empty_data);
     
-    REQUIRE(t.shape().size() == 3);
-    REQUIRE(t.num_elements() == 0);
+    CHECK(t.shape().size() == 3);
+    CHECK(t.num_elements() == 0);
 }
 
-TEST(tensor_high_rank) {
+TEST_CASE("tensor_high_rank") {
     // 8-dimensional tensor
     std::vector<float> data(2 * 2 * 2 * 2 * 2 * 2 * 2 * 2, 1.0f);  // 256 elements
     auto t = tf_wrap::Tensor::FromVector<float>({2, 2, 2, 2, 2, 2, 2, 2}, data);
     
-    REQUIRE(t.rank() == 8);
-    REQUIRE(t.num_elements() == 256);
+    CHECK(t.rank() == 8);
+    CHECK(t.num_elements() == 256);
 }
 
-TEST(graph_many_operations) {
+TEST_CASE("graph_many_operations") {
     tf_wrap::Graph g;
     
     // Create 100 operations
@@ -5328,15 +5288,15 @@ TEST(graph_many_operations) {
         (void)g.NewOperation("Identity", name).AddInput(tf_wrap::Output(prev, 0)).Finish();
     }
     
-    REQUIRE(g.num_operations() == 100);
+    CHECK(g.num_operations() == 100);
     
     // Run the chain
     tf_wrap::Session s(g);
     auto r = s.Run({}, {{"op_99", 0}}, {});
-    REQUIRE(r[0].ToScalar<float>() == 1.0f);
+    CHECK(r[0].ToScalar<float>() == 1.0f);
 }
 
-TEST(tensor_same_input_to_multiple_ops) {
+TEST_CASE("tensor_same_input_to_multiple_ops") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
@@ -5352,14 +5312,14 @@ TEST(tensor_same_input_to_multiple_ops) {
     auto results = s.Run({}, {{"A", 0}, {"B", 0}, {"C", 0}}, {});
     
     // A = Square(X) = [1, 4, 9]
-    REQUIRE_APPROX(results[0].ToVector<float>()[1], 4.0f, 0.001f);
+    CHECK(doctest::Approx(results[0].ToVector<float>()[1], 4.0f, 0.001f);
     // B = Sqrt(X) = [1, 1.414, 1.732]
-    REQUIRE_APPROX(results[1].ToVector<float>()[1], std::sqrt(2.0f), 0.001f);
+    CHECK(doctest::Approx(results[1].ToVector<float>()[1], std::sqrt(2.0f), 0.001f);
     // C = Neg(X) = [-1, -2, -3]
-    REQUIRE_APPROX(results[2].ToVector<float>()[1], -2.0f, 0.001f);
+    CHECK(doctest::Approx(results[2].ToVector<float>()[1], -2.0f, 0.001f);
 }
 
-TEST(graph_disconnected_subgraphs) {
+TEST_CASE("graph_disconnected_subgraphs") {
     tf_wrap::Graph g;
     
     // Subgraph 1: X -> Square -> A
@@ -5378,22 +5338,22 @@ TEST(graph_disconnected_subgraphs) {
     
     // Can fetch from either subgraph
     auto ra = s.Run({}, {{"A", 0}}, {});
-    REQUIRE(ra[0].ToScalar<float>() == 9.0f);
+    CHECK(ra[0].ToScalar<float>() == 9.0f);
     
     auto rb = s.Run({}, {{"B", 0}}, {});
-    REQUIRE(rb[0].ToScalar<float>() == -5.0f);
+    CHECK(rb[0].ToScalar<float>() == -5.0f);
     
     // Can fetch from both at once
     auto both = s.Run({}, {{"A", 0}, {"B", 0}}, {});
-    REQUIRE(both[0].ToScalar<float>() == 9.0f);
-    REQUIRE(both[1].ToScalar<float>() == -5.0f);
+    CHECK(both[0].ToScalar<float>() == 9.0f);
+    CHECK(both[1].ToScalar<float>() == -5.0f);
 }
 
 // =============================================================================
 // API MISUSE DETECTION
 // =============================================================================
 
-TEST(run_with_wrong_dtype_feed) {
+TEST_CASE("run_with_wrong_dtype_feed") {
     tf_wrap::Graph g;
     
     (void)g.NewOperation("Placeholder", "X")
@@ -5414,10 +5374,10 @@ TEST(run_with_wrong_dtype_feed) {
     } catch (const std::runtime_error&) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
-TEST(fetch_nonexistent_output_index) {
+TEST_CASE("fetch_nonexistent_output_index") {
     tf_wrap::Graph g;
     
     auto x = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -5432,14 +5392,14 @@ TEST(fetch_nonexistent_output_index) {
     } catch (const std::runtime_error&) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
 // =============================================================================
 // PREVIOUSLY UNTESTED AREAS
 // =============================================================================
 
-TEST(large_tensor_100m_elements) {
+TEST_CASE("large_tensor_100m_elements") {
     // 100 million floats = 400MB
     // This tests memory handling at scale
     const size_t num_elements = 100'000'000;
@@ -5447,9 +5407,9 @@ TEST(large_tensor_100m_elements) {
     // Just allocate - don't fill (would be slow)
     auto t = tf_wrap::Tensor::Allocate<float>({static_cast<int64_t>(num_elements)});
     
-    REQUIRE(t.valid());
-    REQUIRE(t.num_elements() == num_elements);
-    REQUIRE(t.shape()[0] == static_cast<int64_t>(num_elements));
+    CHECK(t.valid());
+    CHECK(t.num_elements() == num_elements);
+    CHECK(t.shape()[0] == static_cast<int64_t>(num_elements));
     
     // Verify we can write to first and last elements
     {
@@ -5461,12 +5421,12 @@ TEST(large_tensor_100m_elements) {
     // Verify we can read them back
     {
         auto view = t.read<float>();
-        REQUIRE(view[0] == 1.0f);
-        REQUIRE(view[num_elements - 1] == 2.0f);
+        CHECK(view[0] == 1.0f);
+        CHECK(view[num_elements - 1] == 2.0f);
     }
 }
 
-TEST(operation_name_very_long) {
+TEST_CASE("operation_name_very_long") {
     tf_wrap::Graph g;
     
     // Create a 1000-character operation name
@@ -5479,15 +5439,15 @@ TEST(operation_name_very_long) {
         .Finish();
     
     // Should be able to retrieve it
-    REQUIRE(g.GetOperation(long_name).has_value());
+    CHECK(g.GetOperation(long_name).has_value());
     
     // Should be able to run it
     tf_wrap::Session s(g);
     auto r = s.Run({}, {{long_name, 0}}, {});
-    REQUIRE(r[0].ToScalar<float>() == 42.0f);
+    CHECK(r[0].ToScalar<float>() == 42.0f);
 }
 
-TEST(operation_name_special_characters) {
+TEST_CASE("operation_name_special_characters") {
     tf_wrap::Graph g;
     
     // TensorFlow allows underscores and numbers
@@ -5499,22 +5459,22 @@ TEST(operation_name_special_characters) {
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    REQUIRE(g.GetOperation(name).has_value());
+    CHECK(g.GetOperation(name).has_value());
 }
 
-TEST(unicode_in_string_tensor) {
+TEST_CASE("unicode_in_string_tensor") {
     // Test unicode handling in string tensors
     // Using regular string with UTF-8 bytes (works in C++20)
     std::string unicode_str = "Hello \xe4\xb8\x96\xe7\x95\x8c \xf0\x9f\x8c\x8d \xd0\x9f\xd1\x80\xd0\xb8\xd0\xb2\xd0\xb5\xd1\x82";
     
     auto t = tf_wrap::Tensor::FromString(unicode_str);
-    REQUIRE(t.valid());
+    CHECK(t.valid());
     
     auto result = t.ToString();
-    REQUIRE(result == unicode_str);
+    CHECK(result == unicode_str);
 }
 
-TEST(file_path_with_spaces) {
+TEST_CASE("file_path_with_spaces") {
     tf_wrap::Graph g;
     
     // Create a path with spaces (common on Windows/macOS)
@@ -5528,10 +5488,10 @@ TEST(file_path_with_spaces) {
     
     tf_wrap::Session s(g);
     auto r = s.Run({}, {{"Path", 0}}, {});
-    REQUIRE(r[0].ToString() == path_with_spaces);
+    CHECK(r[0].ToString() == path_with_spaces);
 }
 
-TEST(clone_with_concurrent_reads_safe_tensor) {
+TEST_CASE("clone_with_concurrent_reads_safe_tensor") {
     // Test that Clone() is safe with concurrent reads using Tensor
     auto t = tf_wrap::Tensor::FromVector<float>({1000}, std::vector<float>(1000, 1.0f));
     
@@ -5573,12 +5533,12 @@ TEST(clone_with_concurrent_reads_safe_tensor) {
         t.join();
     }
     
-    REQUIRE(!error);
-    REQUIRE(clones_done == 400);
-    REQUIRE(reads_done == 400);
+    CHECK(!error);
+    CHECK(clones_done == 400);
+    CHECK(reads_done == 400);
 }
 
-TEST(set_attr_func_name) {
+TEST_CASE("set_attr_func_name") {
     // Test SetAttrFuncName - used for functional ops like map/reduce
     tf_wrap::Graph g;
     
@@ -5593,49 +5553,49 @@ TEST(set_attr_func_name) {
     // NoOp can't actually use SetAttrFuncName meaningfully, but we can
     // verify the API exists and doesn't crash
     // A proper test would need a While or MapFn op which is complex
-    REQUIRE(g.num_operations() == 1);
+    CHECK(g.num_operations() == 1);
 }
 
-TEST(tensor_scalar_all_dtypes) {
+TEST_CASE("tensor_scalar_all_dtypes") {
     // Comprehensive dtype coverage for scalars
     {
         auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
-        REQUIRE(t.dtype() == TF_FLOAT);
-        REQUIRE(t.ToScalar<float>() == 1.0f);
+        CHECK(t.dtype() == TF_FLOAT);
+        CHECK(t.ToScalar<float>() == 1.0f);
     }
     {
         auto t = tf_wrap::Tensor::FromScalar<double>(2.0);
-        REQUIRE(t.dtype() == TF_DOUBLE);
-        REQUIRE(t.ToScalar<double>() == 2.0);
+        CHECK(t.dtype() == TF_DOUBLE);
+        CHECK(t.ToScalar<double>() == 2.0);
     }
     {
         auto t = tf_wrap::Tensor::FromScalar<int32_t>(-42);
-        REQUIRE(t.dtype() == TF_INT32);
-        REQUIRE(t.ToScalar<int32_t>() == -42);
+        CHECK(t.dtype() == TF_INT32);
+        CHECK(t.ToScalar<int32_t>() == -42);
     }
     {
         auto t = tf_wrap::Tensor::FromScalar<int64_t>(INT64_MAX);
-        REQUIRE(t.dtype() == TF_INT64);
-        REQUIRE(t.ToScalar<int64_t>() == INT64_MAX);
+        CHECK(t.dtype() == TF_INT64);
+        CHECK(t.ToScalar<int64_t>() == INT64_MAX);
     }
     {
         auto t = tf_wrap::Tensor::FromScalar<uint8_t>(255);
-        REQUIRE(t.dtype() == TF_UINT8);
-        REQUIRE(t.ToScalar<uint8_t>() == 255);
+        CHECK(t.dtype() == TF_UINT8);
+        CHECK(t.ToScalar<uint8_t>() == 255);
     }
     {
         auto t = tf_wrap::Tensor::FromScalar<int16_t>(-32768);
-        REQUIRE(t.dtype() == TF_INT16);
-        REQUIRE(t.ToScalar<int16_t>() == -32768);
+        CHECK(t.dtype() == TF_INT16);
+        CHECK(t.ToScalar<int16_t>() == -32768);
     }
     {
         auto t = tf_wrap::Tensor::FromScalar<bool>(true);
-        REQUIRE(t.dtype() == TF_BOOL);
-        REQUIRE(t.ToScalar<bool>() == true);
+        CHECK(t.dtype() == TF_BOOL);
+        CHECK(t.ToScalar<bool>() == true);
     }
 }
 
-TEST(partial_run_setup_and_execute) {
+TEST_CASE("partial_run_setup_and_execute") {
     // Test partial runs - incremental graph execution
     // Build graph: a + 2 = plus2, plus2 + b = result
     tf_wrap::Graph g;
@@ -5671,7 +5631,7 @@ TEST(partial_run_setup_and_execute) {
     std::vector<tf_wrap::Fetch> all_outputs = {{"plus2", 0}, {"result", 0}};
     auto handle = session.PartialRunSetup(all_inputs, all_outputs);
     
-    REQUIRE(handle.valid());
+    CHECK(handle.valid());
     
     // Step 1: Feed a, get a+2
     auto tensor_a = tf_wrap::Tensor::FromScalar<float>(3.0f);
@@ -5679,8 +5639,8 @@ TEST(partial_run_setup_and_execute) {
     std::vector<tf_wrap::Fetch> fetches1 = {{"plus2", 0}};
     auto results1 = session.PartialRun(handle, feeds1, fetches1);
     
-    REQUIRE(results1.size() == 1);
-    REQUIRE(results1[0].ToScalar<float>() == 5.0f);  // 3 + 2 = 5
+    CHECK(results1.size() == 1);
+    CHECK(results1[0].ToScalar<float>() == 5.0f);  // 3 + 2 = 5
     
     // Step 2: Feed b, get final result
     auto tensor_b = tf_wrap::Tensor::FromScalar<float>(10.0f);
@@ -5688,25 +5648,25 @@ TEST(partial_run_setup_and_execute) {
     std::vector<tf_wrap::Fetch> fetches2 = {{"result", 0}};
     auto results2 = session.PartialRun(handle, feeds2, fetches2);
     
-    REQUIRE(results2.size() == 1);
-    REQUIRE(results2[0].ToScalar<float>() == 15.0f);  // 5 + 10 = 15
+    CHECK(results2.size() == 1);
+    CHECK(results2[0].ToScalar<float>() == 15.0f);  // 5 + 10 = 15
 }
 
-TEST(partial_run_handle_move) {
+TEST_CASE("partial_run_handle_move") {
     // Test PartialRunHandle move semantics
     tf_wrap::PartialRunHandle h1;
-    REQUIRE(!h1.valid());
+    CHECK(!h1.valid());
     
     // Move construct
     tf_wrap::PartialRunHandle h2(std::move(h1));
-    REQUIRE(!h2.valid());  // Source was empty
+    CHECK(!h2.valid());  // Source was empty
     
     // Can assign
     h1 = std::move(h2);
-    REQUIRE(!h1.valid());
+    CHECK(!h1.valid());
 }
 
-TEST(graph_function_create_and_copy) {
+TEST_CASE("graph_function_create_and_copy") {
     // Test GraphFunction creation from a subgraph
     
     // Create function body graph: input -> square -> output
@@ -5732,8 +5692,8 @@ TEST(graph_function_create_and_copy) {
         "Squares the input"
     );
     
-    REQUIRE(func.valid());
-    REQUIRE(std::string(func.name()) == "my_square_func");
+    CHECK(func.valid());
+    CHECK(std::string(func.name()) == "my_square_func");
     
     // Copy to main graph
     tf_wrap::Graph main_graph;
@@ -5741,10 +5701,10 @@ TEST(graph_function_create_and_copy) {
     
     // The function is now registered in main_graph
     // (We can't easily verify this without StatefulPartitionedCall, but the API works)
-    REQUIRE(main_graph.valid());
+    CHECK(main_graph.valid());
 }
 
-TEST(graph_function_move_semantics) {
+TEST_CASE("graph_function_move_semantics") {
     // Test GraphFunction move semantics
     tf_wrap::Graph g;
     
@@ -5756,25 +5716,25 @@ TEST(graph_function_move_semantics) {
     TF_Output outs[] = {{input, 0}};  // Identity function
     
     auto func1 = tf_wrap::GraphFunction::FromGraph(g, "f1", ins, outs);
-    REQUIRE(func1.valid());
+    CHECK(func1.valid());
     
     // Move construct
     auto func2 = std::move(func1);
-    REQUIRE(func2.valid());
-    REQUIRE(!func1.valid());  // NOLINT - testing moved-from state
+    CHECK(func2.valid());
+    CHECK(!func1.valid());  // NOLINT - testing moved-from state
     
     // Move assign
     tf_wrap::GraphFunction func3;
     func3 = std::move(func2);
-    REQUIRE(func3.valid());
-    REQUIRE(!func2.valid());  // NOLINT - testing moved-from state
+    CHECK(func3.valid());
+    CHECK(!func2.valid());  // NOLINT - testing moved-from state
 }
 
 // =============================================================================
 // Session Configuration Tests
 // =============================================================================
 
-TEST(session_options_set_config_valid_proto) {
+TEST_CASE("session_options_set_config_valid_proto") {
     // ConfigProto: set intra_op_parallelism_threads = 1 (field 2, varint)
     // Wire format: field_number << 3 | wire_type = 2 << 3 | 0 = 16 (0x10), value 1
     std::vector<uint8_t> config_proto = {0x10, 0x01};
@@ -5791,10 +5751,10 @@ TEST(session_options_set_config_valid_proto) {
     
     tf_wrap::Session s(g, opts);
     auto results = s.Run({}, {{"X", 0}}, {});
-    REQUIRE(results[0].ToScalar<float>() == 42.0f);
+    CHECK(results[0].ToScalar<float>() == 42.0f);
 }
 
-TEST(session_options_set_config_parallelism) {
+TEST_CASE("session_options_set_config_parallelism") {
     // Set both intra (field 2) and inter (field 5) op parallelism
     std::vector<uint8_t> config_proto = {
         0x10, 0x02,  // field 2 = 2
@@ -5813,10 +5773,10 @@ TEST(session_options_set_config_parallelism) {
     
     tf_wrap::Session s(g, opts);
     auto results = s.Run({}, {{"X", 0}}, {});
-    REQUIRE(results[0].ToVector<float>().size() == 3);
+    CHECK(results[0].ToVector<float>().size() == 3);
 }
 
-TEST(session_options_set_target_local) {
+TEST_CASE("session_options_set_target_local") {
     tf_wrap::SessionOptions opts;
     opts.SetTarget("");  // Empty string = local execution
     
@@ -5829,7 +5789,7 @@ TEST(session_options_set_target_local) {
     
     tf_wrap::Session s(g, opts);
     auto results = s.Run({}, {{"X", 0}}, {});
-    REQUIRE(results[0].ToScalar<int32_t>() == 123);
+    CHECK(results[0].ToScalar<int32_t>() == 123);
 }
 
 // =============================================================================
@@ -5840,7 +5800,7 @@ TEST(session_options_set_target_local) {
 // GraphFunction CopyTo Tests
 // =============================================================================
 
-TEST(graph_function_copy_to_single_graph) {
+TEST_CASE("graph_function_copy_to_single_graph") {
     tf_wrap::Graph g1;
     (void)g1.NewOperation("Placeholder", "Input")
         .SetAttrType("dtype", TF_FLOAT)
@@ -5857,14 +5817,14 @@ TEST(graph_function_copy_to_single_graph) {
     std::vector<TF_Output> outputs = {{output_op, 0}};
     
     auto func = tf_wrap::GraphFunction::FromGraph(g1, "square_func", inputs, outputs);
-    REQUIRE(func.valid());
+    CHECK(func.valid());
     
     tf_wrap::Graph g2;
     func.CopyTo(g2);
     // Function registered successfully if no throw
 }
 
-TEST(graph_function_copy_to_multiple_graphs) {
+TEST_CASE("graph_function_copy_to_multiple_graphs") {
     tf_wrap::Graph g1;
     (void)g1.NewOperation("Placeholder", "X")
         .SetAttrType("dtype", TF_FLOAT)
@@ -5893,7 +5853,7 @@ TEST(graph_function_copy_to_multiple_graphs) {
 // ImportGraphDef Tests
 // =============================================================================
 
-TEST(import_graph_def_basic) {
+TEST_CASE("import_graph_def_basic") {
     tf_wrap::Graph g1;
     auto t = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
     (void)g1.NewOperation("Const", "MyConst")
@@ -5902,20 +5862,20 @@ TEST(import_graph_def_basic) {
         .Finish();
     
     auto graphdef = g1.ToGraphDef();
-    REQUIRE(!graphdef.empty());
+    CHECK(!graphdef.empty());
     
     tf_wrap::Graph g2;
     g2.ImportGraphDef(graphdef.data(), graphdef.size(), "");
     
-    REQUIRE(g2.HasOperation("MyConst"));
+    CHECK(g2.HasOperation("MyConst"));
     
     tf_wrap::Session s(g2);
     auto results = s.Run({}, {{"MyConst", 0}}, {});
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f && v[1] == 2.0f);
+    CHECK(v[0] == 1.0f && v[1] == 2.0f);
 }
 
-TEST(import_graph_def_with_prefix) {
+TEST_CASE("import_graph_def_with_prefix") {
     tf_wrap::Graph g1;
     auto t = tf_wrap::Tensor::FromScalar<int32_t>(42);
     (void)g1.NewOperation("Const", "Value")
@@ -5928,15 +5888,15 @@ TEST(import_graph_def_with_prefix) {
     tf_wrap::Graph g2;
     g2.ImportGraphDef(graphdef.data(), graphdef.size(), "imported/");
     
-    REQUIRE(!g2.HasOperation("Value"));
-    REQUIRE(g2.HasOperation("imported/Value"));
+    CHECK(!g2.HasOperation("Value"));
+    CHECK(g2.HasOperation("imported/Value"));
     
     tf_wrap::Session s(g2);
     auto results = s.Run({}, {{"imported/Value", 0}}, {});
-    REQUIRE(results[0].ToScalar<int32_t>() == 42);
+    CHECK(results[0].ToScalar<int32_t>() == 42);
 }
 
-TEST(import_graph_def_merge_graphs) {
+TEST_CASE("import_graph_def_merge_graphs") {
     tf_wrap::Graph g1;
     auto t1 = tf_wrap::Tensor::FromScalar<float>(10.0f);
     (void)g1.NewOperation("Const", "A")
@@ -5954,8 +5914,8 @@ TEST(import_graph_def_merge_graphs) {
     auto graphdef2 = g2.ToGraphDef();
     g1.ImportGraphDef(graphdef2.data(), graphdef2.size(), "");
     
-    REQUIRE(g1.HasOperation("A"));
-    REQUIRE(g1.HasOperation("B"));
+    CHECK(g1.HasOperation("A"));
+    CHECK(g1.HasOperation("B"));
     
     auto* op_a = g1.GetOperationOrThrow("A");
     auto* op_b = g1.GetOperationOrThrow("B");
@@ -5966,10 +5926,10 @@ TEST(import_graph_def_merge_graphs) {
     
     tf_wrap::Session s(g1);
     auto results = s.Run({}, {{"Sum", 0}}, {});
-    REQUIRE(results[0].ToScalar<float>() == 15.0f);
+    CHECK(results[0].ToScalar<float>() == 15.0f);
 }
 
-TEST(import_graph_def_complex_graph) {
+TEST_CASE("import_graph_def_complex_graph") {
     tf_wrap::Graph g1;
     
     (void)g1.NewOperation("Placeholder", "Input")
@@ -6002,8 +5962,8 @@ TEST(import_graph_def_complex_graph) {
     tf_wrap::Graph g2;
     g2.ImportGraphDef(graphdef.data(), graphdef.size(), "net/");
     
-    REQUIRE(g2.HasOperation("net/Input"));
-    REQUIRE(g2.HasOperation("net/Output"));
+    CHECK(g2.HasOperation("net/Input"));
+    CHECK(g2.HasOperation("net/Output"));
     
     tf_wrap::Session s(g2);
     auto input_data = tf_wrap::Tensor::FromVector<float>({1, 3}, {1.0f, 1.0f, 1.0f});
@@ -6012,15 +5972,15 @@ TEST(import_graph_def_complex_graph) {
         {{"net/Output", 0}},
         {}
     );
-    REQUIRE(results[0].shape()[0] == 1);
-    REQUIRE(results[0].shape()[1] == 2);
+    CHECK(results[0].shape()[0] == 1);
+    CHECK(results[0].shape()[1] == 2);
 }
 
 // =============================================================================
 // Large Graph Tests (Scale Testing)
 // =============================================================================
 
-TEST(graph_1000_operations) {
+TEST_CASE("graph_1000_operations") {
     tf_wrap::Graph g;
     
     auto init = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -6036,14 +5996,14 @@ TEST(graph_1000_operations) {
             .Finish();
     }
     
-    REQUIRE(g.num_operations() == 1000);
+    CHECK(g.num_operations() == 1000);
     
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"op_999", 0}}, {});
-    REQUIRE(results[0].ToScalar<float>() == 1.0f);
+    CHECK(results[0].ToScalar<float>() == 1.0f);
 }
 
-TEST(graph_2000_operations_branching) {
+TEST_CASE("graph_2000_operations_branching") {
     tf_wrap::Graph g;
     
     auto init = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -6076,14 +6036,14 @@ TEST(graph_2000_operations_branching) {
         .AddInput(tf_wrap::Output(prev_b, 0))
         .Finish();
     
-    REQUIRE(g.num_operations() == 2000);
+    CHECK(g.num_operations() == 2000);
     
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"merge", 0}}, {});
-    REQUIRE(results[0].ToScalar<float>() == 2.0f);
+    CHECK(results[0].ToScalar<float>() == 2.0f);
 }
 
-TEST(graph_5000_operations_chain) {
+TEST_CASE("graph_5000_operations_chain") {
     tf_wrap::Graph g;
     
     auto init = tf_wrap::Tensor::FromScalar<float>(0.0f);
@@ -6107,40 +6067,40 @@ TEST(graph_5000_operations_chain) {
             .Finish();
     }
     
-    REQUIRE(g.num_operations() == 5001);
+    CHECK(g.num_operations() == 5001);
     
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"op_4999", 0}}, {});
-    REQUIRE(results[0].ToScalar<float>() == 4999.0f);
+    CHECK(results[0].ToScalar<float>() == 4999.0f);
 }
 
 // =============================================================================
 // Bool Tensor Tests
 // =============================================================================
 
-TEST(bool_tensor_from_vector) {
+TEST_CASE("bool_tensor_from_vector") {
     std::vector<bool> data = {true, false, true, true, false};
     auto tensor = tf_wrap::Tensor::FromVector<bool>({5}, data);
     
-    REQUIRE(tensor.dtype() == TF_BOOL);
-    REQUIRE(tensor.num_elements() == 5);
+    CHECK(tensor.dtype() == TF_BOOL);
+    CHECK(tensor.num_elements() == 5);
     
     auto result = tensor.ToVector<bool>();
-    REQUIRE(result.size() == 5);
-    REQUIRE(result[0] == true);
-    REQUIRE(result[1] == false);
-    REQUIRE(result[2] == true);
+    CHECK(result.size() == 5);
+    CHECK(result[0] == true);
+    CHECK(result[1] == false);
+    CHECK(result[2] == true);
 }
 
-TEST(bool_tensor_from_scalar) {
+TEST_CASE("bool_tensor_from_scalar") {
     auto t_true = tf_wrap::Tensor::FromScalar<bool>(true);
     auto t_false = tf_wrap::Tensor::FromScalar<bool>(false);
     
-    REQUIRE(t_true.ToScalar<bool>() == true);
-    REQUIRE(t_false.ToScalar<bool>() == false);
+    CHECK(t_true.ToScalar<bool>() == true);
+    CHECK(t_false.ToScalar<bool>() == false);
 }
 
-TEST(bool_tensor_logical_operations) {
+TEST_CASE("bool_tensor_logical_operations") {
     tf_wrap::Graph g;
     
     auto a = tf_wrap::Tensor::FromVector<bool>({4}, {true, true, false, false});
@@ -6174,38 +6134,38 @@ TEST(bool_tensor_logical_operations) {
     auto results = s.Run({}, {{"And", 0}, {"Or", 0}, {"NotA", 0}}, {});
     
     auto and_v = results[0].ToVector<bool>();
-    REQUIRE(and_v[0] == true);   // T && T
-    REQUIRE(and_v[1] == false);  // T && F
-    REQUIRE(and_v[2] == false);  // F && T
-    REQUIRE(and_v[3] == false);  // F && F
+    CHECK(and_v[0] == true);   // T && T
+    CHECK(and_v[1] == false);  // T && F
+    CHECK(and_v[2] == false);  // F && T
+    CHECK(and_v[3] == false);  // F && F
     
     auto or_v = results[1].ToVector<bool>();
-    REQUIRE(or_v[0] == true);   // T || T
-    REQUIRE(or_v[1] == true);   // T || F
-    REQUIRE(or_v[2] == true);   // F || T
-    REQUIRE(or_v[3] == false);  // F || F
+    CHECK(or_v[0] == true);   // T || T
+    CHECK(or_v[1] == true);   // T || F
+    CHECK(or_v[2] == true);   // F || T
+    CHECK(or_v[3] == false);  // F || F
     
     auto not_v = results[2].ToVector<bool>();
-    REQUIRE(not_v[0] == false);
-    REQUIRE(not_v[1] == false);
-    REQUIRE(not_v[2] == true);
-    REQUIRE(not_v[3] == true);
+    CHECK(not_v[0] == false);
+    CHECK(not_v[1] == false);
+    CHECK(not_v[2] == true);
+    CHECK(not_v[3] == true);
 }
 
-TEST(bool_tensor_2d) {
+TEST_CASE("bool_tensor_2d") {
     std::vector<bool> data = {true, false, true, false, true, false};
     auto tensor = tf_wrap::Tensor::FromVector<bool>({2, 3}, data);
     
-    REQUIRE(tensor.shape()[0] == 2);
-    REQUIRE(tensor.shape()[1] == 3);
-    REQUIRE(tensor.ToVector<bool>().size() == 6);
+    CHECK(tensor.shape()[0] == 2);
+    CHECK(tensor.shape()[1] == 3);
+    CHECK(tensor.ToVector<bool>().size() == 6);
 }
 
 // =============================================================================
 // ToGraphDef Roundtrip Tests
 // =============================================================================
 
-TEST(to_graph_def_roundtrip_preserves_dtypes) {
+TEST_CASE("to_graph_def_roundtrip_preserves_dtypes") {
     tf_wrap::Graph g1;
     
     auto f = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -6233,16 +6193,16 @@ TEST(to_graph_def_roundtrip_preserves_dtypes) {
     tf_wrap::Session s(g2);
     auto results = s.Run({}, {{"Float", 0}, {"Int", 0}, {"Double", 0}}, {});
     
-    REQUIRE(results[0].dtype() == TF_FLOAT);
-    REQUIRE(results[1].dtype() == TF_INT32);
-    REQUIRE(results[2].dtype() == TF_DOUBLE);
+    CHECK(results[0].dtype() == TF_FLOAT);
+    CHECK(results[1].dtype() == TF_INT32);
+    CHECK(results[2].dtype() == TF_DOUBLE);
     
-    REQUIRE(results[0].ToScalar<float>() == 1.0f);
-    REQUIRE(results[1].ToScalar<int32_t>() == 2);
-    REQUIRE(results[2].ToScalar<double>() == 3.0);
+    CHECK(results[0].ToScalar<float>() == 1.0f);
+    CHECK(results[1].ToScalar<int32_t>() == 2);
+    CHECK(results[2].ToScalar<double>() == 3.0);
 }
 
-TEST(to_graph_def_roundtrip_preserves_shapes) {
+TEST_CASE("to_graph_def_roundtrip_preserves_shapes") {
     tf_wrap::Graph g1;
     
     auto t1 = tf_wrap::Tensor::FromVector<float>({2, 3}, {1, 2, 3, 4, 5, 6});
@@ -6265,17 +6225,17 @@ TEST(to_graph_def_roundtrip_preserves_shapes) {
     tf_wrap::Session s(g2);
     auto results = s.Run({}, {{"Shape23", 0}, {"Shape321", 0}}, {});
     
-    REQUIRE(results[0].shape().size() == 2);
-    REQUIRE(results[0].shape()[0] == 2);
-    REQUIRE(results[0].shape()[1] == 3);
+    CHECK(results[0].shape().size() == 2);
+    CHECK(results[0].shape()[0] == 2);
+    CHECK(results[0].shape()[1] == 3);
     
-    REQUIRE(results[1].shape().size() == 3);
-    REQUIRE(results[1].shape()[0] == 3);
-    REQUIRE(results[1].shape()[1] == 2);
-    REQUIRE(results[1].shape()[2] == 1);
+    CHECK(results[1].shape().size() == 3);
+    CHECK(results[1].shape()[0] == 3);
+    CHECK(results[1].shape()[1] == 2);
+    CHECK(results[1].shape()[2] == 1);
 }
 
-TEST(to_graph_def_roundtrip_large_graph) {
+TEST_CASE("to_graph_def_roundtrip_large_graph") {
     tf_wrap::Graph g1;
     
     auto init = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -6292,68 +6252,68 @@ TEST(to_graph_def_roundtrip_large_graph) {
     }
     
     auto graphdef = g1.ToGraphDef();
-    REQUIRE(graphdef.size() > 1000);
+    CHECK(graphdef.size() > 1000);
     
     tf_wrap::Graph g2;
     g2.ImportGraphDef(graphdef.data(), graphdef.size(), "");
     
-    REQUIRE(g2.num_operations() == 500);
+    CHECK(g2.num_operations() == 500);
     
     tf_wrap::Session s(g2);
     auto results = s.Run({}, {{"op_499", 0}}, {});
-    REQUIRE(results[0].ToScalar<float>() == 1.0f);
+    CHECK(results[0].ToScalar<float>() == 1.0f);
 }
 
 // =============================================================================
 // Zeros Factory Tests
 // =============================================================================
 
-TEST(zeros_all_dtypes) {
+TEST_CASE("zeros_all_dtypes") {
     {
         auto t = tf_wrap::Tensor::Zeros<float>({10});
-        REQUIRE(t.dtype() == TF_FLOAT);
-        for (auto x : t.ToVector<float>()) REQUIRE(x == 0.0f);
+        CHECK(t.dtype() == TF_FLOAT);
+        for (auto x : t.ToVector<float>()) CHECK(x == 0.0f);
     }
     {
         auto t = tf_wrap::Tensor::Zeros<double>({10});
-        REQUIRE(t.dtype() == TF_DOUBLE);
-        for (auto x : t.ToVector<double>()) REQUIRE(x == 0.0);
+        CHECK(t.dtype() == TF_DOUBLE);
+        for (auto x : t.ToVector<double>()) CHECK(x == 0.0);
     }
     {
         auto t = tf_wrap::Tensor::Zeros<int32_t>({10});
-        REQUIRE(t.dtype() == TF_INT32);
-        for (auto x : t.ToVector<int32_t>()) REQUIRE(x == 0);
+        CHECK(t.dtype() == TF_INT32);
+        for (auto x : t.ToVector<int32_t>()) CHECK(x == 0);
     }
     {
         auto t = tf_wrap::Tensor::Zeros<int64_t>({10});
-        REQUIRE(t.dtype() == TF_INT64);
-        for (auto x : t.ToVector<int64_t>()) REQUIRE(x == 0);
+        CHECK(t.dtype() == TF_INT64);
+        for (auto x : t.ToVector<int64_t>()) CHECK(x == 0);
     }
     {
         auto t = tf_wrap::Tensor::Zeros<uint8_t>({10});
-        REQUIRE(t.dtype() == TF_UINT8);
-        for (auto x : t.ToVector<uint8_t>()) REQUIRE(x == 0);
+        CHECK(t.dtype() == TF_UINT8);
+        for (auto x : t.ToVector<uint8_t>()) CHECK(x == 0);
     }
 }
 
-TEST(zeros_large_tensor) {
+TEST_CASE("zeros_large_tensor") {
     auto t = tf_wrap::Tensor::Zeros<float>({1000, 1000});
-    REQUIRE(t.num_elements() == 1000000);
+    CHECK(t.num_elements() == 1000000);
     
     auto v = t.ToVector<float>();
-    REQUIRE(v[0] == 0.0f);
-    REQUIRE(v[500000] == 0.0f);
-    REQUIRE(v[999999] == 0.0f);
+    CHECK(v[0] == 0.0f);
+    CHECK(v[500000] == 0.0f);
+    CHECK(v[999999] == 0.0f);
 }
 
-TEST(zeros_multidimensional) {
+TEST_CASE("zeros_multidimensional") {
     auto t = tf_wrap::Tensor::Zeros<float>({2, 3, 4, 5});
-    REQUIRE(t.rank() == 4);
-    REQUIRE(t.num_elements() == 120);
-    REQUIRE(t.shape()[0] == 2);
-    REQUIRE(t.shape()[1] == 3);
-    REQUIRE(t.shape()[2] == 4);
-    REQUIRE(t.shape()[3] == 5);
+    CHECK(t.rank() == 4);
+    CHECK(t.num_elements() == 120);
+    CHECK(t.shape()[0] == 2);
+    CHECK(t.shape()[1] == 3);
+    CHECK(t.shape()[2] == 4);
+    CHECK(t.shape()[3] == 5);
 }
 
 // =============================================================================
@@ -6364,7 +6324,7 @@ TEST(zeros_multidimensional) {
 // PartialRun Error Path Tests
 // =============================================================================
 
-TEST(partial_run_invalid_handle_throws) {
+TEST_CASE("partial_run_invalid_handle_throws") {
     tf_wrap::Graph g;
     (void)g.NewOperation("Placeholder", "X")
         .SetAttrType("dtype", TF_FLOAT)
@@ -6383,10 +6343,10 @@ TEST(partial_run_invalid_handle_throws) {
     } catch (...) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
-TEST(partial_run_wrong_feed_throws) {
+TEST_CASE("partial_run_wrong_feed_throws") {
     tf_wrap::Graph g;
     (void)g.NewOperation("Placeholder", "X")
         .SetAttrType("dtype", TF_FLOAT)
@@ -6421,10 +6381,10 @@ TEST(partial_run_wrong_feed_throws) {
     } catch (...) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
-TEST(partial_run_fetch_not_in_setup_throws) {
+TEST_CASE("partial_run_fetch_not_in_setup_throws") {
     tf_wrap::Graph g;
     (void)g.NewOperation("Placeholder", "X")
         .SetAttrType("dtype", TF_FLOAT)
@@ -6456,14 +6416,14 @@ TEST(partial_run_fetch_not_in_setup_throws) {
     } catch (...) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
 // =============================================================================
 // PartialRun Multi-Step Tests
 // =============================================================================
 
-TEST(partial_run_multi_step_execution) {
+TEST_CASE("partial_run_multi_step_execution") {
     // Graph: X + Y = Sum, where X and Y are fed in separate steps
     tf_wrap::Graph g;
     (void)g.NewOperation("Placeholder", "X")
@@ -6495,7 +6455,7 @@ TEST(partial_run_multi_step_execution) {
     std::vector<tf_wrap::Feed> step1_feeds = {{"X", x_tensor.handle()}};
     std::vector<tf_wrap::Fetch> step1_fetches = {};
     auto step1_results = s.PartialRun(handle, step1_feeds, step1_fetches);
-    REQUIRE(step1_results.empty());
+    CHECK(step1_results.empty());
     
     // Step 2: Feed Y and fetch Sum
     auto y_tensor = tf_wrap::Tensor::FromScalar<float>(5.0f);
@@ -6503,12 +6463,12 @@ TEST(partial_run_multi_step_execution) {
     std::vector<tf_wrap::Fetch> step2_fetches = {{"Sum", 0}};
     auto step2_results = s.PartialRun(handle, step2_feeds, step2_fetches);
     
-    REQUIRE(step2_results.size() == 1);
+    CHECK(step2_results.size() == 1);
     float result = step2_results[0].ToScalar<float>();
-    REQUIRE(std::abs(result - 15.0f) < 0.001f);  // 10 + 5 = 15
+    CHECK(std::abs(result - 15.0f) < 0.001f);  // 10 + 5 = 15
 }
 
-TEST(partial_run_branching_graph) {
+TEST_CASE("partial_run_branching_graph") {
     // Graph with branches: X -> Square, X -> Neg
     // Fetch Square first, then Neg in separate steps
     tf_wrap::Graph g;
@@ -6538,21 +6498,21 @@ TEST(partial_run_branching_graph) {
     std::vector<tf_wrap::Fetch> fetch_sq = {{"Squared", 0}};
     auto sq_results = s.PartialRun(handle, feeds, fetch_sq);
     
-    REQUIRE(sq_results.size() == 1);
+    CHECK(sq_results.size() == 1);
     float squared = sq_results[0].ToScalar<float>();
-    REQUIRE(std::abs(squared - 9.0f) < 0.001f);  // 3^2 = 9
+    CHECK(std::abs(squared - 9.0f) < 0.001f);  // 3^2 = 9
     
     // Now fetch Negated (X already fed)
     std::vector<tf_wrap::Feed> no_feeds = {};
     std::vector<tf_wrap::Fetch> fetch_neg = {{"Negated", 0}};
     auto neg_results = s.PartialRun(handle, no_feeds, fetch_neg);
     
-    REQUIRE(neg_results.size() == 1);
+    CHECK(neg_results.size() == 1);
     float negated = neg_results[0].ToScalar<float>();
-    REQUIRE(std::abs(negated - (-3.0f)) < 0.001f);  // -3
+    CHECK(std::abs(negated - (-3.0f)) < 0.001f);  // -3
 }
 
-TEST(partial_run_diamond_graph) {
+TEST_CASE("partial_run_diamond_graph") {
     // Diamond: X -> A, X -> B, A + B -> Result
     tf_wrap::Graph g;
     (void)g.NewOperation("Placeholder", "X")
@@ -6588,7 +6548,7 @@ TEST(partial_run_diamond_graph) {
     std::vector<tf_wrap::Feed> feeds = {{"X", x_tensor.handle()}};
     std::vector<tf_wrap::Fetch> fetch_a = {{"A", 0}};
     auto a_results = s.PartialRun(handle, feeds, fetch_a);
-    REQUIRE(std::abs(a_results[0].ToScalar<float>() - 16.0f) < 0.001f);  // 4^2
+    CHECK(std::abs(a_results[0].ToScalar<float>() - 16.0f) < 0.001f);  // 4^2
     
     // Fetch final result (no more feeds needed)
     std::vector<tf_wrap::Feed> no_feeds = {};
@@ -6596,14 +6556,14 @@ TEST(partial_run_diamond_graph) {
     auto final_results = s.PartialRun(handle, no_feeds, fetch_result);
     
     // Result = A + B = 16 + (-4) = 12
-    REQUIRE(std::abs(final_results[0].ToScalar<float>() - 12.0f) < 0.001f);
+    CHECK(std::abs(final_results[0].ToScalar<float>() - 12.0f) < 0.001f);
 }
 
 // =============================================================================
 // ImportGraphDef Conflict Tests
 // =============================================================================
 
-TEST(import_graph_def_duplicate_name_throws) {
+TEST_CASE("import_graph_def_duplicate_name_throws") {
     // Create graph with operation "X"
     tf_wrap::Graph g1;
     auto t1 = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -6629,10 +6589,10 @@ TEST(import_graph_def_duplicate_name_throws) {
     } catch (...) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
-TEST(import_graph_def_duplicate_avoided_with_prefix) {
+TEST_CASE("import_graph_def_duplicate_avoided_with_prefix") {
     // Same setup as above
     tf_wrap::Graph g1;
     auto t1 = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -6654,20 +6614,20 @@ TEST(import_graph_def_duplicate_avoided_with_prefix) {
     g2.ImportGraphDef(graphdef1.data(), graphdef1.size(), "imported/");
     
     // Should have both X and imported/X
-    REQUIRE(g2.GetOperation("X").has_value());
-    REQUIRE(g2.GetOperation("imported/X").has_value());
-    REQUIRE(g2.num_operations() == 2);
+    CHECK(g2.GetOperation("X").has_value());
+    CHECK(g2.GetOperation("imported/X").has_value());
+    CHECK(g2.num_operations() == 2);
     
     // Verify they have different values
     tf_wrap::Session s(g2);
     auto r1 = s.Run({}, {{"X", 0}}, {});
     auto r2 = s.Run({}, {{"imported/X", 0}}, {});
     
-    REQUIRE(std::abs(r1[0].ToScalar<float>() - 2.0f) < 0.001f);  // Original
-    REQUIRE(std::abs(r2[0].ToScalar<float>() - 1.0f) < 0.001f);  // Imported
+    CHECK(std::abs(r1[0].ToScalar<float>() - 2.0f) < 0.001f);  // Original
+    CHECK(std::abs(r2[0].ToScalar<float>() - 1.0f) < 0.001f);  // Imported
 }
 
-TEST(import_graph_def_multiple_imports_unique_prefixes) {
+TEST_CASE("import_graph_def_multiple_imports_unique_prefixes") {
     // Create source graph
     tf_wrap::Graph source;
     auto t = tf_wrap::Tensor::FromScalar<float>(42.0f);
@@ -6684,13 +6644,13 @@ TEST(import_graph_def_multiple_imports_unique_prefixes) {
     g.ImportGraphDef(graphdef.data(), graphdef.size(), "copy2/");
     g.ImportGraphDef(graphdef.data(), graphdef.size(), "copy3/");
     
-    REQUIRE(g.num_operations() == 3);
-    REQUIRE(g.GetOperation("copy1/Value").has_value());
-    REQUIRE(g.GetOperation("copy2/Value").has_value());
-    REQUIRE(g.GetOperation("copy3/Value").has_value());
+    CHECK(g.num_operations() == 3);
+    CHECK(g.GetOperation("copy1/Value").has_value());
+    CHECK(g.GetOperation("copy2/Value").has_value());
+    CHECK(g.GetOperation("copy3/Value").has_value());
 }
 
-TEST(import_graph_def_nested_prefix) {
+TEST_CASE("import_graph_def_nested_prefix") {
     tf_wrap::Graph source;
     auto t = tf_wrap::Tensor::FromScalar<int32_t>(123);
     (void)source.NewOperation("Const", "Data")
@@ -6703,62 +6663,62 @@ TEST(import_graph_def_nested_prefix) {
     tf_wrap::Graph g;
     g.ImportGraphDef(graphdef.data(), graphdef.size(), "level1/level2/level3/");
     
-    REQUIRE(g.GetOperation("level1/level2/level3/Data").has_value());
+    CHECK(g.GetOperation("level1/level2/level3/Data").has_value());
     
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"level1/level2/level3/Data", 0}}, {});
-    REQUIRE(results[0].ToScalar<int32_t>() == 123);
+    CHECK(results[0].ToScalar<int32_t>() == 123);
 }
 
 // =============================================================================
 // Complex Type (TF_COMPLEX64/128) Tests
 // =============================================================================
 
-TEST(complex64_tensor_from_scalar) {
+TEST_CASE("complex64_tensor_from_scalar") {
     std::complex<float> val(3.0f, 4.0f);
     auto tensor = tf_wrap::Tensor::FromScalar<std::complex<float>>(val);
     
-    REQUIRE(tensor.valid());
-    REQUIRE(tensor.dtype() == TF_COMPLEX64);
-    REQUIRE(tensor.num_elements() == 1);
+    CHECK(tensor.valid());
+    CHECK(tensor.dtype() == TF_COMPLEX64);
+    CHECK(tensor.num_elements() == 1);
     
     auto result = tensor.ToScalar<std::complex<float>>();
-    REQUIRE(std::abs(result.real() - 3.0f) < 0.001f);
-    REQUIRE(std::abs(result.imag() - 4.0f) < 0.001f);
+    CHECK(std::abs(result.real() - 3.0f) < 0.001f);
+    CHECK(std::abs(result.imag() - 4.0f) < 0.001f);
 }
 
-TEST(complex128_tensor_from_scalar) {
+TEST_CASE("complex128_tensor_from_scalar") {
     std::complex<double> val(1.5, 2.5);
     auto tensor = tf_wrap::Tensor::FromScalar<std::complex<double>>(val);
     
-    REQUIRE(tensor.valid());
-    REQUIRE(tensor.dtype() == TF_COMPLEX128);
-    REQUIRE(tensor.num_elements() == 1);
+    CHECK(tensor.valid());
+    CHECK(tensor.dtype() == TF_COMPLEX128);
+    CHECK(tensor.num_elements() == 1);
     
     auto result = tensor.ToScalar<std::complex<double>>();
-    REQUIRE(std::abs(result.real() - 1.5) < 0.001);
-    REQUIRE(std::abs(result.imag() - 2.5) < 0.001);
+    CHECK(std::abs(result.real() - 1.5) < 0.001);
+    CHECK(std::abs(result.imag() - 2.5) < 0.001);
 }
 
-TEST(complex64_tensor_from_vector) {
+TEST_CASE("complex64_tensor_from_vector") {
     std::vector<std::complex<float>> data = {
         {1.0f, 2.0f}, {3.0f, 4.0f}, {5.0f, 6.0f}
     };
     auto tensor = tf_wrap::Tensor::FromVector<std::complex<float>>({3}, data);
     
-    REQUIRE(tensor.valid());
-    REQUIRE(tensor.dtype() == TF_COMPLEX64);
-    REQUIRE(tensor.num_elements() == 3);
+    CHECK(tensor.valid());
+    CHECK(tensor.dtype() == TF_COMPLEX64);
+    CHECK(tensor.num_elements() == 3);
     
     auto v = tensor.ToVector<std::complex<float>>();
-    REQUIRE(v.size() == 3);
-    REQUIRE(std::abs(v[0].real() - 1.0f) < 0.001f);
-    REQUIRE(std::abs(v[0].imag() - 2.0f) < 0.001f);
-    REQUIRE(std::abs(v[2].real() - 5.0f) < 0.001f);
-    REQUIRE(std::abs(v[2].imag() - 6.0f) < 0.001f);
+    CHECK(v.size() == 3);
+    CHECK(std::abs(v[0].real() - 1.0f) < 0.001f);
+    CHECK(std::abs(v[0].imag() - 2.0f) < 0.001f);
+    CHECK(std::abs(v[2].real() - 5.0f) < 0.001f);
+    CHECK(std::abs(v[2].imag() - 6.0f) < 0.001f);
 }
 
-TEST(complex64_tensor_2d_shape) {
+TEST_CASE("complex64_tensor_2d_shape") {
     std::vector<std::complex<float>> data(6);
     for (int i = 0; i < 6; ++i) {
         data[i] = std::complex<float>(static_cast<float>(i), static_cast<float>(i + 10));
@@ -6766,13 +6726,13 @@ TEST(complex64_tensor_2d_shape) {
     
     auto tensor = tf_wrap::Tensor::FromVector<std::complex<float>>({2, 3}, data);
     
-    REQUIRE(tensor.shape().size() == 2);
-    REQUIRE(tensor.shape()[0] == 2);
-    REQUIRE(tensor.shape()[1] == 3);
-    REQUIRE(tensor.num_elements() == 6);
+    CHECK(tensor.shape().size() == 2);
+    CHECK(tensor.shape()[0] == 2);
+    CHECK(tensor.shape()[1] == 3);
+    CHECK(tensor.num_elements() == 6);
 }
 
-TEST(complex64_const_in_graph) {
+TEST_CASE("complex64_const_in_graph") {
     tf_wrap::Graph g;
     
     std::vector<std::complex<float>> data = {{1.0f, 0.0f}, {0.0f, 1.0f}};
@@ -6786,16 +6746,16 @@ TEST(complex64_const_in_graph) {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"ComplexConst", 0}}, {});
     
-    REQUIRE(results.size() == 1);
+    CHECK(results.size() == 1);
     auto v = results[0].ToVector<std::complex<float>>();
-    REQUIRE(v.size() == 2);
-    REQUIRE(std::abs(v[0].real() - 1.0f) < 0.001f);
-    REQUIRE(std::abs(v[0].imag() - 0.0f) < 0.001f);
-    REQUIRE(std::abs(v[1].real() - 0.0f) < 0.001f);
-    REQUIRE(std::abs(v[1].imag() - 1.0f) < 0.001f);
+    CHECK(v.size() == 2);
+    CHECK(std::abs(v[0].real() - 1.0f) < 0.001f);
+    CHECK(std::abs(v[0].imag() - 0.0f) < 0.001f);
+    CHECK(std::abs(v[1].real() - 0.0f) < 0.001f);
+    CHECK(std::abs(v[1].imag() - 1.0f) < 0.001f);
 }
 
-TEST(complex128_const_in_graph) {
+TEST_CASE("complex128_const_in_graph") {
     tf_wrap::Graph g;
     
     constexpr double pi_val = 3.14159265358979323846;
@@ -6812,11 +6772,11 @@ TEST(complex128_const_in_graph) {
     auto results = s.Run({}, {{"ComplexConst", 0}}, {});
     
     auto result = results[0].ToScalar<std::complex<double>>();
-    REQUIRE(std::abs(result.real() - pi_val) < 0.0001);
-    REQUIRE(std::abs(result.imag() - e_val) < 0.0001);
+    CHECK(std::abs(result.real() - pi_val) < 0.0001);
+    CHECK(std::abs(result.imag() - e_val) < 0.0001);
 }
 
-TEST(complex64_read_write_views) {
+TEST_CASE("complex64_read_write_views") {
     std::vector<std::complex<float>> data = {{1.0f, 2.0f}, {3.0f, 4.0f}};
     auto tensor = tf_wrap::Tensor::FromVector<std::complex<float>>({2}, data);
     
@@ -6829,28 +6789,13 @@ TEST(complex64_read_write_views) {
     // Read view
     {
         auto view = tensor.read<std::complex<float>>();
-        REQUIRE(std::abs(view[0].real() - 10.0f) < 0.001f);
-        REQUIRE(std::abs(view[0].imag() - 20.0f) < 0.001f);
-        REQUIRE(std::abs(view[1].real() - 3.0f) < 0.001f);
-        REQUIRE(std::abs(view[1].imag() - 4.0f) < 0.001f);
+        CHECK(std::abs(view[0].real() - 10.0f) < 0.001f);
+        CHECK(std::abs(view[0].imag() - 20.0f) < 0.001f);
+        CHECK(std::abs(view[1].real() - 3.0f) < 0.001f);
+        CHECK(std::abs(view[1].imag() - 4.0f) < 0.001f);
     }
 }
 
 // =============================================================================
 // Main
 // =============================================================================
-
-int main() {
-    std::cout << "\n========================================\n";
-    std::cout << "TensorFlowWrap Real TF Test Suite\n";
-    std::cout << "========================================\n\n";
-    
-    // Tests run automatically via static initialization
-    
-    std::cout << "\n========================================\n";
-    std::cout << "Results: " << g_tests_passed << " passed, " 
-              << g_tests_failed << " failed\n";
-    std::cout << "========================================\n";
-    
-    return g_tests_failed > 0 ? 1 : 0;
-}

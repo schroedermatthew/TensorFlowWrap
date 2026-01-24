@@ -1,16 +1,19 @@
-// tests/test_edge_cases.cpp
-// Edge case, corner case, and stress tests for tf_wrapper
+// test_edge_cases_new.cpp
+// Edge case tests using doctest
 //
-// Compile with: -fsanitize=address,undefined for best coverage
+// Run with: ./test_edge_cases
+// Run stress tests: ./test_edge_cases -ts=stress
+
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "doctest/doctest.h"
 
 #include "tf_wrap/all.hpp"
-
-#include "tf_wrap/format.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <numeric>
@@ -21,117 +24,28 @@
 #include <thread>
 #include <vector>
 
-// ============================================================================
-// Test Framework (minimal, matches test_main.cpp style)
-// ============================================================================
-
-namespace tf_test {
-
-struct TestCase {
-    const char* name;
-    void (*fn)();
-    bool is_stress;
-};
-
-inline std::vector<TestCase>& registry() {
-    static std::vector<TestCase> r;
-    return r;
-}
-
-struct Registrar {
-    Registrar(const char* name, void (*fn)(), bool is_stress = false) {
-        registry().push_back({name, fn, is_stress});
-    }
-};
-
-inline void require_impl(bool cond, const char* expr, const char* file, int line) {
-    if (cond) return;
-    throw std::runtime_error(tf_wrap::detail::format(
-        "REQUIRE failed: {} ({}:{})", expr, file, line));
-}
-
-template<class Ex, class Fn>
-inline void require_throws_impl(Fn&& fn, const char* expr, const char* ex_name,
-                                const char* file, int line) {
-    try {
-        fn();
-        throw std::runtime_error(tf_wrap::detail::format(
-            "REQUIRE_THROWS failed: {} did not throw {} ({}:{})",
-            expr, ex_name, file, line));
-    } catch (const Ex&) {
-        // Expected
-    } catch (const std::exception& e) {
-        throw std::runtime_error(tf_wrap::detail::format(
-            "REQUIRE_THROWS failed: {} threw wrong type: {} ({}:{})",
-            expr, e.what(), file, line));
-    }
-}
-
-// Non-template version that catches any exception
-template<class Fn>
-inline void require_throws_any_impl(Fn&& fn, const char* expr,
-                                    const char* file, int line) {
-    try {
-        fn();
-        throw std::runtime_error(tf_wrap::detail::format(
-            "REQUIRE_THROWS failed: {} did not throw ({}:{})",
-            expr, file, line));
-    } catch (...) {
-        // Any exception is expected - success
-    }
-}
-
-} // namespace tf_test
-
-// Two-level macro for proper __LINE__ expansion
-#define TF_JOIN2(a, b) a##b
-#define TF_JOIN(a, b) TF_JOIN2(a, b)
-
-#define TEST_CASE(name) \
-    static void TF_JOIN(test_fn_, __LINE__)(); \
-    static tf_test::Registrar TF_JOIN(test_reg_, __LINE__)( \
-        name, &TF_JOIN(test_fn_, __LINE__), false); \
-    static void TF_JOIN(test_fn_, __LINE__)()
-
-#define STRESS_TEST(name) \
-    static void TF_JOIN(stress_fn_, __LINE__)(); \
-    static tf_test::Registrar TF_JOIN(stress_reg_, __LINE__)( \
-        name, &TF_JOIN(stress_fn_, __LINE__), true); \
-    static void TF_JOIN(stress_fn_, __LINE__)()
-
-#define REQUIRE(expr) tf_test::require_impl((expr), #expr, __FILE__, __LINE__)
-#define REQUIRE_FALSE(expr) tf_test::require_impl(!(expr), "!" #expr, __FILE__, __LINE__)
-#define REQUIRE_THROWS_AS(expr, ex) \
-    tf_test::require_throws_impl<ex>([&]{ (void)(expr); }, #expr, #ex, __FILE__, __LINE__)
-#define REQUIRE_THROWS(expr) \
-    tf_test::require_throws_any_impl([&]{ (void)(expr); }, #expr, __FILE__, __LINE__)
-
-// ============================================================================
-// Empty/Zero Tensor Tests
-// ============================================================================
-
 TEST_CASE("empty tensor from zero-sized vector") {
     std::vector<std::int64_t> shape = {0};
     std::vector<float> data = {};
     auto tensor = tf_wrap::Tensor::FromVector<float>(shape, data);
-    REQUIRE(tensor.num_elements() == 0);
-    REQUIRE(tensor.byte_size() == 0);
-    REQUIRE(tensor.rank() == 1);
+    CHECK(tensor.num_elements() == 0);
+    CHECK(tensor.byte_size() == 0);
+    CHECK(tensor.rank() == 1);
 }
 
 TEST_CASE("empty tensor from zero dimension in middle") {
     std::vector<std::int64_t> shape = {10, 0, 5};
     auto tensor = tf_wrap::Tensor::Allocate<float>(shape);
-    REQUIRE(tensor.num_elements() == 0);
-    REQUIRE(tensor.byte_size() == 0);
-    REQUIRE(tensor.rank() == 3);
+    CHECK(tensor.num_elements() == 0);
+    CHECK(tensor.byte_size() == 0);
+    CHECK(tensor.rank() == 3);
 }
 
 TEST_CASE("scalar has empty shape") {
     auto tensor = tf_wrap::Tensor::FromScalar<int>(42);
-    REQUIRE(tensor.shape().empty());
-    REQUIRE(tensor.rank() == 0);
-    REQUIRE(tensor.num_elements() == 1);
+    CHECK(tensor.shape().empty());
+    CHECK(tensor.rank() == 0);
+    CHECK(tensor.num_elements() == 1);
 }
 
 TEST_CASE("empty tensor read view") {
@@ -139,8 +53,8 @@ TEST_CASE("empty tensor read view") {
     std::vector<float> data = {};
     auto tensor = tf_wrap::Tensor::FromVector<float>(shape, data);
     auto view = tensor.read<float>();
-    REQUIRE(view.size() == 0);
-    REQUIRE(view.begin() == view.end());
+    CHECK(view.size() == 0);
+    CHECK(view.begin() == view.end());
 }
 
 // ============================================================================
@@ -151,21 +65,21 @@ TEST_CASE("single element 1D tensor") {
     std::vector<std::int64_t> shape = {1};
     std::vector<float> data = {42.0f};
     auto tensor = tf_wrap::Tensor::FromVector<float>(shape, data);
-    REQUIRE(tensor.num_elements() == 1);
+    CHECK(tensor.num_elements() == 1);
     auto view = tensor.read<float>();
-    REQUIRE(view[0] == 42.0f);
+    CHECK(view[0] == 42.0f);
 }
 
 TEST_CASE("high rank tensor 8 dimensions") {
     std::vector<std::int64_t> shape(8, 2);  // 2^8 = 256 elements
     auto tensor = tf_wrap::Tensor::Allocate<float>(shape);
-    REQUIRE(tensor.rank() == 8);
-    REQUIRE(tensor.num_elements() == 256);
+    CHECK(tensor.rank() == 8);
+    CHECK(tensor.num_elements() == 256);
 }
 
 TEST_CASE("negative dimension throws") {
     std::vector<std::int64_t> shape = {10, -1, 5};
-    REQUIRE_THROWS_AS(
+    CHECK_THROWS_AS(
         tf_wrap::Tensor::Allocate<float>(shape),
         std::invalid_argument);
 }
@@ -174,14 +88,14 @@ TEST_CASE("overflow in dimension product throws") {
     // Use dimensions that are individually valid but overflow when multiplied
     // INT64_MAX / 2 is positive and valid, but (INT64_MAX/2) * 3 overflows
     std::vector<std::int64_t> shape = {INT64_MAX / 2, 3};
-    REQUIRE_THROWS_AS(
+    CHECK_THROWS_AS(
         tf_wrap::Tensor::Allocate<float>(shape),
         std::overflow_error);
 }
 
 TEST_CASE("INT64_MAX dimension throws overflow") {
     std::vector<std::int64_t> shape = {INT64_MAX};
-    REQUIRE_THROWS_AS(
+    CHECK_THROWS_AS(
         tf_wrap::Tensor::Allocate<float>(shape),
         std::overflow_error);
 }
@@ -192,10 +106,10 @@ TEST_CASE("INT64_MAX dimension throws overflow") {
 
 TEST_CASE("moved-from tensor has null handle") {
     auto t1 = tf_wrap::Tensor::FromScalar<float>(1.0f);
-    REQUIRE(t1.handle() != nullptr);
+    CHECK(t1.handle() != nullptr);
     
     auto t2 = std::move(t1);
-    REQUIRE(t2.handle() != nullptr);
+    CHECK(t2.handle() != nullptr);
     // t1 is now in moved-from state
 }
 
@@ -204,7 +118,7 @@ TEST_CASE("moved-from status is safe to destroy") {
     s1.set(TF_CANCELLED, "test");
     tf_wrap::Status s2 = std::move(s1);
     
-    REQUIRE(s2.code() == TF_CANCELLED);
+    CHECK(s2.code() == TF_CANCELLED);
     // s1 destruction should not double-free
 }
 
@@ -217,19 +131,19 @@ TEST_CASE("moved-from graph must throw on use") {
         .Finish();
     
     tf_wrap::Graph g2 = std::move(g1);
-    REQUIRE(g2.GetOperation("c").has_value());
+    CHECK(g2.GetOperation("c").has_value());
     
     // Moved-from must throw, not silently return empty
-    REQUIRE(!g1.valid());
-    REQUIRE_THROWS(g1.num_operations());
+    CHECK(!g1.valid());
+    CHECK_THROWS(g1.num_operations());
 }
 
 TEST_CASE("moved-from session options is safe") {
     tf_wrap::SessionOptions opts1;
     tf_wrap::SessionOptions opts2 = std::move(opts1);
     
-    REQUIRE(opts2.get() != nullptr);
-    REQUIRE(opts1.get() == nullptr);
+    CHECK(opts2.get() != nullptr);
+    CHECK(opts1.get() == nullptr);
 }
 
 // ============================================================================
@@ -238,7 +152,7 @@ TEST_CASE("moved-from session options is safe") {
 
 TEST_CASE("AdoptMalloc wrong byte_len throws") {
     void* data = std::malloc(100);
-    REQUIRE(data != nullptr);
+    CHECK(data != nullptr);
     
     std::vector<std::int64_t> shape = {10};
     bool threw = false;
@@ -249,16 +163,16 @@ TEST_CASE("AdoptMalloc wrong byte_len throws") {
         threw = true;
     }
     
-    REQUIRE(threw);
+    CHECK(threw);
     std::free(data);  // We still own it
 }
 
 TEST_CASE("Adopt with null deallocator throws") {
     void* data = std::malloc(40);
-    REQUIRE(data != nullptr);
+    CHECK(data != nullptr);
     
     std::vector<std::int64_t> shape = {10};
-    REQUIRE_THROWS_AS(
+    CHECK_THROWS_AS(
         tf_wrap::Tensor::Adopt(TF_FLOAT, shape, data, 40, nullptr),
         std::invalid_argument);
     
@@ -271,14 +185,14 @@ TEST_CASE("Adopt with null data and zero bytes succeeds") {
     
     // Should not throw
     auto tensor = tf_wrap::Tensor::Adopt(TF_FLOAT, shape, nullptr, 0, dealloc);
-    REQUIRE(tensor.num_elements() == 0);
+    CHECK(tensor.num_elements() == 0);
 }
 
 TEST_CASE("Adopt with null data and non-zero bytes throws") {
     auto dealloc = [](void*, std::size_t, void*) {};
     std::vector<std::int64_t> shape = {10};
     
-    REQUIRE_THROWS_AS(
+    CHECK_THROWS_AS(
         tf_wrap::Tensor::Adopt(TF_FLOAT, shape, nullptr, 40, dealloc),
         std::invalid_argument);
 }
@@ -289,7 +203,7 @@ TEST_CASE("Adopt with null data and non-zero bytes throws") {
 
 TEST_CASE("GetOperationOrThrow on empty graph throws") {
     tf_wrap::Graph graph;
-    REQUIRE_THROWS_AS(
+    CHECK_THROWS_AS(
         graph.GetOperationOrThrow("nonexistent"),
         std::runtime_error);
 }
@@ -297,7 +211,7 @@ TEST_CASE("GetOperationOrThrow on empty graph throws") {
 TEST_CASE("GetOperation on empty graph returns nullopt") {
     tf_wrap::Graph graph;
     auto result = graph.GetOperation("nonexistent");
-    REQUIRE(!result.has_value());
+    CHECK(!result.has_value());
 }
 
 // ============================================================================
@@ -307,16 +221,16 @@ TEST_CASE("GetOperation on empty graph returns nullopt") {
 TEST_CASE("Status set with empty string_view") {
     tf_wrap::Status st;
     st.set(TF_INTERNAL, std::string_view{});
-    REQUIRE(st.code() == TF_INTERNAL);
-    REQUIRE(std::string(st.message()).empty());
+    CHECK(st.code() == TF_INTERNAL);
+    CHECK(std::string(st.message()).empty());
 }
 
 TEST_CASE("Status set with very long message") {
     tf_wrap::Status st;
     std::string long_msg(10000, 'x');
     st.set(TF_INTERNAL, long_msg);
-    REQUIRE(st.code() == TF_INTERNAL);
-    REQUIRE(std::string(st.message()) == long_msg);
+    CHECK(st.code() == TF_INTERNAL);
+    CHECK(std::string(st.message()) == long_msg);
 }
 
 TEST_CASE("Status all error codes have names") {
@@ -330,8 +244,8 @@ TEST_CASE("Status all error codes have names") {
     
     for (auto code : codes) {
         const char* name = tf_wrap::Status::code_to_string(code);
-        REQUIRE(name != nullptr);
-        REQUIRE(std::string(name) != "UNKNOWN_CODE");
+        CHECK(name != nullptr);
+        CHECK(std::string(name) != "UNKNOWN_CODE");
     }
 }
 
@@ -339,7 +253,7 @@ TEST_CASE("Status all error codes have names") {
 // Stress Tests
 // ============================================================================
 
-STRESS_TEST("rapid tensor allocation/deallocation") {
+TEST_CASE("rapid tensor allocation/deallocation" * doctest::test_suite("stress")) {
     constexpr int iterations = 10000;
     
     auto start = std::chrono::steady_clock::now();
@@ -358,7 +272,7 @@ STRESS_TEST("rapid tensor allocation/deallocation") {
               << " ops/sec)\n";
 }
 
-STRESS_TEST("concurrent tensor creation") {
+TEST_CASE("concurrent tensor creation" * doctest::test_suite("stress")) {
     constexpr int num_threads = 8;
     constexpr int ops_per_thread = 1000;
     
@@ -382,7 +296,7 @@ STRESS_TEST("concurrent tensor creation") {
     auto end = std::chrono::steady_clock::now();
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     
-    REQUIRE(completed.load() == num_threads * ops_per_thread);
+    CHECK(completed.load() == num_threads * ops_per_thread);
     std::cout << "    " << completed.load() << " concurrent ops in " << ms << "ms\n";
 }
 
@@ -392,7 +306,7 @@ STRESS_TEST("concurrent tensor creation") {
 // tensors are no longer thread-safe and this test is not applicable.
 // Users should not share mutable tensors across threads.
 
-STRESS_TEST("Tensor allows concurrent readers") {
+TEST_CASE("Tensor allows concurrent readers" * doctest::test_suite("stress")) {
     std::vector<std::int64_t> shape = {1000};
     std::vector<float> data(1000, 42.0f);
     auto tensor = tf_wrap::Tensor::FromVector<float>(shape, data);
@@ -428,10 +342,10 @@ STRESS_TEST("Tensor allows concurrent readers") {
     for (auto& r : readers) r.join();
     
     std::cout << "    Max concurrent readers: " << max_concurrent << "\n";
-    REQUIRE(max_concurrent > 1);
+    CHECK(max_concurrent > 1);
 }
 
-STRESS_TEST("Status rapid creation/destruction") {
+TEST_CASE("Status rapid creation/destruction" * doctest::test_suite("stress")) {
     constexpr int iterations = 100000;
     
     auto start = std::chrono::steady_clock::now();
@@ -452,7 +366,7 @@ STRESS_TEST("Status rapid creation/destruction") {
 // Fuzz Tests - Random inputs to find edge cases
 // ============================================================================
 
-STRESS_TEST("fuzz: random tensor shapes") {
+TEST_CASE("fuzz: random tensor shapes" * doctest::test_suite("stress")) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<int> rank_dist(0, 5);
@@ -483,12 +397,12 @@ STRESS_TEST("fuzz: random tensor shapes") {
             std::vector<float> data(static_cast<std::size_t>(total_elements), 1.0f);
             auto tensor = tf_wrap::Tensor::FromVector<float>(shape, data);
             
-            REQUIRE(tensor.shape() == shape);
-            REQUIRE(static_cast<std::int64_t>(tensor.num_elements()) == total_elements);
+            CHECK(tensor.shape() == shape);
+            CHECK(static_cast<std::int64_t>(tensor.num_elements()) == total_elements);
             
             if (total_elements > 0) {
                 auto view = tensor.read<float>();
-                REQUIRE(view.size() == static_cast<std::size_t>(total_elements));
+                CHECK(view.size() == static_cast<std::size_t>(total_elements));
             }
             
             ++created;
@@ -499,10 +413,10 @@ STRESS_TEST("fuzz: random tensor shapes") {
     
     std::cout << "    Created " << created << " tensors, " 
               << failed_expected << " expected failures\n";
-    REQUIRE(created > 200);
+    CHECK(created > 200);
 }
 
-STRESS_TEST("fuzz: random dtype values") {
+TEST_CASE("fuzz: random dtype values" * doctest::test_suite("stress")) {
     std::random_device rd;
     std::mt19937 gen(rd());
     
@@ -518,7 +432,7 @@ STRESS_TEST("fuzz: random dtype values") {
         
         auto tensor = tf_wrap::Tensor::FromVector<float>(shape, data);
         auto extracted = tensor.ToVector<float>();
-        REQUIRE(extracted == data);
+        CHECK(extracted == data);
         ++tested;
     }
     
@@ -531,14 +445,14 @@ STRESS_TEST("fuzz: random dtype values") {
         
         auto tensor = tf_wrap::Tensor::FromVector<std::int32_t>(shape, data);
         auto extracted = tensor.ToVector<std::int32_t>();
-        REQUIRE(extracted == data);
+        CHECK(extracted == data);
         ++tested;
     }
     
     std::cout << "    Tested " << tested << " random tensor values\n";
 }
 
-STRESS_TEST("fuzz: OperationBuilder exception safety") {
+TEST_CASE("fuzz: OperationBuilder exception safety" * doctest::test_suite("stress")) {
     tf_wrap::Graph graph;
     int abandoned = 0;
     
@@ -561,26 +475,26 @@ STRESS_TEST("fuzz: OperationBuilder exception safety") {
     }
     
     std::cout << "    " << abandoned << " builders safely abandoned\n";
-    REQUIRE(abandoned > 0);
+    CHECK(abandoned > 0);
 }
 
-STRESS_TEST("fuzz: moved-from object safety") {
+TEST_CASE("fuzz: moved-from object safety" * doctest::test_suite("stress")) {
     for (int i = 0; i < 50; ++i) {
         tf_wrap::Tensor t1 = tf_wrap::Tensor::FromScalar<float>(static_cast<float>(i));
         tf_wrap::Tensor t2 = std::move(t1);
         
-        REQUIRE(t1.empty());
-        REQUIRE(t1.handle() == nullptr);
-        REQUIRE(!t2.empty());
-        REQUIRE(t2.ToScalar<float>() == static_cast<float>(i));
+        CHECK(t1.empty());
+        CHECK(t1.handle() == nullptr);
+        CHECK(!t2.empty());
+        CHECK(t2.ToScalar<float>() == static_cast<float>(i));
         
         tf_wrap::Tensor t3 = std::move(t2);
-        REQUIRE(t2.empty());
-        REQUIRE(!t3.empty());
+        CHECK(t2.empty());
+        CHECK(!t3.empty());
         
         t1 = std::move(t3);
-        REQUIRE(t3.empty());
-        REQUIRE(!t1.empty());
+        CHECK(t3.empty());
+        CHECK(!t1.empty());
     }
     
     std::cout << "    50 move sequences completed safely\n";
@@ -603,17 +517,17 @@ TEST_CASE("Graph moved-from: must throw on use after move") {
     tf_wrap::Graph g2(std::move(g));
 
     // Destination must still work.
-    REQUIRE(g2.num_operations() == 1u);
-    REQUIRE(g2.HasOperation("A"));
-    REQUIRE(g2.valid());
+    CHECK(g2.num_operations() == 1u);
+    CHECK(g2.HasOperation("A"));
+    CHECK(g2.valid());
 
     // Moved-from must be invalid and throw on handle-touching calls.
-    REQUIRE(!g.valid());
-    REQUIRE_THROWS(g.num_operations());
-    REQUIRE_THROWS(g.GetAllOperations());
-    REQUIRE_THROWS(g.GetOperation("A"));
-    REQUIRE_THROWS(g.HasOperation("A"));
-    REQUIRE_THROWS(g.DebugString());
+    CHECK(!g.valid());
+    CHECK_THROWS(g.num_operations());
+    CHECK_THROWS(g.GetAllOperations());
+    CHECK_THROWS(g.GetOperation("A"));
+    CHECK_THROWS(g.HasOperation("A"));
+    CHECK_THROWS(g.DebugString());
 }
 
 TEST_CASE("Graph move-assign: moved-from must throw on use") {
@@ -629,15 +543,15 @@ TEST_CASE("Graph move-assign: moved-from must throw on use") {
     g2 = std::move(g1);
 
     // Destination has the operation
-    REQUIRE(g2.num_operations() == 1u);
-    REQUIRE(g2.HasOperation("A"));
-    REQUIRE(g2.valid());
+    CHECK(g2.num_operations() == 1u);
+    CHECK(g2.HasOperation("A"));
+    CHECK(g2.valid());
 
     // Moved-from must throw
-    REQUIRE(!g1.valid());
-    REQUIRE_THROWS(g1.num_operations());
-    REQUIRE_THROWS(g1.GetAllOperations());
-    REQUIRE_THROWS(g1.NewOperation("Const", "B"));
+    CHECK(!g1.valid());
+    CHECK_THROWS(g1.num_operations());
+    CHECK_THROWS(g1.GetAllOperations());
+    CHECK_THROWS(g1.NewOperation("Const", "B"));
 }
 
 TEST_CASE("Graph self-move assignment leaves graph intact") {
@@ -654,12 +568,12 @@ TEST_CASE("Graph self-move assignment leaves graph intact") {
     tf_wrap::Graph* volatile p = &g;
     g = std::move(*p);
 
-    REQUIRE(g.handle() != nullptr);
-    REQUIRE(g.valid());
-    REQUIRE(g.HasOperation("c"));
+    CHECK(g.handle() != nullptr);
+    CHECK(g.valid());
+    CHECK(g.HasOperation("c"));
 }
 
-STRESS_TEST("fuzz: moved-from graph safety (handle semantics)") {
+TEST_CASE("fuzz: moved-from graph safety (handle semantics)" * doctest::test_suite("stress")) {
     for (int i = 0; i < 50; ++i) {
         tf_wrap::Graph g1;
         auto t = tf_wrap::Tensor::FromScalar<float>(static_cast<float>(i));
@@ -670,16 +584,16 @@ STRESS_TEST("fuzz: moved-from graph safety (handle semantics)") {
             .Finish();
 
         tf_wrap::Graph g2 = std::move(g1);
-        REQUIRE(g2.HasOperation("c"));
+        CHECK(g2.HasOperation("c"));
 
         // Moved-from must throw (our chosen contract)
-        REQUIRE(!g1.valid());
-        REQUIRE_THROWS(g1.num_operations());
-        REQUIRE_THROWS(g1.DebugString());
+        CHECK(!g1.valid());
+        CHECK_THROWS(g1.num_operations());
+        CHECK_THROWS(g1.DebugString());
 
         tf_wrap::Graph g3 = std::move(g2);
-        REQUIRE(g3.HasOperation("c"));
-        REQUIRE(!g2.valid());
+        CHECK(g3.HasOperation("c"));
+        CHECK(!g2.valid());
     }
     
     std::cout << "    50 graph move sequences completed safely\n";
@@ -700,24 +614,24 @@ TEST_CASE("Graph mutation after Session creation must throw") {
         .Finish();
 
     // Graph should not be frozen yet
-    REQUIRE_FALSE(g.is_frozen());
+    CHECK_FALSE(g.is_frozen());
 
     // Create session - this freezes the graph
     tf_wrap::Session s(g);
     
     // Graph must now be frozen
-    REQUIRE(g.is_frozen());
+    CHECK(g.is_frozen());
 
     // Any mutation attempt must throw
     auto b = tf_wrap::Tensor::FromScalar<float>(0.0f);
-    REQUIRE_THROWS(g.NewOperation("Const", "B")
+    CHECK_THROWS(g.NewOperation("Const", "B")
         .SetAttrTensor("value", b.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish());
     
     // Session should still work
     auto result = s.Run("A", 0);
-    REQUIRE((result.ToVector<float>() == std::vector<float>{1.0f, 2.0f}));
+    CHECK((result.ToVector<float>() == std::vector<float>{1.0f, 2.0f}));
     
     std::cout << "    Graph freeze enforced after Session creation\n";
 }
@@ -734,11 +648,11 @@ TEST_CASE("Graph freeze works with different Session/Graph policies") {
 
     tf_wrap::Session s(g);
     
-    REQUIRE(g.is_frozen());
+    CHECK(g.is_frozen());
     
     // Mutation must throw
     auto b = tf_wrap::Tensor::FromScalar<float>(0.0f);
-    REQUIRE_THROWS(g.NewOperation("Const", "B")
+    CHECK_THROWS(g.NewOperation("Const", "B")
         .SetAttrTensor("value", b.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish());
@@ -760,10 +674,10 @@ TEST_CASE("Session move constructor leaves source invalid") {
     tf_wrap::Session s2(std::move(s1));
     
     // s2 should work
-    REQUIRE(s2.handle() != nullptr);
+    CHECK(s2.handle() != nullptr);
     
     // s1 should be invalid
-    REQUIRE(s1.handle() == nullptr);
+    CHECK(s1.handle() == nullptr);
 }
 
 TEST_CASE("Session move assignment leaves source invalid") {
@@ -786,8 +700,8 @@ TEST_CASE("Session move assignment leaves source invalid") {
     
     s2 = std::move(s1);
     
-    REQUIRE(s2.handle() != nullptr);
-    REQUIRE(s1.handle() == nullptr);
+    CHECK(s2.handle() != nullptr);
+    CHECK(s1.handle() == nullptr);
 }
 
 TEST_CASE("Moved-from session throws on Run") {
@@ -801,7 +715,7 @@ TEST_CASE("Moved-from session throws on Run") {
     tf_wrap::Session s1(g);
     tf_wrap::Session s2(std::move(s1));
     
-    REQUIRE_THROWS(s1.Run("A", 0));
+    CHECK_THROWS(s1.Run("A", 0));
 }
 
 TEST_CASE("Moved-from session is safe to destroy") {
@@ -818,7 +732,7 @@ TEST_CASE("Moved-from session is safe to destroy") {
         // s1 destroyed here - should not crash
     }
     // If we get here, destruction was safe
-    REQUIRE(true);
+    CHECK(true);
 }
 
 // ============================================================================
@@ -842,7 +756,7 @@ TEST_CASE("Session from moved-from graph throws") {
     } catch (const std::runtime_error&) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
 }
 
 // ============================================================================
@@ -866,7 +780,7 @@ TEST_CASE("OperationBuilder Finish completes operation") {
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    REQUIRE(g.num_operations() == 2u);
+    CHECK(g.num_operations() == 2u);
 }
 
 TEST_CASE("OperationBuilder without Finish is safe") {
@@ -874,11 +788,11 @@ TEST_CASE("OperationBuilder without Finish is safe") {
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
     {
-        // Create builder but don't finish
+        // Create builder but don't finish - explicitly abandon it
         auto builder = g.NewOperation("Const", "A")
             .SetAttrTensor("value", t.handle())
             .SetAttrType("dtype", TF_FLOAT);
-        // Builder destroyed without Finish()
+        builder.Abandon();  // Explicitly abandon to avoid debug assertion
     }
     
     // Should be able to create another operation
@@ -889,8 +803,8 @@ TEST_CASE("OperationBuilder without Finish is safe") {
         .Finish();
     
     // Only B should exist (A was never finished)
-    REQUIRE(g.num_operations() == 1u);
-    REQUIRE(g.HasOperation("B"));
+    CHECK(g.num_operations() == 1u);
+    CHECK(g.HasOperation("B"));
 }
 
 TEST_CASE("OperationBuilder from frozen graph throws") {
@@ -906,7 +820,7 @@ TEST_CASE("OperationBuilder from frozen graph throws") {
     
     // Creating new operation should throw
     auto t2 = tf_wrap::Tensor::FromScalar<float>(2.0f);
-    REQUIRE_THROWS(g.NewOperation("Const", "B")
+    CHECK_THROWS(g.NewOperation("Const", "B")
         .SetAttrTensor("value", t2.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish());
@@ -918,13 +832,13 @@ TEST_CASE("OperationBuilder from frozen graph throws") {
 
 TEST_CASE("is_frozen returns false initially") {
     tf_wrap::Graph g;
-    REQUIRE_FALSE(g.is_frozen());
+    CHECK_FALSE(g.is_frozen());
 }
 
 TEST_CASE("is_frozen returns true after freeze") {
     tf_wrap::Graph g;
     g.freeze();
-    REQUIRE(g.is_frozen());
+    CHECK(g.is_frozen());
 }
 
 TEST_CASE("freeze is idempotent") {
@@ -932,7 +846,7 @@ TEST_CASE("freeze is idempotent") {
     g.freeze();
     g.freeze();  // Should not throw or change state
     g.freeze();
-    REQUIRE(g.is_frozen());
+    CHECK(g.is_frozen());
 }
 
 TEST_CASE("Read operations work after freeze") {
@@ -946,15 +860,15 @@ TEST_CASE("Read operations work after freeze") {
     g.freeze();
     
     // All read operations should still work
-    REQUIRE(g.valid());
-    REQUIRE(g.is_frozen());
-    REQUIRE(g.num_operations() == 1u);
-    REQUIRE(g.HasOperation("A"));
-    REQUIRE(g.GetOperation("A").has_value());
-    REQUIRE(g.GetOperationOrThrow("A") != nullptr);
-    REQUIRE(g.GetAllOperations().size() == 1u);
-    REQUIRE(!g.DebugString().empty());
-    REQUIRE(g.handle() != nullptr);
+    CHECK(g.valid());
+    CHECK(g.is_frozen());
+    CHECK(g.num_operations() == 1u);
+    CHECK(g.HasOperation("A"));
+    CHECK(g.GetOperation("A").has_value());
+    CHECK(g.GetOperationOrThrow("A") != nullptr);
+    CHECK(g.GetAllOperations().size() == 1u);
+    CHECK(!g.DebugString().empty());
+    CHECK(g.handle() != nullptr);
 }
 
 TEST_CASE("ImportGraphDef on frozen graph throws") {
@@ -972,7 +886,7 @@ TEST_CASE("ImportGraphDef on frozen graph throws") {
     g.freeze();
     
     // ImportGraphDef should throw
-    REQUIRE_THROWS(g.ImportGraphDef(graphdef.data(), graphdef.size(), "imported_"));
+    CHECK_THROWS(g.ImportGraphDef(graphdef.data(), graphdef.size(), "imported_"));
 }
 
 
@@ -997,9 +911,9 @@ TEST_CASE("Multiple Sessions from same Graph works") {
     auto r2 = s2.Run("A", 0);
     auto r3 = s3.Run("A", 0);
     
-    REQUIRE(r1.ToScalar<float>() == 42.0f);
-    REQUIRE(r2.ToScalar<float>() == 42.0f);
-    REQUIRE(r3.ToScalar<float>() == 42.0f);
+    CHECK(r1.ToScalar<float>() == 42.0f);
+    CHECK(r2.ToScalar<float>() == 42.0f);
+    CHECK(r3.ToScalar<float>() == 42.0f);
 }
 
 TEST_CASE("Session still works after Graph frozen") {
@@ -1013,11 +927,11 @@ TEST_CASE("Session still works after Graph frozen") {
     tf_wrap::Session s(g);
     
     // Graph is now frozen
-    REQUIRE(g.is_frozen());
+    CHECK(g.is_frozen());
     
     // Session should still work
     auto result = s.Run("A", 0);
-    REQUIRE(result.ToScalar<float>() == 42.0f);
+    CHECK(result.ToScalar<float>() == 42.0f);
 }
 
 // ============================================================================
@@ -1040,11 +954,11 @@ TEST_CASE("Session Run with empty fetches") {
     try {
         auto results = s.Run({}, empty_fetches, {});
         // Stub mode: returns empty
-        REQUIRE(results.empty());
+        CHECK(results.empty());
     } catch (const std::runtime_error& e) {
         // Real TF: throws INVALID_ARGUMENT
         std::string msg = e.what();
-        REQUIRE(msg.find("INVALID_ARGUMENT") != std::string::npos);
+        CHECK(msg.find("INVALID_ARGUMENT") != std::string::npos);
     }
 }
 
@@ -1058,7 +972,7 @@ TEST_CASE("Session Run with non-existent operation throws") {
     
     tf_wrap::Session s(g);
     
-    REQUIRE_THROWS(s.Run("NonExistent", 0));
+    CHECK_THROWS(s.Run("NonExistent", 0));
 }
 
 TEST_CASE("Session Run with non-existent feed operation throws") {
@@ -1077,7 +991,7 @@ TEST_CASE("Session Run with non-existent feed operation throws") {
     };
     std::vector<tf_wrap::Fetch> fetches = {tf_wrap::Fetch{"A", 0}};
     
-    REQUIRE_THROWS(s.Run(feeds, fetches, {}));
+    CHECK_THROWS(s.Run(feeds, fetches, {}));
 }
 
 // ============================================================================
@@ -1107,7 +1021,7 @@ TEST_CASE("OperationBuilder duplicate name handled") {
     }
     
     // Graph should still be valid
-    REQUIRE(g.valid());
+    CHECK(g.valid());
 }
 
 // ============================================================================
@@ -1120,7 +1034,7 @@ TEST_CASE("All movable types: moved-from has defined behavior") {
         tf_wrap::Status s1;
         s1.set(TF_INVALID_ARGUMENT, "test");
         tf_wrap::Status s2(std::move(s1));
-        REQUIRE(s2.code() == TF_INVALID_ARGUMENT);
+        CHECK(s2.code() == TF_INVALID_ARGUMENT);
         // s1 is moved-from but safe to query
     }
     
@@ -1128,32 +1042,32 @@ TEST_CASE("All movable types: moved-from has defined behavior") {
     {
         auto t1 = tf_wrap::Tensor::FromScalar<float>(1.0f);
         auto t2 = std::move(t1);
-        REQUIRE(t2.handle() != nullptr);
-        REQUIRE(t1.handle() == nullptr);
+        CHECK(t2.handle() != nullptr);
+        CHECK(t1.handle() == nullptr);
     }
     
     // Graph
     {
         tf_wrap::Graph g1;
         tf_wrap::Graph g2(std::move(g1));
-        REQUIRE(g2.valid());
-        REQUIRE(!g1.valid());
+        CHECK(g2.valid());
+        CHECK(!g1.valid());
     }
     
     // SessionOptions
     {
         tf_wrap::SessionOptions o1;
         tf_wrap::SessionOptions o2(std::move(o1));
-        REQUIRE(o2.get() != nullptr);
-        REQUIRE(o1.get() == nullptr);
+        CHECK(o2.get() != nullptr);
+        CHECK(o1.get() == nullptr);
     }
     
     // Buffer
     {
         tf_wrap::Buffer b1;  // Default constructor
         tf_wrap::Buffer b2(std::move(b1));
-        REQUIRE(b2.get() != nullptr);
-        REQUIRE(b1.get() == nullptr);
+        CHECK(b2.get() != nullptr);
+        CHECK(b1.get() == nullptr);
     }
 }
 
@@ -1162,7 +1076,7 @@ TEST_CASE("Types with valid(): moved-from is not valid") {
     {
         tf_wrap::Graph g1;
         tf_wrap::Graph g2(std::move(g1));
-        REQUIRE(!g1.valid());
+        CHECK(!g1.valid());
     }
 }
 
@@ -1171,14 +1085,14 @@ TEST_CASE("Types with handle(): moved-from has null handle") {
     {
         auto t1 = tf_wrap::Tensor::FromScalar<float>(1.0f);
         auto t2 = std::move(t1);
-        REQUIRE(t1.handle() == nullptr);
+        CHECK(t1.handle() == nullptr);
     }
     
     // Graph
     {
         tf_wrap::Graph g1;
         tf_wrap::Graph g2(std::move(g1));
-        REQUIRE(g1.handle() == nullptr);
+        CHECK(g1.handle() == nullptr);
     }
     
     // Session
@@ -1192,21 +1106,21 @@ TEST_CASE("Types with handle(): moved-from has null handle") {
         
         tf_wrap::Session s1(g);
         tf_wrap::Session s2(std::move(s1));
-        REQUIRE(s1.handle() == nullptr);
+        CHECK(s1.handle() == nullptr);
     }
     
     // SessionOptions
     {
         tf_wrap::SessionOptions o1;
         tf_wrap::SessionOptions o2(std::move(o1));
-        REQUIRE(o1.get() == nullptr);
+        CHECK(o1.get() == nullptr);
     }
     
     // Buffer
     {
         tf_wrap::Buffer b1;  // Default constructor
         tf_wrap::Buffer b2(std::move(b1));
-        REQUIRE(b1.get() == nullptr);
+        CHECK(b1.get() == nullptr);
     }
 }
 
@@ -1214,7 +1128,7 @@ TEST_CASE("Types with handle(): moved-from has null handle") {
 // MEDIUM: Thread safety claims verification
 // ============================================================================
 
-STRESS_TEST("Graph concurrent operation creation") {
+TEST_CASE("Graph concurrent operation creation" * doctest::test_suite("stress")) {
     tf_wrap::Graph g;
     std::atomic<int> op_count{0};
     std::vector<std::thread> threads;
@@ -1242,10 +1156,10 @@ STRESS_TEST("Graph concurrent operation creation") {
     }
     
     // All operations that succeeded should be in the graph
-    REQUIRE(g.num_operations() == static_cast<std::size_t>(op_count.load()));
+    CHECK(g.num_operations() == static_cast<std::size_t>(op_count.load()));
 }
 
-STRESS_TEST("Graph allows concurrent reads") {
+TEST_CASE("Graph allows concurrent reads" * doctest::test_suite("stress")) {
     tf_wrap::Graph g;
     auto tensor = tf_wrap::Tensor::FromScalar<float>(42.0f);
     (void)g.NewOperation("Const", "A")
@@ -1262,8 +1176,8 @@ STRESS_TEST("Graph allows concurrent reads") {
     for (int i = 0; i < 10; ++i) {
         threads.emplace_back([&g, &read_count] {
             for (int j = 0; j < 100; ++j) {
-                REQUIRE(g.HasOperation("A"));
-                REQUIRE(g.num_operations() == 1u);
+                CHECK(g.HasOperation("A"));
+                CHECK(g.num_operations() == 1u);
                 read_count.fetch_add(1);
             }
         });
@@ -1273,10 +1187,10 @@ STRESS_TEST("Graph allows concurrent reads") {
         th.join();
     }
     
-    REQUIRE(read_count.load() == 1000);
+    CHECK(read_count.load() == 1000);
 }
 
-STRESS_TEST("Session Run is thread-safe (TensorFlow guarantee)") {
+TEST_CASE("Session Run is thread-safe (TensorFlow guarantee)" * doctest::test_suite("stress")) {
     tf_wrap::Graph g;
     auto tensor = tf_wrap::Tensor::FromScalar<float>(42.0f);
     (void)g.NewOperation("Const", "A")
@@ -1294,7 +1208,7 @@ STRESS_TEST("Session Run is thread-safe (TensorFlow guarantee)") {
         threads.emplace_back([&s, &run_count] {
             for (int j = 0; j < 10; ++j) {
                 auto result = s.Run("A", 0);
-                REQUIRE(result.ToScalar<float>() == 42.0f);
+                CHECK(result.ToScalar<float>() == 42.0f);
                 run_count.fetch_add(1);
             }
         });
@@ -1304,7 +1218,7 @@ STRESS_TEST("Session Run is thread-safe (TensorFlow guarantee)") {
         th.join();
     }
     
-    REQUIRE(run_count.load() == 100);
+    CHECK(run_count.load() == 100);
 }
 
 // ============================================================================
@@ -1323,10 +1237,10 @@ TEST_CASE("Error messages include operation name") {
     
     try {
         (void)s.Run("NonExistentOp", 0);
-        REQUIRE(false);  // Should have thrown
+        CHECK(false);  // Should have thrown
     } catch (const std::runtime_error& e) {
         std::string msg = e.what();
-        REQUIRE(msg.find("NonExistentOp") != std::string::npos);
+        CHECK(msg.find("NonExistentOp") != std::string::npos);
     }
 }
 
@@ -1346,11 +1260,11 @@ TEST_CASE("Frozen graph error is actionable") {
             .SetAttrTensor("value", t2.handle())
             .SetAttrType("dtype", TF_FLOAT)
             .Finish();
-        REQUIRE(false);
+        CHECK(false);
     } catch (const std::runtime_error& e) {
         std::string msg = e.what();
         // Error should mention frozen/immutable and Session
-        REQUIRE((msg.find("frozen") != std::string::npos || 
+        CHECK((msg.find("frozen") != std::string::npos || 
                  msg.find("immutable") != std::string::npos));
     }
 }
@@ -1361,10 +1275,10 @@ TEST_CASE("Moved-from graph error is actionable") {
     
     try {
         (void)g1.num_operations();
-        REQUIRE(false);
+        CHECK(false);
     } catch (const std::runtime_error& e) {
         std::string msg = e.what();
-        REQUIRE(msg.find("moved") != std::string::npos);
+        CHECK(msg.find("moved") != std::string::npos);
     }
 }
 
@@ -1382,7 +1296,7 @@ TEST_CASE("cross policy safe session with fast graph") {
     
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"X", 0}}, {});
-    REQUIRE(results[0].ToVector<float>().size() == 2);
+    CHECK(results[0].ToVector<float>().size() == 2);
 }
 
 TEST_CASE("cross policy fast session with safe graph") {
@@ -1395,7 +1309,7 @@ TEST_CASE("cross policy fast session with safe graph") {
     
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"X", 0}}, {});
-    REQUIRE(results[0].ToVector<float>().size() == 3);
+    CHECK(results[0].ToVector<float>().size() == 3);
 }
 
 TEST_CASE("cross policy shared tensor with fast graph") {
@@ -1410,8 +1324,8 @@ TEST_CASE("cross policy shared tensor with fast graph") {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"X", 0}}, {});
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f);
-    REQUIRE(v[3] == 4.0f);
+    CHECK(v[0] == 1.0f);
+    CHECK(v[3] == 4.0f);
 }
 
 TEST_CASE("cross policy safe tensor with safe graph and fast session") {
@@ -1425,7 +1339,7 @@ TEST_CASE("cross policy safe tensor with safe graph and fast session") {
     
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"X", 0}}, {});
-    REQUIRE(results[0].ToScalar<int32_t>() == 42);
+    CHECK(results[0].ToScalar<int32_t>() == 42);
 }
 
 // ============================================================================
@@ -1452,10 +1366,10 @@ TEST_CASE("multiple sessions same graph const only") {
     auto r3 = s3.Run({}, {{"X", 0}}, {});
     auto r4 = s4.Run({}, {{"X", 0}}, {});
     
-    REQUIRE(r1[0].ToScalar<float>() == 42.0f);
-    REQUIRE(r2[0].ToScalar<float>() == 42.0f);
-    REQUIRE(r3[0].ToScalar<float>() == 42.0f);
-    REQUIRE(r4[0].ToScalar<float>() == 42.0f);
+    CHECK(r1[0].ToScalar<float>() == 42.0f);
+    CHECK(r2[0].ToScalar<float>() == 42.0f);
+    CHECK(r3[0].ToScalar<float>() == 42.0f);
+    CHECK(r4[0].ToScalar<float>() == 42.0f);
 }
 
 // ============================================================================
@@ -1479,10 +1393,10 @@ TEST_CASE("identity operation passthrough") {
     auto results = s.Run({}, {{"Output", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 3);
-    REQUIRE(v[0] == 1.0f);
-    REQUIRE(v[1] == 2.0f);
-    REQUIRE(v[2] == 3.0f);
+    CHECK(v.size() == 3);
+    CHECK(v[0] == 1.0f);
+    CHECK(v[1] == 2.0f);
+    CHECK(v[2] == 3.0f);
 }
 
 // ============================================================================
@@ -1514,10 +1428,10 @@ TEST_CASE("add operation two constants") {
     auto results = s.Run({}, {{"Sum", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 3);
-    REQUIRE(v[0] == 11.0f);
-    REQUIRE(v[1] == 22.0f);
-    REQUIRE(v[2] == 33.0f);
+    CHECK(v.size() == 3);
+    CHECK(v[0] == 11.0f);
+    CHECK(v[1] == 22.0f);
+    CHECK(v[2] == 33.0f);
 }
 
 TEST_CASE("mul operation two constants") {
@@ -1545,10 +1459,10 @@ TEST_CASE("mul operation two constants") {
     auto results = s.Run({}, {{"Product", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    REQUIRE(v.size() == 3);
-    REQUIRE(v[0] == 20.0f);
-    REQUIRE(v[1] == 30.0f);
-    REQUIRE(v[2] == 40.0f);
+    CHECK(v.size() == 3);
+    CHECK(v[0] == 20.0f);
+    CHECK(v[1] == 30.0f);
+    CHECK(v[2] == 40.0f);
 }
 
 TEST_CASE("chained add operations") {
@@ -1590,14 +1504,14 @@ TEST_CASE("chained add operations") {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"ABC", 0}}, {});
     
-    REQUIRE(results[0].ToScalar<int32_t>() == 6);  // 1 + 2 + 3 = 6
+    CHECK(results[0].ToScalar<int32_t>() == 6);  // 1 + 2 + 3 = 6
 }
 
 // ============================================================================
 // Concurrent Multi-Session Stress Test (Const only - stub safe)
 // ============================================================================
 
-STRESS_TEST("multiple sessions concurrent const only") {
+TEST_CASE("multiple sessions concurrent const only" * doctest::test_suite("stress")) {
     tf_wrap::Graph g;
     auto t = tf_wrap::Tensor::FromScalar<float>(42.0f);
     (void)g.NewOperation("Const", "X")
@@ -1630,10 +1544,10 @@ STRESS_TEST("multiple sessions concurrent const only") {
         th.join();
     }
     
-    REQUIRE(success_count == 400);
+    CHECK(success_count == 400);
 }
 
-STRESS_TEST("multiple sessions same graph with placeholder and square") {
+TEST_CASE("multiple sessions same graph with placeholder and square" * doctest::test_suite("stress")) {
     tf_wrap::Graph g;
     
     (void)g.NewOperation("Placeholder", "X")
@@ -1677,7 +1591,7 @@ STRESS_TEST("multiple sessions same graph with placeholder and square") {
         th.join();
     }
     
-    REQUIRE(success_count == 400);
+    CHECK(success_count == 400);
 }
 
 TEST_CASE("session recovers after shape error with matmul") {
@@ -1716,7 +1630,7 @@ TEST_CASE("session recovers after shape error with matmul") {
     } catch (...) {
         threw = true;
     }
-    REQUIRE(threw);
+    CHECK(threw);
     
     // Now run with correct shapes - should succeed
     // Identity matrix multiplication: [[1,0],[0,1]] * [[1,2],[3,4]] = [[1,2],[3,4]]
@@ -1729,12 +1643,12 @@ TEST_CASE("session recovers after shape error with matmul") {
         {}
     );
     
-    REQUIRE(results.size() == 1);
+    CHECK(results.size() == 1);
     auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 1.0f);  // (1,1)
-    REQUIRE(v[1] == 2.0f);  // (1,2)
-    REQUIRE(v[2] == 3.0f);  // (2,1)
-    REQUIRE(v[3] == 4.0f);  // (2,2)
+    CHECK(v[0] == 1.0f);  // (1,1)
+    CHECK(v[1] == 2.0f);  // (1,2)
+    CHECK(v[2] == 3.0f);  // (2,1)
+    CHECK(v[3] == 4.0f);  // (2,2)
 }
 
 // ============================================================================
@@ -1745,14 +1659,14 @@ TEST_CASE("tensor reshape preserves data") {
     auto original = tf_wrap::Tensor::FromVector<float>({2, 3}, 
         {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
     
-    REQUIRE(original.shape().size() == 2);
-    REQUIRE(original.shape()[0] == 2);
-    REQUIRE(original.shape()[1] == 3);
-    REQUIRE(original.num_elements() == 6);
+    CHECK(original.shape().size() == 2);
+    CHECK(original.shape()[0] == 2);
+    CHECK(original.shape()[1] == 3);
+    CHECK(original.num_elements() == 6);
     
     auto v = original.ToVector<float>();
-    REQUIRE(v[0] == 1.0f);
-    REQUIRE(v[5] == 6.0f);
+    CHECK(v[0] == 1.0f);
+    CHECK(v[5] == 6.0f);
 }
 
 TEST_CASE("tensor different dtypes") {
@@ -1762,17 +1676,17 @@ TEST_CASE("tensor different dtypes") {
     auto i64 = tf_wrap::Tensor::FromScalar<int64_t>(123456789LL);
     auto u8 = tf_wrap::Tensor::FromScalar<uint8_t>(255);
     
-    REQUIRE(f32.dtype() == TF_FLOAT);
-    REQUIRE(f64.dtype() == TF_DOUBLE);
-    REQUIRE(i32.dtype() == TF_INT32);
-    REQUIRE(i64.dtype() == TF_INT64);
-    REQUIRE(u8.dtype() == TF_UINT8);
+    CHECK(f32.dtype() == TF_FLOAT);
+    CHECK(f64.dtype() == TF_DOUBLE);
+    CHECK(i32.dtype() == TF_INT32);
+    CHECK(i64.dtype() == TF_INT64);
+    CHECK(u8.dtype() == TF_UINT8);
     
-    REQUIRE(f32.ToScalar<float>() == 1.5f);
-    REQUIRE(f64.ToScalar<double>() == 2.5);
-    REQUIRE(i32.ToScalar<int32_t>() == 42);
-    REQUIRE(i64.ToScalar<int64_t>() == 123456789LL);
-    REQUIRE(u8.ToScalar<uint8_t>() == 255);
+    CHECK(f32.ToScalar<float>() == 1.5f);
+    CHECK(f64.ToScalar<double>() == 2.5);
+    CHECK(i32.ToScalar<int32_t>() == 42);
+    CHECK(i64.ToScalar<int64_t>() == 123456789LL);
+    CHECK(u8.ToScalar<uint8_t>() == 255);
 }
 
 TEST_CASE("tensor multidimensional shapes") {
@@ -1782,15 +1696,15 @@ TEST_CASE("tensor multidimensional shapes") {
     auto t4d = tf_wrap::Tensor::FromVector<float>({2, 2, 2, 2}, 
         {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16});
     
-    REQUIRE(t1d.shape().size() == 1);
-    REQUIRE(t2d.shape().size() == 2);
-    REQUIRE(t3d.shape().size() == 3);
-    REQUIRE(t4d.shape().size() == 4);
+    CHECK(t1d.shape().size() == 1);
+    CHECK(t2d.shape().size() == 2);
+    CHECK(t3d.shape().size() == 3);
+    CHECK(t4d.shape().size() == 4);
     
-    REQUIRE(t1d.num_elements() == 5);
-    REQUIRE(t2d.num_elements() == 6);
-    REQUIRE(t3d.num_elements() == 8);
-    REQUIRE(t4d.num_elements() == 16);
+    CHECK(t1d.num_elements() == 5);
+    CHECK(t2d.num_elements() == 6);
+    CHECK(t3d.num_elements() == 8);
+    CHECK(t4d.num_elements() == 16);
 }
 
 TEST_CASE("tensor clone independence") {
@@ -1811,9 +1725,9 @@ TEST_CASE("tensor clone independence") {
     }
     
     // All should be independent
-    REQUIRE(original.ToVector<float>()[0] == 1.0f);
-    REQUIRE(clone1.ToVector<float>()[0] == 100.0f);
-    REQUIRE(clone2.ToVector<float>()[0] == 200.0f);
+    CHECK(original.ToVector<float>()[0] == 1.0f);
+    CHECK(clone1.ToVector<float>()[0] == 100.0f);
+    CHECK(clone2.ToVector<float>()[0] == 200.0f);
 }
 
 // ============================================================================
@@ -1831,7 +1745,7 @@ TEST_CASE("tensor interleaved read write views") {
     
     {
         auto read_view = tensor.read<float>();
-        REQUIRE(read_view[0] == 100.0f);
+        CHECK(read_view[0] == 100.0f);
     }
     
     for (int i = 0; i < 10; ++i) {
@@ -1841,7 +1755,7 @@ TEST_CASE("tensor interleaved read write views") {
         }
         {
             auto read_view = tensor.read<float>();
-            REQUIRE(read_view[i] == static_cast<float>(i * 10));
+            CHECK(read_view[i] == static_cast<float>(i * 10));
         }
     }
 }
@@ -1874,7 +1788,7 @@ TEST_CASE("tensor concurrent read views") {
         t.join();
     }
     
-    REQUIRE(success_count == 800);
+    CHECK(success_count == 800);
 }
 
 // ============================================================================
@@ -1887,7 +1801,7 @@ TEST_CASE("adopt malloc success basic") {
     size_t byte_size = num_elements * sizeof(float);
     
     float* data = static_cast<float*>(std::malloc(byte_size));
-    REQUIRE(data != nullptr);
+    CHECK(data != nullptr);
     
     for (size_t i = 0; i < num_elements; ++i) {
         data[i] = static_cast<float>(i);
@@ -1895,13 +1809,13 @@ TEST_CASE("adopt malloc success basic") {
     
     auto tensor = tf_wrap::Tensor::AdoptMalloc<float>(shape, data, byte_size);
     
-    REQUIRE(tensor.valid());
-    REQUIRE(tensor.num_elements() == 6);
-    REQUIRE(tensor.dtype() == TF_FLOAT);
+    CHECK(tensor.valid());
+    CHECK(tensor.num_elements() == 6);
+    CHECK(tensor.dtype() == TF_FLOAT);
     
     auto v = tensor.ToVector<float>();
-    REQUIRE(v[0] == 0.0f);
-    REQUIRE(v[5] == 5.0f);
+    CHECK(v[0] == 0.0f);
+    CHECK(v[5] == 5.0f);
 }
 
 TEST_CASE("adopt malloc success large tensor") {
@@ -1910,7 +1824,7 @@ TEST_CASE("adopt malloc success large tensor") {
     size_t byte_size = num_elements * sizeof(float);
     
     float* data = static_cast<float*>(std::malloc(byte_size));
-    REQUIRE(data != nullptr);
+    CHECK(data != nullptr);
     
     for (size_t i = 0; i < num_elements; ++i) {
         data[i] = static_cast<float>(i % 100);
@@ -1918,50 +1832,12 @@ TEST_CASE("adopt malloc success large tensor") {
     
     auto tensor = tf_wrap::Tensor::AdoptMalloc<float>(shape, data, byte_size);
     
-    REQUIRE(tensor.shape()[0] == 1000);
-    REQUIRE(tensor.shape()[1] == 1000);
+    CHECK(tensor.shape()[0] == 1000);
+    CHECK(tensor.shape()[1] == 1000);
     
     auto v = tensor.ToVector<float>();
-    REQUIRE(v[0] == 0.0f);
-    REQUIRE(v[99] == 99.0f);
-    REQUIRE(v[100] == 0.0f);
+    CHECK(v[0] == 0.0f);
+    CHECK(v[99] == 99.0f);
+    CHECK(v[100] == 0.0f);
 }
 
-// ============================================================================
-// Main
-// ============================================================================
-
-int main(int argc, char** argv) {
-    bool run_stress = (argc > 1 && std::string(argv[1]) == "--stress");
-    
-    int passed = 0, failed = 0, skipped = 0;
-    
-    std::cout << "Running edge case tests...\n\n";
-    
-    for (const auto& tc : tf_test::registry()) {
-        if (tc.is_stress && !run_stress) {
-            ++skipped;
-            continue;
-        }
-        
-        std::cout << (tc.is_stress ? "[STRESS] " : "[TEST]   ") << tc.name << "\n";
-        
-        try {
-            tc.fn();
-            std::cout << "  PASS\n";
-            ++passed;
-        } catch (const std::exception& e) {
-            std::cout << "  FAIL: " << e.what() << "\n";
-            ++failed;
-        }
-    }
-    
-    std::cout << "\n========================================\n";
-    std::cout << "Passed: " << passed << ", Failed: " << failed;
-    if (skipped > 0) {
-        std::cout << ", Skipped: " << skipped << " (run with --stress)";
-    }
-    std::cout << "\n";
-    
-    return failed > 0 ? 1 : 0;
-}

@@ -1,39 +1,19 @@
 // tests/test_ops.cpp
-// Tests for the auto-generated TensorFlow ops wrapper
-//
-// Run with: g++ -std=c++20 -I include -I third_party/tf_stub tests/test_ops.cpp third_party/tf_stub/tf_c_stub.cpp -o test_ops && ./test_ops
+// Tests for the auto-generated TensorFlow ops wrapper using doctest
+
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "doctest/doctest.h"
 
 #include <tf_wrap/ops.hpp>
 #include <iostream>
 #include <vector>
 #include <string>
 
-// Simple test framework
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define TEST(name) void test_##name()
-#define RUN_TEST(name) do { \
-    std::cout << "[TEST] " << #name << "\n"; \
-    try { \
-        test_##name(); \
-        std::cout << "  PASS\n"; \
-        ++tests_passed; \
-    } catch (const std::exception& e) { \
-        std::cout << "  FAIL: " << e.what() << "\n"; \
-        ++tests_failed; \
-    } \
-} while(0)
-
-#define REQUIRE(cond) do { \
-    if (!(cond)) throw std::runtime_error("Assertion failed: " #cond); \
-} while(0)
-
 // ============================================================================
 // Tests
 // ============================================================================
 
-TEST(math_ops_compile) {
+TEST_CASE("math_ops_compile") {
     tf_wrap::Graph graph;
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
@@ -72,10 +52,10 @@ TEST(math_ops_compile) {
     (void)Tanh(graph, "tanh", o1, TF_FLOAT);
     (void)Sigmoid(graph, "sigmoid", o1, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() > 10);
+    CHECK(graph.num_operations() > 10);
 }
 
-TEST(nn_ops_compile) {
+TEST_CASE("nn_ops_compile") {
     tf_wrap::Graph graph;
     
     // Scalar for element-wise ops
@@ -109,10 +89,10 @@ TEST(nn_ops_compile) {
     (void)Softmax(graph, "softmax", vec_input, TF_FLOAT);
     (void)LogSoftmax(graph, "logsoftmax", vec_input, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() > 5);
+    CHECK(graph.num_operations() > 5);
 }
 
-TEST(matrix_ops_compile) {
+TEST_CASE("matrix_ops_compile") {
     tf_wrap::Graph graph;
     
     // MatMul requires rank-2 tensors (matrices)
@@ -137,10 +117,10 @@ TEST(matrix_ops_compile) {
     (void)MatMul(graph, "matmul", o1, o2, TF_FLOAT);
     (void)BatchMatMul(graph, "batchmatmul", o1, o2, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 4);
+    CHECK(graph.num_operations() >= 4);
 }
 
-TEST(comparison_ops_compile) {
+TEST_CASE("comparison_ops_compile") {
     tf_wrap::Graph graph;
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
@@ -172,10 +152,10 @@ TEST(comparison_ops_compile) {
     
     (void)ge;  // suppress unused warning
     
-    REQUIRE(graph.num_operations() >= 10);
+    CHECK(graph.num_operations() >= 10);
 }
 
-TEST(array_ops_compile) {
+TEST_CASE("array_ops_compile") {
     tf_wrap::Graph graph;
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
@@ -195,10 +175,10 @@ TEST(array_ops_compile) {
     (void)Rank(graph, "rank", input, TF_FLOAT);
     (void)Size(graph, "size", input, TF_FLOAT, TF_INT32);
     
-    REQUIRE(graph.num_operations() >= 6);
+    CHECK(graph.num_operations() >= 6);
 }
 
-TEST(reduction_ops_compile) {
+TEST_CASE("reduction_ops_compile") {
     tf_wrap::Graph graph;
     
     // Reduction ops need tensors with valid axes
@@ -228,10 +208,10 @@ TEST(reduction_ops_compile) {
     (void)ArgMax(graph, "argmax", data_out, axis_out, TF_FLOAT, TF_INT32, TF_INT64);
     (void)ArgMin(graph, "argmin", data_out, axis_out, TF_FLOAT, TF_INT32, TF_INT64);
     
-    REQUIRE(graph.num_operations() >= 8);
+    CHECK(graph.num_operations() >= 8);
 }
 
-TEST(opresult_properties) {
+TEST_CASE("opresult_properties") {
     tf_wrap::Graph graph;
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
@@ -244,17 +224,17 @@ TEST(opresult_properties) {
     
     auto result = Identity(graph, "my_identity", TF_Output{c, 0}, TF_FLOAT);
     
-    REQUIRE(result.name() == "my_identity");
-    REQUIRE(result.num_outputs() >= 1);
-    REQUIRE(result.op() != nullptr);
+    CHECK(result.name() == "my_identity");
+    CHECK(result.num_outputs() >= 1);
+    CHECK(result.op() != nullptr);
     
     // Test implicit conversion to TF_Output
     TF_Output out = result;
-    REQUIRE(out.oper == result.op());
-    REQUIRE(out.index == 0);
+    CHECK(out.oper == result.op());
+    CHECK(out.index == 0);
 }
 
-TEST(cast_op_compile) {
+TEST_CASE("cast_op_compile") {
     tf_wrap::Graph graph;
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
@@ -269,10 +249,10 @@ TEST(cast_op_compile) {
     
     (void)Cast(graph, "cast", input, TF_FLOAT, TF_DOUBLE);
     
-    REQUIRE(graph.num_operations() >= 2);
+    CHECK(graph.num_operations() >= 2);
 }
 
-TEST(control_flow_ops_compile) {
+TEST_CASE("control_flow_ops_compile") {
     tf_wrap::Graph graph;
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
@@ -289,10 +269,10 @@ TEST(control_flow_ops_compile) {
     (void)NoOp(graph, "noop");
     (void)PreventGradient(graph, "preventgrad", input, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 3);
+    CHECK(graph.num_operations() >= 3);
 }
 
-TEST(trig_ops_compile) {
+TEST_CASE("trig_ops_compile") {
     tf_wrap::Graph graph;
     auto t = tf_wrap::Tensor::FromScalar<float>(0.5f);
     
@@ -312,10 +292,10 @@ TEST(trig_ops_compile) {
     (void)Sinh(graph, "sinh", input, TF_FLOAT);
     (void)Tan(graph, "tan", input, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 6);
+    CHECK(graph.num_operations() >= 6);
 }
 
-TEST(more_math_ops_compile) {
+TEST_CASE("more_math_ops_compile") {
     tf_wrap::Graph graph;
     auto t = tf_wrap::Tensor::FromScalar<float>(2.5f);
     
@@ -338,10 +318,10 @@ TEST(more_math_ops_compile) {
     (void)Expm1(graph, "expm1", input, TF_FLOAT);
     (void)Log1p(graph, "log1p", input, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 9);
+    CHECK(graph.num_operations() >= 9);
 }
 
-TEST(more_binary_ops_compile) {
+TEST_CASE("more_binary_ops_compile") {
     tf_wrap::Graph graph;
     auto t1 = tf_wrap::Tensor::FromScalar<float>(10.0f);
     auto t2 = tf_wrap::Tensor::FromScalar<float>(3.0f);
@@ -365,10 +345,10 @@ TEST(more_binary_ops_compile) {
     (void)FloorDiv(graph, "floordiv", o1, o2, TF_FLOAT);
     (void)Mod(graph, "mod", o1, o2, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 6);
+    CHECK(graph.num_operations() >= 6);
 }
 
-TEST(array_manipulation_ops_compile) {
+TEST_CASE("array_manipulation_ops_compile") {
     tf_wrap::Graph graph;
     
     // Create a 2x3 tensor
@@ -400,10 +380,10 @@ TEST(array_manipulation_ops_compile) {
     (void)ExpandDims(graph, "expand", data, axis_out, TF_FLOAT, TF_INT32);
     (void)Squeeze(graph, "squeeze", data, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 6);
+    CHECK(graph.num_operations() >= 6);
 }
 
-TEST(transpose_tile_ops_compile) {
+TEST_CASE("transpose_tile_ops_compile") {
     tf_wrap::Graph graph;
     
     // Create a 2x3 tensor
@@ -434,10 +414,10 @@ TEST(transpose_tile_ops_compile) {
     (void)Transpose(graph, "transpose", data, perm_out, TF_FLOAT, TF_INT32);
     (void)Tile(graph, "tile", data, mult_out, TF_FLOAT, TF_INT32);
     
-    REQUIRE(graph.num_operations() >= 5);
+    CHECK(graph.num_operations() >= 5);
 }
 
-TEST(slice_gather_ops_compile) {
+TEST_CASE("slice_gather_ops_compile") {
     tf_wrap::Graph graph;
     
     // Create a 1D tensor [0, 1, 2, 3, 4]
@@ -484,10 +464,10 @@ TEST(slice_gather_ops_compile) {
     (void)Gather(graph, "gather", data, indices_out, TF_FLOAT, TF_INT32);
     (void)GatherV2(graph, "gatherv2", data, indices_out, axis_out, TF_FLOAT, TF_INT32, TF_INT32);
     
-    REQUIRE(graph.num_operations() >= 8);
+    CHECK(graph.num_operations() >= 8);
 }
 
-TEST(concat_split_ops_compile) {
+TEST_CASE("concat_split_ops_compile") {
     tf_wrap::Graph graph;
     
     // Create two 1D tensors
@@ -528,10 +508,10 @@ TEST(concat_split_ops_compile) {
     TF_Output split_data{c_split, 0};
     (void)Split(graph, "split", axis_out, split_data, TF_FLOAT, 2);
     
-    REQUIRE(graph.num_operations() >= 5);
+    CHECK(graph.num_operations() >= 5);
 }
 
-TEST(pack_unpack_ops_compile) {
+TEST_CASE("pack_unpack_ops_compile") {
     tf_wrap::Graph graph;
     
     // Create scalar tensors to pack
@@ -562,10 +542,10 @@ TEST(pack_unpack_ops_compile) {
     auto packed = Pack(graph, "pack", pack_values, TF_FLOAT, 3);
     (void)Unpack(graph, "unpack", packed, TF_FLOAT, 3);
     
-    REQUIRE(graph.num_operations() >= 5);
+    CHECK(graph.num_operations() >= 5);
 }
 
-TEST(fill_range_ops_compile) {
+TEST_CASE("fill_range_ops_compile") {
     tf_wrap::Graph graph;
     
     // Dims for Fill: [2, 3]
@@ -611,10 +591,10 @@ TEST(fill_range_ops_compile) {
     (void)Fill(graph, "fill", dims_out, val_out, TF_FLOAT, TF_INT32);
     (void)Range(graph, "range", start_out, limit_out, delta_out, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 7);
+    CHECK(graph.num_operations() >= 7);
 }
 
-TEST(pad_ops_compile) {
+TEST_CASE("pad_ops_compile") {
     tf_wrap::Graph graph;
     
     // Create a 2x2 tensor
@@ -646,10 +626,10 @@ TEST(pad_ops_compile) {
     (void)PadV2(graph, "padv2", data, pad_out, const_out, TF_FLOAT, TF_INT32);
     (void)MirrorPad(graph, "mirrorpad", data, pad_out, TF_FLOAT, TF_INT32, "REFLECT");
     
-    REQUIRE(graph.num_operations() >= 6);
+    CHECK(graph.num_operations() >= 6);
 }
 
-TEST(broadcast_select_ops_compile) {
+TEST_CASE("broadcast_select_ops_compile") {
     tf_wrap::Graph graph;
     
     // Scalar tensor
@@ -687,10 +667,10 @@ TEST(broadcast_select_ops_compile) {
     (void)BroadcastTo(graph, "broadcast", data, shape_out, TF_FLOAT, TF_INT32);
     (void)SelectV2(graph, "select", cond_out, data, data2, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 6);
+    CHECK(graph.num_operations() >= 6);
 }
 
-TEST(reverse_where_ops_compile) {
+TEST_CASE("reverse_where_ops_compile") {
     tf_wrap::Graph graph;
     
     // Create a 1D tensor
@@ -721,10 +701,10 @@ TEST(reverse_where_ops_compile) {
     (void)ReverseV2(graph, "reverse", data, axis_out, TF_FLOAT, TF_INT32);
     (void)Where(graph, "where", bool_out, TF_BOOL);
     
-    REQUIRE(graph.num_operations() >= 5);
+    CHECK(graph.num_operations() >= 5);
 }
 
-TEST(logical_reduce_ops_compile) {
+TEST_CASE("logical_reduce_ops_compile") {
     tf_wrap::Graph graph;
     
     // Create rank-1 int tensor and cast to bool (FromVector<bool> is broken due to std::vector<bool>)
@@ -755,10 +735,10 @@ TEST(logical_reduce_ops_compile) {
     (void)All(graph, "all", data, axis_out, TF_INT32);
     (void)Any(graph, "any", data, axis_out, TF_INT32);
     
-    REQUIRE(graph.num_operations() >= 5);
+    CHECK(graph.num_operations() >= 5);
 }
 
-TEST(leaky_relu_biasadd_ops_compile) {
+TEST_CASE("leaky_relu_biasadd_ops_compile") {
     tf_wrap::Graph graph;
     
     // Input tensor [1, 2, 2, 1] for BiasAdd (NHWC format)
@@ -782,10 +762,10 @@ TEST(leaky_relu_biasadd_ops_compile) {
     (void)LeakyRelu(graph, "leakyrelu", data, TF_FLOAT);
     (void)BiasAdd(graph, "biasadd", data, bias_out, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 4);
+    CHECK(graph.num_operations() >= 4);
 }
 
-TEST(conv2d_pool_ops_compile) {
+TEST_CASE("conv2d_pool_ops_compile") {
     tf_wrap::Graph graph;
     
     // Input: [batch=1, height=4, width=4, channels=1]
@@ -819,10 +799,10 @@ TEST(conv2d_pool_ops_compile) {
     (void)MaxPool(graph, "maxpool", input_out, TF_FLOAT, ksize, pool_strides, "SAME");
     (void)AvgPool(graph, "avgpool", input_out, TF_FLOAT, ksize, pool_strides, "SAME");
     
-    REQUIRE(graph.num_operations() >= 5);
+    CHECK(graph.num_operations() >= 5);
 }
 
-TEST(lrn_ops_compile) {
+TEST_CASE("lrn_ops_compile") {
     tf_wrap::Graph graph;
     
     // Input: [batch=1, height=2, width=2, channels=4]
@@ -841,10 +821,10 @@ TEST(lrn_ops_compile) {
     // Local Response Normalization
     (void)LRN(graph, "lrn", input, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 2);
+    CHECK(graph.num_operations() >= 2);
 }
 
-TEST(random_ops_compile) {
+TEST_CASE("random_ops_compile") {
     tf_wrap::Graph graph;
     
     // Shape for random tensors
@@ -863,10 +843,10 @@ TEST(random_ops_compile) {
     (void)RandomStandardNormal(graph, "randnormal", shape_out, TF_FLOAT, TF_INT32);
     (void)TruncatedNormal(graph, "truncnormal", shape_out, TF_FLOAT, TF_INT32);
     
-    REQUIRE(graph.num_operations() >= 4);
+    CHECK(graph.num_operations() >= 4);
 }
 
-TEST(linspace_zeros_ops_compile) {
+TEST_CASE("linspace_zeros_ops_compile") {
     tf_wrap::Graph graph;
     
     // LinSpace parameters
@@ -896,10 +876,10 @@ TEST(linspace_zeros_ops_compile) {
     (void)LinSpace(graph, "linspace", start_out, stop_out, num_out, TF_FLOAT, TF_INT32);
     // Note: "Zeros" op doesn't exist in TensorFlow C API. Use Fill or ZerosLike instead.
     
-    REQUIRE(graph.num_operations() >= 4);
+    CHECK(graph.num_operations() >= 4);
 }
 
-TEST(placeholder_const_ops_compile) {
+TEST_CASE("placeholder_const_ops_compile") {
     tf_wrap::Graph graph;
     
     auto t = tf_wrap::Tensor::FromScalar<float>(42.0f);
@@ -909,10 +889,10 @@ TEST(placeholder_const_ops_compile) {
     (void)Placeholder(graph, "placeholder", TF_FLOAT, {});
     (void)Const(graph, "const", t.handle(), TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 2);
+    CHECK(graph.num_operations() >= 2);
 }
 
-TEST(identityn_shapen_ops_compile) {
+TEST_CASE("identityn_shapen_ops_compile") {
     tf_wrap::Graph graph;
     
     auto t1 = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
@@ -936,10 +916,10 @@ TEST(identityn_shapen_ops_compile) {
     (void)IdentityN(graph, "identityn", inputs);
     (void)ShapeN(graph, "shapen", inputs, TF_FLOAT, 2, TF_INT32);
     
-    REQUIRE(graph.num_operations() >= 4);
+    CHECK(graph.num_operations() >= 4);
 }
 
-TEST(bitcast_checknumerics_ops_compile) {
+TEST_CASE("bitcast_checknumerics_ops_compile") {
     tf_wrap::Graph graph;
     
     auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
@@ -956,10 +936,10 @@ TEST(bitcast_checknumerics_ops_compile) {
     (void)Bitcast(graph, "bitcast", input, TF_FLOAT, TF_INT32);
     (void)CheckNumerics(graph, "checknumerics", input, TF_FLOAT, "checking");
     
-    REQUIRE(graph.num_operations() >= 3);
+    CHECK(graph.num_operations() >= 3);
 }
 
-TEST(linalg_ops_compile) {
+TEST_CASE("linalg_ops_compile") {
     tf_wrap::Graph graph;
     
     // Square matrix for linear algebra ops (must be positive definite for Cholesky)
@@ -979,10 +959,10 @@ TEST(linalg_ops_compile) {
     (void)Qr(graph, "qr", mat, TF_FLOAT);
     (void)Svd(graph, "svd", mat, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 6);
+    CHECK(graph.num_operations() >= 6);
 }
 
-TEST(batchmatmulv2_ops_compile) {
+TEST_CASE("batchmatmulv2_ops_compile") {
     tf_wrap::Graph graph;
     
     auto t1 = tf_wrap::Tensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
@@ -1003,10 +983,10 @@ TEST(batchmatmulv2_ops_compile) {
     
     (void)BatchMatMulV2(graph, "batchmatmulv2", o1, o2, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 3);
+    CHECK(graph.num_operations() >= 3);
 }
 
-TEST(einsum_ops_compile) {
+TEST_CASE("einsum_ops_compile") {
     tf_wrap::Graph graph;
     
     auto t1 = tf_wrap::Tensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
@@ -1027,10 +1007,10 @@ TEST(einsum_ops_compile) {
     std::vector<TF_Output> inputs = {{c1, 0}, {c2, 0}};
     (void)Einsum(graph, "einsum", inputs, "ij,jk->ik", TF_FLOAT, 2);
     
-    REQUIRE(graph.num_operations() >= 3);
+    CHECK(graph.num_operations() >= 3);
 }
 
-TEST(strided_slice_ops_compile) {
+TEST_CASE("strided_slice_ops_compile") {
     tf_wrap::Graph graph;
     
     auto t_data = tf_wrap::Tensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
@@ -1063,10 +1043,10 @@ TEST(strided_slice_ops_compile) {
     
     (void)StridedSlice(graph, "stridedslice", data_out, begin_out, end_out, strides_out, TF_FLOAT, TF_INT32);
     
-    REQUIRE(graph.num_operations() >= 5);
+    CHECK(graph.num_operations() >= 5);
 }
 
-TEST(splitv_ops_compile) {
+TEST_CASE("splitv_ops_compile") {
     tf_wrap::Graph graph;
     
     auto t_data = tf_wrap::Tensor::FromVector<float>({6}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
@@ -1093,10 +1073,10 @@ TEST(splitv_ops_compile) {
     
     (void)SplitV(graph, "splitv", data_out, splits_out, axis_out, TF_FLOAT, 2, TF_INT32);
     
-    REQUIRE(graph.num_operations() >= 4);
+    CHECK(graph.num_operations() >= 4);
 }
 
-TEST(gathernd_scatternd_ops_compile) {
+TEST_CASE("gathernd_scatternd_ops_compile") {
     tf_wrap::Graph graph;
     
     // GatherNd: params [2,3], indices [[0,1],[1,0]]
@@ -1142,10 +1122,10 @@ TEST(gathernd_scatternd_ops_compile) {
     
     (void)ScatterNd(graph, "scatternd", sc_indices_out, updates_out, shape_out, TF_FLOAT, TF_INT32);
     
-    REQUIRE(graph.num_operations() >= 7);
+    CHECK(graph.num_operations() >= 7);
 }
 
-TEST(concat_legacy_ops_compile) {
+TEST_CASE("concat_legacy_ops_compile") {
     tf_wrap::Graph graph;
     
     auto t1 = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
@@ -1174,10 +1154,10 @@ TEST(concat_legacy_ops_compile) {
     // Legacy Concat (axis first)
     (void)Concat(graph, "concat_legacy", axis_out, values, TF_FLOAT, 2);
     
-    REQUIRE(graph.num_operations() >= 4);
+    CHECK(graph.num_operations() >= 4);
 }
 
-TEST(fused_batchnorm_ops_compile) {
+TEST_CASE("fused_batchnorm_ops_compile") {
     tf_wrap::Graph graph;
     
     // Input: [batch=1, height=2, width=2, channels=2]
@@ -1218,10 +1198,10 @@ TEST(fused_batchnorm_ops_compile) {
     (void)FusedBatchNorm(graph, "fusedbatchnorm", x_out, scale_out, offset_out, mean_out, var_out, TF_FLOAT);
     (void)FusedBatchNormV3(graph, "fusedbatchnormv3", x_out, scale_out, offset_out, mean_out, var_out, TF_FLOAT, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 7);
+    CHECK(graph.num_operations() >= 7);
 }
 
-TEST(crossentropy_ops_compile) {
+TEST_CASE("crossentropy_ops_compile") {
     tf_wrap::Graph graph;
     
     // Features: [batch=2, classes=3], Labels: [batch=2, classes=3] (one-hot)
@@ -1250,10 +1230,10 @@ TEST(crossentropy_ops_compile) {
     (void)SoftmaxCrossEntropyWithLogits(graph, "softmaxce", features_out, labels_out, TF_FLOAT);
     (void)SparseSoftmaxCrossEntropyWithLogits(graph, "sparsesoftmaxce", features_out, sparse_labels_out, TF_FLOAT, TF_INT32);
     
-    REQUIRE(graph.num_operations() >= 5);
+    CHECK(graph.num_operations() >= 5);
 }
 
-TEST(pool3d_ops_compile) {
+TEST_CASE("pool3d_ops_compile") {
     tf_wrap::Graph graph;
     
     // Input: [batch=1, depth=4, height=4, width=4, channels=1] - 64 elements
@@ -1275,10 +1255,10 @@ TEST(pool3d_ops_compile) {
     (void)MaxPool3D(graph, "maxpool3d", input_out, TF_FLOAT, ksize, strides, "VALID");
     (void)AvgPool3D(graph, "avgpool3d", input_out, TF_FLOAT, ksize, strides, "VALID");
     
-    REQUIRE(graph.num_operations() >= 3);
+    CHECK(graph.num_operations() >= 3);
 }
 
-TEST(depthwise_conv_ops_compile) {
+TEST_CASE("depthwise_conv_ops_compile") {
     tf_wrap::Graph graph;
     
     // Input: [batch=1, height=4, width=4, in_channels=1]
@@ -1304,10 +1284,10 @@ TEST(depthwise_conv_ops_compile) {
     std::vector<int64_t> strides = {1, 1, 1, 1};
     (void)DepthwiseConv2dNative(graph, "depthwiseconv", input_out, filter_out, TF_FLOAT, strides, "VALID");
     
-    REQUIRE(graph.num_operations() >= 3);
+    CHECK(graph.num_operations() >= 3);
 }
 
-TEST(conv2d_backprop_ops_compile) {
+TEST_CASE("conv2d_backprop_ops_compile") {
     tf_wrap::Graph graph;
     
     // Input sizes: [batch=1, height=4, width=4, channels=1]
@@ -1339,10 +1319,10 @@ TEST(conv2d_backprop_ops_compile) {
     std::vector<int64_t> strides = {1, 1, 1, 1};
     (void)Conv2DBackpropInput(graph, "conv2dbackprop", sizes_out, filter_out, backprop_out, TF_FLOAT, strides, "VALID");
     
-    REQUIRE(graph.num_operations() >= 4);
+    CHECK(graph.num_operations() >= 4);
 }
 
-TEST(dropout_ops_compile) {
+TEST_CASE("dropout_ops_compile") {
     // Note: "Dropout" op doesn't exist in TensorFlow C API.
     // Dropout is typically implemented as a combination of RandomUniform, Floor, Mul, etc.
     // This test verifies Select which can be used in dropout-like implementations.
@@ -1381,10 +1361,10 @@ TEST(dropout_ops_compile) {
     // Select can be used to implement dropout masking
     (void)SelectV2(graph, "dropout_select", cond_out, x_out, zeros_out, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 5);
+    CHECK(graph.num_operations() >= 5);
 }
 
-TEST(multinomial_randomshuffle_ops_compile) {
+TEST_CASE("multinomial_randomshuffle_ops_compile") {
     tf_wrap::Graph graph;
     
     // Logits: [batch=1, classes=4]
@@ -1413,10 +1393,10 @@ TEST(multinomial_randomshuffle_ops_compile) {
     (void)Multinomial(graph, "multinomial", logits_out, num_out, TF_FLOAT, TF_INT64);
     (void)RandomShuffle(graph, "randomshuffle", value_out, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 5);
+    CHECK(graph.num_operations() >= 5);
 }
 
-TEST(variable_ops_compile) {
+TEST_CASE("variable_ops_compile") {
     tf_wrap::Graph graph;
     
     using namespace tf_wrap::ops;
@@ -1427,10 +1407,10 @@ TEST(variable_ops_compile) {
     (void)VariableV2(graph, "variablev2", shape, TF_FLOAT);
     (void)VarHandleOp(graph, "varhandle", TF_FLOAT, shape);
     
-    REQUIRE(graph.num_operations() >= 3);
+    CHECK(graph.num_operations() >= 3);
 }
 
-TEST(variable_read_assign_ops_compile) {
+TEST_CASE("variable_read_assign_ops_compile") {
     tf_wrap::Graph graph;
     
     using namespace tf_wrap::ops;
@@ -1451,10 +1431,10 @@ TEST(variable_read_assign_ops_compile) {
     (void)AssignAddVariableOp(graph, "assignaddvariable", var_handle, value_out, TF_FLOAT);
     (void)AssignSubVariableOp(graph, "assignsubvariable", var_handle, value_out, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 6);
+    CHECK(graph.num_operations() >= 6);
 }
 
-TEST(image_resize_ops_compile) {
+TEST_CASE("image_resize_ops_compile") {
     tf_wrap::Graph graph;
     
     // Image: [batch=1, height=4, width=4, channels=1]
@@ -1480,10 +1460,10 @@ TEST(image_resize_ops_compile) {
     (void)ResizeBicubic(graph, "resizebicubic", image_out, size_out, TF_FLOAT);
     (void)ResizeNearestNeighbor(graph, "resizenearestneighbor", image_out, size_out, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 5);
+    CHECK(graph.num_operations() >= 5);
 }
 
-TEST(crop_and_resize_ops_compile) {
+TEST_CASE("crop_and_resize_ops_compile") {
     tf_wrap::Graph graph;
     
     // Image: [batch=1, height=4, width=4, channels=1]
@@ -1522,10 +1502,10 @@ TEST(crop_and_resize_ops_compile) {
     
     (void)CropAndResize(graph, "cropandresize", image_out, boxes_out, box_ind_out, crop_size_out, TF_FLOAT);
     
-    REQUIRE(graph.num_operations() >= 5);
+    CHECK(graph.num_operations() >= 5);
 }
 
-TEST(nms_ops_compile) {
+TEST_CASE("nms_ops_compile") {
     tf_wrap::Graph graph;
     
     // Boxes: [num_boxes=3, 4]
@@ -1572,7 +1552,7 @@ TEST(nms_ops_compile) {
     (void)NonMaxSuppression(graph, "nms", boxes_out, scores_out, max_out);
     (void)NonMaxSuppressionV3(graph, "nmsv3", boxes_out, scores_out, max_out, iou_out, score_out);
     
-    REQUIRE(graph.num_operations() >= 7);
+    CHECK(graph.num_operations() >= 7);
 }
 
 // ============================================================================
@@ -1581,7 +1561,7 @@ TEST(nms_ops_compile) {
 // verify that the graph builds correctly with proper inputs
 // ============================================================================
 
-TEST(file_io_ops_compile) {
+TEST_CASE("file_io_ops_compile") {
     tf_wrap::Graph graph;
     
     // Create string tensors for filenames
@@ -1610,10 +1590,10 @@ TEST(file_io_ops_compile) {
     (void)WriteFile(graph, "writefile", filename_out, contents_out);
     (void)MatchingFiles(graph, "matchingfiles", pattern_out);
     
-    REQUIRE(graph.num_operations() >= 6);
+    CHECK(graph.num_operations() >= 6);
 }
 
-TEST(image_decode_encode_ops_compile) {
+TEST_CASE("image_decode_encode_ops_compile") {
     tf_wrap::Graph graph;
     
     // Contents placeholder for encoded image data
@@ -1642,10 +1622,10 @@ TEST(image_decode_encode_ops_compile) {
     (void)EncodeJpeg(graph, "encodejpeg", image_out);
     (void)EncodePng(graph, "encodepng", image_out, TF_UINT8);
     
-    REQUIRE(graph.num_operations() >= 6);
+    CHECK(graph.num_operations() >= 6);
 }
 
-TEST(string_ops_compile) {
+TEST_CASE("string_ops_compile") {
     tf_wrap::Graph graph;
     
     // String placeholders
@@ -1683,10 +1663,10 @@ TEST(string_ops_compile) {
     (void)StringSplit(graph, "stringsplit", str1_out, delimiter_out);
     (void)RegexReplace(graph, "regexreplace", str1_out, pattern_out, rewrite_out);
     
-    REQUIRE(graph.num_operations() >= 8);
+    CHECK(graph.num_operations() >= 8);
 }
 
-TEST(print_assert_ops_compile) {
+TEST_CASE("print_assert_ops_compile") {
     tf_wrap::Graph graph;
     
     // Create tensor for Print input
@@ -1715,10 +1695,10 @@ TEST(print_assert_ops_compile) {
     (void)Print(graph, "print", input_out, data, TF_FLOAT);
     (void)Assert(graph, "assert", condition_out, data);
     
-    REQUIRE(graph.num_operations() >= 4);
+    CHECK(graph.num_operations() >= 4);
 }
 
-TEST(pack_ops_compile) {
+TEST_CASE("pack_ops_compile") {
     tf_wrap::Graph graph;
     
     auto t1 = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
@@ -1740,73 +1720,9 @@ TEST(pack_ops_compile) {
     // Pack: last parameter is N (number of tensors), not axis
     (void)Pack(graph, "pack", values, TF_FLOAT, 2);
     
-    REQUIRE(graph.num_operations() >= 3);
+    CHECK(graph.num_operations() >= 3);
 }
 
 // ============================================================================
 // Main
 // ============================================================================
-
-int main() {
-    std::cout << "Running ops wrapper tests...\n\n";
-    
-    RUN_TEST(math_ops_compile);
-    RUN_TEST(nn_ops_compile);
-    RUN_TEST(matrix_ops_compile);
-    RUN_TEST(comparison_ops_compile);
-    RUN_TEST(array_ops_compile);
-    RUN_TEST(reduction_ops_compile);
-    RUN_TEST(opresult_properties);
-    RUN_TEST(cast_op_compile);
-    RUN_TEST(control_flow_ops_compile);
-    RUN_TEST(trig_ops_compile);
-    RUN_TEST(more_math_ops_compile);
-    RUN_TEST(more_binary_ops_compile);
-    RUN_TEST(array_manipulation_ops_compile);
-    RUN_TEST(transpose_tile_ops_compile);
-    RUN_TEST(slice_gather_ops_compile);
-    RUN_TEST(concat_split_ops_compile);
-    RUN_TEST(pack_unpack_ops_compile);
-    RUN_TEST(fill_range_ops_compile);
-    RUN_TEST(pad_ops_compile);
-    RUN_TEST(broadcast_select_ops_compile);
-    RUN_TEST(reverse_where_ops_compile);
-    RUN_TEST(logical_reduce_ops_compile);
-    RUN_TEST(leaky_relu_biasadd_ops_compile);
-    RUN_TEST(conv2d_pool_ops_compile);
-    RUN_TEST(lrn_ops_compile);
-    RUN_TEST(random_ops_compile);
-    RUN_TEST(linspace_zeros_ops_compile);
-    RUN_TEST(placeholder_const_ops_compile);
-    RUN_TEST(identityn_shapen_ops_compile);
-    RUN_TEST(bitcast_checknumerics_ops_compile);
-    RUN_TEST(linalg_ops_compile);
-    RUN_TEST(batchmatmulv2_ops_compile);
-    RUN_TEST(einsum_ops_compile);
-    RUN_TEST(strided_slice_ops_compile);
-    RUN_TEST(splitv_ops_compile);
-    RUN_TEST(gathernd_scatternd_ops_compile);
-    RUN_TEST(concat_legacy_ops_compile);
-    RUN_TEST(fused_batchnorm_ops_compile);
-    RUN_TEST(crossentropy_ops_compile);
-    RUN_TEST(pool3d_ops_compile);
-    RUN_TEST(depthwise_conv_ops_compile);
-    RUN_TEST(conv2d_backprop_ops_compile);
-    RUN_TEST(dropout_ops_compile);
-    RUN_TEST(multinomial_randomshuffle_ops_compile);
-    RUN_TEST(variable_ops_compile);
-    RUN_TEST(variable_read_assign_ops_compile);
-    RUN_TEST(image_resize_ops_compile);
-    RUN_TEST(crop_and_resize_ops_compile);
-    RUN_TEST(nms_ops_compile);
-    RUN_TEST(file_io_ops_compile);
-    RUN_TEST(image_decode_encode_ops_compile);
-    RUN_TEST(string_ops_compile);
-    RUN_TEST(print_assert_ops_compile);
-    RUN_TEST(pack_ops_compile);
-    
-    std::cout << "\n========================================\n";
-    std::cout << "Passed: " << tests_passed << ", Failed: " << tests_failed << "\n";
-    
-    return tests_failed > 0 ? 1 : 0;
-}
