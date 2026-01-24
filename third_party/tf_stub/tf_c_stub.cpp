@@ -168,6 +168,26 @@ static std::unique_ptr<TF_Tensor> clone_tensor(const TF_Tensor* t)
     out->owns_storage = true;
 
     const void* src = t->owns_storage ? static_cast<const void*>(t->storage.data()) : t->external_data;
+
+    if (out->dtype == TF_STRING)
+    {
+        const int64_t n = element_count(out->dims);
+        const size_t required = static_cast<size_t>(n > 0 ? n : 0) * sizeof(TF_TString);
+        if (n > 0 && src && bytes >= required)
+        {
+            auto* dst_str = reinterpret_cast<TF_TString*>(out->storage.data());
+            const auto* src_str = static_cast<const TF_TString*>(src);
+            for (int64_t i = 0; i < n; ++i)
+            {
+                TF_TString_Init(&dst_str[i]);
+                const char* p = TF_TString_GetDataPointer(&src_str[i]);
+                const size_t sz = TF_TString_GetSize(&src_str[i]);
+                TF_TString_Copy(&dst_str[i], p ? p : "", sz);
+            }
+        }
+        return out;
+    }
+
     if (bytes != 0 && src)
     {
         std::memcpy(out->storage.data(), src, bytes);
@@ -270,6 +290,21 @@ TF_Tensor* TF_AllocateTensor(TF_DataType dt, const int64_t* dims, int num_dims, 
     t->dims.assign(dims ? dims : nullptr, dims ? dims + num_dims : nullptr);
     t->storage.resize(len);
     t->owns_storage = true;
+
+    if (dt == TF_STRING)
+    {
+        const int64_t n = element_count(t->dims);
+        const size_t required = static_cast<size_t>(n > 0 ? n : 0) * sizeof(TF_TString);
+        if (n > 0 && len >= required)
+        {
+            auto* strs = reinterpret_cast<TF_TString*>(t->storage.data());
+            for (int64_t i = 0; i < n; ++i)
+            {
+                TF_TString_Init(&strs[i]);
+            }
+        }
+    }
+
     return t;
 }
 
@@ -299,6 +334,26 @@ void TF_DeleteTensor(TF_Tensor* t)
     if (!t)
     {
         return;
+    }
+
+    if (t->owns_storage && t->dtype == TF_STRING)
+    {
+        const int64_t n = element_count(t->dims);
+        const size_t required = static_cast<size_t>(n > 0 ? n : 0) * sizeof(TF_TString);
+        if (n > 0 && t->storage.size() >= required)
+        {
+            auto* strs = reinterpret_cast<TF_TString*>(t->storage.data());
+            for (int64_t i = 0; i < n; ++i)
+            {
+                if (strs[i].data)
+                {
+                    delete[] strs[i].data;
+                }
+                strs[i].data = nullptr;
+                strs[i].size = 0;
+                strs[i].capacity = 0;
+            }
+        }
     }
 
     if (!t->owns_storage && t->deallocator && t->external_data)
