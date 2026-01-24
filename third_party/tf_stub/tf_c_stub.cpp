@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <complex>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -892,6 +893,20 @@ void TF_SessionRun(
                 double* d_out = reinterpret_cast<double*>(out->storage.data());
                 for (size_t i = 0; i < n; ++i) d_out[i] = di[i] * di[i];
             }
+            else if (input->dtype == TF_COMPLEX64)
+            {
+                const size_t n = bytes / sizeof(std::complex<float>);
+                const auto* ci = static_cast<const std::complex<float>*>(pi);
+                auto* co = reinterpret_cast<std::complex<float>*>(out->storage.data());
+                for (size_t i = 0; i < n; ++i) co[i] = ci[i] * ci[i];
+            }
+            else if (input->dtype == TF_COMPLEX128)
+            {
+                const size_t n = bytes / sizeof(std::complex<double>);
+                const auto* ci = static_cast<const std::complex<double>*>(pi);
+                auto* co = reinterpret_cast<std::complex<double>*>(out->storage.data());
+                for (size_t i = 0; i < n; ++i) co[i] = ci[i] * ci[i];
+            }
             else
             {
                 return nullptr;
@@ -964,6 +979,36 @@ void TF_SessionRun(
                 else
                 {
                     for (size_t i = 0; i < n; ++i) io[i] = ia[i] * ib[i];
+                }
+            }
+            else if (a->dtype == TF_COMPLEX64)
+            {
+                const size_t n = bytes / sizeof(std::complex<float>);
+                const auto* ca = static_cast<const std::complex<float>*>(pa);
+                const auto* cb = static_cast<const std::complex<float>*>(pb);
+                auto* co = reinterpret_cast<std::complex<float>*>(out->storage.data());
+                if (op->op_type == "Add")
+                {
+                    for (size_t i = 0; i < n; ++i) co[i] = ca[i] + cb[i];
+                }
+                else
+                {
+                    for (size_t i = 0; i < n; ++i) co[i] = ca[i] * cb[i];
+                }
+            }
+            else if (a->dtype == TF_COMPLEX128)
+            {
+                const size_t n = bytes / sizeof(std::complex<double>);
+                const auto* ca = static_cast<const std::complex<double>*>(pa);
+                const auto* cb = static_cast<const std::complex<double>*>(pb);
+                auto* co = reinterpret_cast<std::complex<double>*>(out->storage.data());
+                if (op->op_type == "Add")
+                {
+                    for (size_t i = 0; i < n; ++i) co[i] = ca[i] + cb[i];
+                }
+                else
+                {
+                    for (size_t i = 0; i < n; ++i) co[i] = ca[i] * cb[i];
                 }
             }
             else

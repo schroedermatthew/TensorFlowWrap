@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <complex>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -6557,6 +6558,384 @@ TEST(partial_run_fetch_not_in_setup_throws) {
         threw = true;
     }
     REQUIRE(threw);
+}
+
+// =============================================================================
+// PartialRun Multi-Step Tests
+// =============================================================================
+
+TEST(partial_run_multi_step_execution) {
+    // Graph: X + Y = Sum, where X and Y are fed in separate steps
+    tf_wrap::FastGraph g;
+    (void)g.NewOperation("Placeholder", "X")
+        .SetAttrType("dtype", TF_FLOAT)
+        .SetAttrShape("shape", {})
+        .Finish();
+    (void)g.NewOperation("Placeholder", "Y")
+        .SetAttrType("dtype", TF_FLOAT)
+        .SetAttrShape("shape", {})
+        .Finish();
+    
+    auto* x = g.GetOperationOrThrow("X");
+    auto* y = g.GetOperationOrThrow("Y");
+    
+    (void)g.NewOperation("AddV2", "Sum")
+        .AddInput(tf_wrap::Output(x, 0))
+        .AddInput(tf_wrap::Output(y, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    // Setup for multi-step: both X and Y as inputs, Sum as output
+    std::vector<tf_wrap::Fetch> inputs = {{"X", 0}, {"Y", 0}};
+    std::vector<tf_wrap::Fetch> outputs = {{"Sum", 0}};
+    auto handle = s.PartialRunSetup(inputs, outputs);
+    
+    // Step 1: Feed X only (no fetch yet)
+    auto x_tensor = tf_wrap::FastTensor::FromScalar<float>(10.0f);
+    std::vector<tf_wrap::Feed> step1_feeds = {{"X", x_tensor.handle()}};
+    std::vector<tf_wrap::Fetch> step1_fetches = {};
+    auto step1_results = s.PartialRun(handle, step1_feeds, step1_fetches);
+    REQUIRE(step1_results.empty());
+    
+    // Step 2: Feed Y and fetch Sum
+    auto y_tensor = tf_wrap::FastTensor::FromScalar<float>(5.0f);
+    std::vector<tf_wrap::Feed> step2_feeds = {{"Y", y_tensor.handle()}};
+    std::vector<tf_wrap::Fetch> step2_fetches = {{"Sum", 0}};
+    auto step2_results = s.PartialRun(handle, step2_feeds, step2_fetches);
+    
+    REQUIRE(step2_results.size() == 1);
+    float result = step2_results[0].ToScalar<float>();
+    REQUIRE(std::abs(result - 15.0f) < 0.001f);  // 10 + 5 = 15
+}
+
+TEST(partial_run_branching_graph) {
+    // Graph with branches: X -> Square, X -> Neg
+    // Fetch Square first, then Neg in separate steps
+    tf_wrap::FastGraph g;
+    (void)g.NewOperation("Placeholder", "X")
+        .SetAttrType("dtype", TF_FLOAT)
+        .SetAttrShape("shape", {})
+        .Finish();
+    
+    auto* x = g.GetOperationOrThrow("X");
+    
+    (void)g.NewOperation("Square", "Squared")
+        .AddInput(tf_wrap::Output(x, 0))
+        .Finish();
+    (void)g.NewOperation("Neg", "Negated")
+        .AddInput(tf_wrap::Output(x, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    std::vector<tf_wrap::Fetch> inputs = {{"X", 0}};
+    std::vector<tf_wrap::Fetch> outputs = {{"Squared", 0}, {"Negated", 0}};
+    auto handle = s.PartialRunSetup(inputs, outputs);
+    
+    // Feed X and fetch Squared only
+    auto x_tensor = tf_wrap::FastTensor::FromScalar<float>(3.0f);
+    std::vector<tf_wrap::Feed> feeds = {{"X", x_tensor.handle()}};
+    std::vector<tf_wrap::Fetch> fetch_sq = {{"Squared", 0}};
+    auto sq_results = s.PartialRun(handle, feeds, fetch_sq);
+    
+    REQUIRE(sq_results.size() == 1);
+    float squared = sq_results[0].ToScalar<float>();
+    REQUIRE(std::abs(squared - 9.0f) < 0.001f);  // 3^2 = 9
+    
+    // Now fetch Negated (X already fed)
+    std::vector<tf_wrap::Feed> no_feeds = {};
+    std::vector<tf_wrap::Fetch> fetch_neg = {{"Negated", 0}};
+    auto neg_results = s.PartialRun(handle, no_feeds, fetch_neg);
+    
+    REQUIRE(neg_results.size() == 1);
+    float negated = neg_results[0].ToScalar<float>();
+    REQUIRE(std::abs(negated - (-3.0f)) < 0.001f);  // -3
+}
+
+TEST(partial_run_diamond_graph) {
+    // Diamond: X -> A, X -> B, A + B -> Result
+    tf_wrap::FastGraph g;
+    (void)g.NewOperation("Placeholder", "X")
+        .SetAttrType("dtype", TF_FLOAT)
+        .SetAttrShape("shape", {})
+        .Finish();
+    
+    auto* x = g.GetOperationOrThrow("X");
+    
+    (void)g.NewOperation("Square", "A")
+        .AddInput(tf_wrap::Output(x, 0))
+        .Finish();
+    (void)g.NewOperation("Neg", "B")
+        .AddInput(tf_wrap::Output(x, 0))
+        .Finish();
+    
+    auto* a = g.GetOperationOrThrow("A");
+    auto* b = g.GetOperationOrThrow("B");
+    
+    (void)g.NewOperation("AddV2", "Result")
+        .AddInput(tf_wrap::Output(a, 0))
+        .AddInput(tf_wrap::Output(b, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    std::vector<tf_wrap::Fetch> inputs = {{"X", 0}};
+    std::vector<tf_wrap::Fetch> outputs = {{"A", 0}, {"B", 0}, {"Result", 0}};
+    auto handle = s.PartialRunSetup(inputs, outputs);
+    
+    // Feed X, fetch intermediate A
+    auto x_tensor = tf_wrap::FastTensor::FromScalar<float>(4.0f);
+    std::vector<tf_wrap::Feed> feeds = {{"X", x_tensor.handle()}};
+    std::vector<tf_wrap::Fetch> fetch_a = {{"A", 0}};
+    auto a_results = s.PartialRun(handle, feeds, fetch_a);
+    REQUIRE(std::abs(a_results[0].ToScalar<float>() - 16.0f) < 0.001f);  // 4^2
+    
+    // Fetch final result (no more feeds needed)
+    std::vector<tf_wrap::Feed> no_feeds = {};
+    std::vector<tf_wrap::Fetch> fetch_result = {{"Result", 0}};
+    auto final_results = s.PartialRun(handle, no_feeds, fetch_result);
+    
+    // Result = A + B = 16 + (-4) = 12
+    REQUIRE(std::abs(final_results[0].ToScalar<float>() - 12.0f) < 0.001f);
+}
+
+// =============================================================================
+// ImportGraphDef Conflict Tests
+// =============================================================================
+
+TEST(import_graph_def_duplicate_name_throws) {
+    // Create graph with operation "X"
+    tf_wrap::FastGraph g1;
+    auto t1 = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g1.NewOperation("Const", "X")
+        .SetAttrTensor("value", t1.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto graphdef1 = g1.ToGraphDef();
+    
+    // Create another graph, also with "X"
+    tf_wrap::FastGraph g2;
+    auto t2 = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    (void)g2.NewOperation("Const", "X")
+        .SetAttrTensor("value", t2.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    // Try to import g1 into g2 without prefix - should fail (duplicate "X")
+    bool threw = false;
+    try {
+        g2.ImportGraphDef(graphdef1.data(), graphdef1.size(), "");
+    } catch (...) {
+        threw = true;
+    }
+    REQUIRE(threw);
+}
+
+TEST(import_graph_def_duplicate_avoided_with_prefix) {
+    // Same setup as above
+    tf_wrap::FastGraph g1;
+    auto t1 = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    (void)g1.NewOperation("Const", "X")
+        .SetAttrTensor("value", t1.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto graphdef1 = g1.ToGraphDef();
+    
+    tf_wrap::FastGraph g2;
+    auto t2 = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    (void)g2.NewOperation("Const", "X")
+        .SetAttrTensor("value", t2.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    // Import with prefix - should succeed
+    g2.ImportGraphDef(graphdef1.data(), graphdef1.size(), "imported/");
+    
+    // Should have both X and imported/X
+    REQUIRE(g2.GetOperation("X") != nullptr);
+    REQUIRE(g2.GetOperation("imported/X") != nullptr);
+    REQUIRE(g2.num_operations() == 2);
+    
+    // Verify they have different values
+    tf_wrap::FastSession s(g2);
+    auto r1 = s.Run({}, {{"X", 0}}, {});
+    auto r2 = s.Run({}, {{"imported/X", 0}}, {});
+    
+    REQUIRE(std::abs(r1[0].ToScalar<float>() - 2.0f) < 0.001f);  // Original
+    REQUIRE(std::abs(r2[0].ToScalar<float>() - 1.0f) < 0.001f);  // Imported
+}
+
+TEST(import_graph_def_multiple_imports_unique_prefixes) {
+    // Create source graph
+    tf_wrap::FastGraph source;
+    auto t = tf_wrap::FastTensor::FromScalar<float>(42.0f);
+    (void)source.NewOperation("Const", "Value")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    auto graphdef = source.ToGraphDef();
+    
+    // Import same graph multiple times with different prefixes
+    tf_wrap::FastGraph g;
+    g.ImportGraphDef(graphdef.data(), graphdef.size(), "copy1/");
+    g.ImportGraphDef(graphdef.data(), graphdef.size(), "copy2/");
+    g.ImportGraphDef(graphdef.data(), graphdef.size(), "copy3/");
+    
+    REQUIRE(g.num_operations() == 3);
+    REQUIRE(g.GetOperation("copy1/Value") != nullptr);
+    REQUIRE(g.GetOperation("copy2/Value") != nullptr);
+    REQUIRE(g.GetOperation("copy3/Value") != nullptr);
+}
+
+TEST(import_graph_def_nested_prefix) {
+    tf_wrap::FastGraph source;
+    auto t = tf_wrap::FastTensor::FromScalar<int32_t>(123);
+    (void)source.NewOperation("Const", "Data")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_INT32)
+        .Finish();
+    
+    auto graphdef = source.ToGraphDef();
+    
+    tf_wrap::FastGraph g;
+    g.ImportGraphDef(graphdef.data(), graphdef.size(), "level1/level2/level3/");
+    
+    auto* op = g.GetOperation("level1/level2/level3/Data");
+    REQUIRE(op != nullptr);
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"level1/level2/level3/Data", 0}}, {});
+    REQUIRE(results[0].ToScalar<int32_t>() == 123);
+}
+
+// =============================================================================
+// Complex Type (TF_COMPLEX64/128) Tests
+// =============================================================================
+
+TEST(complex64_tensor_from_scalar) {
+    std::complex<float> val(3.0f, 4.0f);
+    auto tensor = tf_wrap::FastTensor::FromScalar<std::complex<float>>(val);
+    
+    REQUIRE(tensor.valid());
+    REQUIRE(tensor.dtype() == TF_COMPLEX64);
+    REQUIRE(tensor.num_elements() == 1);
+    
+    auto result = tensor.ToScalar<std::complex<float>>();
+    REQUIRE(std::abs(result.real() - 3.0f) < 0.001f);
+    REQUIRE(std::abs(result.imag() - 4.0f) < 0.001f);
+}
+
+TEST(complex128_tensor_from_scalar) {
+    std::complex<double> val(1.5, 2.5);
+    auto tensor = tf_wrap::FastTensor::FromScalar<std::complex<double>>(val);
+    
+    REQUIRE(tensor.valid());
+    REQUIRE(tensor.dtype() == TF_COMPLEX128);
+    REQUIRE(tensor.num_elements() == 1);
+    
+    auto result = tensor.ToScalar<std::complex<double>>();
+    REQUIRE(std::abs(result.real() - 1.5) < 0.001);
+    REQUIRE(std::abs(result.imag() - 2.5) < 0.001);
+}
+
+TEST(complex64_tensor_from_vector) {
+    std::vector<std::complex<float>> data = {
+        {1.0f, 2.0f}, {3.0f, 4.0f}, {5.0f, 6.0f}
+    };
+    auto tensor = tf_wrap::FastTensor::FromVector<std::complex<float>>({3}, data);
+    
+    REQUIRE(tensor.valid());
+    REQUIRE(tensor.dtype() == TF_COMPLEX64);
+    REQUIRE(tensor.num_elements() == 3);
+    
+    auto v = tensor.ToVector<std::complex<float>>();
+    REQUIRE(v.size() == 3);
+    REQUIRE(std::abs(v[0].real() - 1.0f) < 0.001f);
+    REQUIRE(std::abs(v[0].imag() - 2.0f) < 0.001f);
+    REQUIRE(std::abs(v[2].real() - 5.0f) < 0.001f);
+    REQUIRE(std::abs(v[2].imag() - 6.0f) < 0.001f);
+}
+
+TEST(complex64_tensor_2d_shape) {
+    std::vector<std::complex<float>> data(6);
+    for (int i = 0; i < 6; ++i) {
+        data[i] = std::complex<float>(static_cast<float>(i), static_cast<float>(i + 10));
+    }
+    
+    auto tensor = tf_wrap::FastTensor::FromVector<std::complex<float>>({2, 3}, data);
+    
+    REQUIRE(tensor.shape().size() == 2);
+    REQUIRE(tensor.shape()[0] == 2);
+    REQUIRE(tensor.shape()[1] == 3);
+    REQUIRE(tensor.num_elements() == 6);
+}
+
+TEST(complex64_const_in_graph) {
+    tf_wrap::FastGraph g;
+    
+    std::vector<std::complex<float>> data = {{1.0f, 0.0f}, {0.0f, 1.0f}};
+    auto tensor = tf_wrap::FastTensor::FromVector<std::complex<float>>({2}, data);
+    
+    (void)g.NewOperation("Const", "ComplexConst")
+        .SetAttrTensor("value", tensor.handle())
+        .SetAttrType("dtype", TF_COMPLEX64)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"ComplexConst", 0}}, {});
+    
+    REQUIRE(results.size() == 1);
+    auto v = results[0].ToVector<std::complex<float>>();
+    REQUIRE(v.size() == 2);
+    REQUIRE(std::abs(v[0].real() - 1.0f) < 0.001f);
+    REQUIRE(std::abs(v[0].imag() - 0.0f) < 0.001f);
+    REQUIRE(std::abs(v[1].real() - 0.0f) < 0.001f);
+    REQUIRE(std::abs(v[1].imag() - 1.0f) < 0.001f);
+}
+
+TEST(complex128_const_in_graph) {
+    tf_wrap::FastGraph g;
+    
+    constexpr double pi_val = 3.14159265358979323846;
+    constexpr double e_val = 2.71828182845904523536;
+    std::complex<double> val(pi_val, e_val);
+    auto tensor = tf_wrap::FastTensor::FromScalar<std::complex<double>>(val);
+    
+    (void)g.NewOperation("Const", "ComplexConst")
+        .SetAttrTensor("value", tensor.handle())
+        .SetAttrType("dtype", TF_COMPLEX128)
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    auto results = s.Run({}, {{"ComplexConst", 0}}, {});
+    
+    auto result = results[0].ToScalar<std::complex<double>>();
+    REQUIRE(std::abs(result.real() - pi_val) < 0.0001);
+    REQUIRE(std::abs(result.imag() - e_val) < 0.0001);
+}
+
+TEST(complex64_read_write_views) {
+    std::vector<std::complex<float>> data = {{1.0f, 2.0f}, {3.0f, 4.0f}};
+    auto tensor = tf_wrap::SafeTensor::FromVector<std::complex<float>>({2}, data);
+    
+    // Write view
+    {
+        auto view = tensor.write<std::complex<float>>();
+        view[0] = std::complex<float>(10.0f, 20.0f);
+    }
+    
+    // Read view
+    {
+        auto view = tensor.read<std::complex<float>>();
+        REQUIRE(std::abs(view[0].real() - 10.0f) < 0.001f);
+        REQUIRE(std::abs(view[0].imag() - 20.0f) < 0.001f);
+        REQUIRE(std::abs(view[1].real() - 3.0f) < 0.001f);
+        REQUIRE(std::abs(view[1].imag() - 4.0f) < 0.001f);
+    }
 }
 
 // =============================================================================

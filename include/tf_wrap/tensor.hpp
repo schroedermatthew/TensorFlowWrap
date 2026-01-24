@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <complex>
 #include <concepts>
 #include <initializer_list>
 #include <iterator>
@@ -97,7 +98,9 @@ concept TensorScalar =
     std::same_as<T, std::uint16_t> ||
     std::same_as<T, std::uint32_t> ||
     std::same_as<T, std::uint64_t> ||
-    std::same_as<T, bool>;
+    std::same_as<T, bool>          ||
+    std::same_as<T, std::complex<float>>  ||
+    std::same_as<T, std::complex<double>>;
 
 // ============================================================================
 // Type mapping: C++ type -> TF_DataType
@@ -117,6 +120,8 @@ template<TensorScalar T>
     else if constexpr (std::same_as<T, std::uint32_t>) return TF_UINT32;
     else if constexpr (std::same_as<T, std::uint64_t>) return TF_UINT64;
     else if constexpr (std::same_as<T, bool>)          return TF_BOOL;
+    else if constexpr (std::same_as<T, std::complex<float>>)  return TF_COMPLEX64;
+    else if constexpr (std::same_as<T, std::complex<double>>) return TF_COMPLEX128;
     else static_assert(detail::always_false_v<T>, "Unsupported scalar type");
 }
 
