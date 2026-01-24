@@ -759,9 +759,9 @@ void TF_DeleteSession(TF_Session* s, TF_Status* status)
 void TF_SessionRun(
     TF_Session* session,
     const TF_Buffer*,
-    const TF_Output*,
-    TF_Tensor* const*,
-    int,
+    const TF_Output* input_ops,
+    TF_Tensor* const* input_values,
+    int ninputs,
     const TF_Output* output_ops,
     TF_Tensor** output_values,
     int noutputs,
@@ -780,6 +780,16 @@ void TF_SessionRun(
     {
         set_status(status, TF_FAILED_PRECONDITION, "TF_SessionRun: session closed");
         return;
+    }
+
+    // Build feed dictionary: operation -> tensor
+    std::unordered_map<TF_Operation*, TF_Tensor*> feeds;
+    for (int i = 0; i < ninputs; ++i)
+    {
+        if (input_ops[i].oper && input_values[i])
+        {
+            feeds[input_ops[i].oper] = input_values[i];
+        }
     }
 
     auto eval_op = [&](auto&& self, TF_Operation* op,
@@ -821,6 +831,75 @@ void TF_SessionRun(
             }
             cache.emplace(op, clone_tensor(input));
             return cache[op].get();
+        }
+
+        // Placeholder looks up value from feeds
+        if (op->op_type == "Placeholder")
+        {
+            auto it = feeds.find(op);
+            if (it == feeds.end() || !it->second)
+            {
+                return nullptr;
+            }
+            cache.emplace(op, clone_tensor(it->second));
+            return cache[op].get();
+        }
+
+        // Square computes x * x element-wise
+        if (op->op_type == "Square")
+        {
+            if (op->inputs.empty())
+            {
+                return nullptr;
+            }
+            TF_Tensor* input = self(self, op->inputs[0].oper, cache);
+            if (!input)
+            {
+                return nullptr;
+            }
+
+            const size_t bytes = input->owns_storage ? input->storage.size() : input->external_len;
+            auto out = std::make_unique<TF_Tensor>();
+            out->dtype = input->dtype;
+            out->dims = input->dims;
+            out->storage.resize(bytes);
+            out->owns_storage = true;
+
+            const void* pi = input->owns_storage ? static_cast<const void*>(input->storage.data()) : input->external_data;
+            if (!pi)
+            {
+                return nullptr;
+            }
+
+            if (input->dtype == TF_FLOAT)
+            {
+                const size_t n = bytes / sizeof(float);
+                const float* fi = static_cast<const float*>(pi);
+                float* fo = reinterpret_cast<float*>(out->storage.data());
+                for (size_t i = 0; i < n; ++i) fo[i] = fi[i] * fi[i];
+            }
+            else if (input->dtype == TF_INT32)
+            {
+                const size_t n = bytes / sizeof(int32_t);
+                const int32_t* ii = static_cast<const int32_t*>(pi);
+                int32_t* io = reinterpret_cast<int32_t*>(out->storage.data());
+                for (size_t i = 0; i < n; ++i) io[i] = ii[i] * ii[i];
+            }
+            else if (input->dtype == TF_DOUBLE)
+            {
+                const size_t n = bytes / sizeof(double);
+                const double* di = static_cast<const double*>(pi);
+                double* d_out = reinterpret_cast<double*>(out->storage.data());
+                for (size_t i = 0; i < n; ++i) d_out[i] = di[i] * di[i];
+            }
+            else
+            {
+                return nullptr;
+            }
+
+            TF_Tensor* raw = out.get();
+            cache.emplace(op, std::move(out));
+            return raw;
         }
 
         if (op->op_type == "Add" || op->op_type == "Mul")
@@ -885,6 +964,120 @@ void TF_SessionRun(
                 else
                 {
                     for (size_t i = 0; i < n; ++i) io[i] = ia[i] * ib[i];
+                }
+            }
+            else
+            {
+                return nullptr;
+            }
+
+            TF_Tensor* raw = out.get();
+            cache.emplace(op, std::move(out));
+            return raw;
+        }
+
+        // MatMul: matrix multiplication
+        if (op->op_type == "MatMul")
+        {
+            if (op->inputs.size() < 2)
+            {
+                return nullptr;
+            }
+
+            TF_Tensor* a = self(self, op->inputs[0].oper, cache);
+            TF_Tensor* b = self(self, op->inputs[1].oper, cache);
+            if (!a || !b)
+            {
+                return nullptr;
+            }
+
+            // Both must be 2D and same dtype
+            if (a->dims.size() != 2 || b->dims.size() != 2 || a->dtype != b->dtype)
+            {
+                return nullptr;
+            }
+
+            // a is (m x k), b is (k x n) -> result is (m x n)
+            const int64_t m = a->dims[0];
+            const int64_t k = a->dims[1];
+            const int64_t k2 = b->dims[0];
+            const int64_t n = b->dims[1];
+
+            if (k != k2)
+            {
+                return nullptr;  // Incompatible shapes
+            }
+
+            auto out = std::make_unique<TF_Tensor>();
+            out->dtype = a->dtype;
+            out->dims = {m, n};
+            out->owns_storage = true;
+
+            const void* pa = a->owns_storage ? static_cast<const void*>(a->storage.data()) : a->external_data;
+            const void* pb = b->owns_storage ? static_cast<const void*>(b->storage.data()) : b->external_data;
+            if (!pa || !pb)
+            {
+                return nullptr;
+            }
+
+            if (a->dtype == TF_FLOAT)
+            {
+                out->storage.resize(static_cast<size_t>(m * n) * sizeof(float));
+                const float* fa = static_cast<const float*>(pa);
+                const float* fb = static_cast<const float*>(pb);
+                float* fo = reinterpret_cast<float*>(out->storage.data());
+                
+                for (int64_t i = 0; i < m; ++i)
+                {
+                    for (int64_t j = 0; j < n; ++j)
+                    {
+                        float sum = 0.0f;
+                        for (int64_t kk = 0; kk < k; ++kk)
+                        {
+                            sum += fa[i * k + kk] * fb[kk * n + j];
+                        }
+                        fo[i * n + j] = sum;
+                    }
+                }
+            }
+            else if (a->dtype == TF_DOUBLE)
+            {
+                out->storage.resize(static_cast<size_t>(m * n) * sizeof(double));
+                const double* da = static_cast<const double*>(pa);
+                const double* db = static_cast<const double*>(pb);
+                double* d_out = reinterpret_cast<double*>(out->storage.data());
+                
+                for (int64_t i = 0; i < m; ++i)
+                {
+                    for (int64_t j = 0; j < n; ++j)
+                    {
+                        double sum = 0.0;
+                        for (int64_t kk = 0; kk < k; ++kk)
+                        {
+                            sum += da[i * k + kk] * db[kk * n + j];
+                        }
+                        d_out[i * n + j] = sum;
+                    }
+                }
+            }
+            else if (a->dtype == TF_INT32)
+            {
+                out->storage.resize(static_cast<size_t>(m * n) * sizeof(int32_t));
+                const int32_t* ia = static_cast<const int32_t*>(pa);
+                const int32_t* ib = static_cast<const int32_t*>(pb);
+                int32_t* io = reinterpret_cast<int32_t*>(out->storage.data());
+                
+                for (int64_t i = 0; i < m; ++i)
+                {
+                    for (int64_t j = 0; j < n; ++j)
+                    {
+                        int32_t sum = 0;
+                        for (int64_t kk = 0; kk < k; ++kk)
+                        {
+                            sum += ia[i * k + kk] * ib[kk * n + j];
+                        }
+                        io[i * n + j] = sum;
+                    }
                 }
             }
             else

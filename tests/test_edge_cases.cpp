@@ -1733,6 +1733,110 @@ STRESS_TEST("multiple sessions concurrent const only") {
     REQUIRE(success_count == 400);
 }
 
+STRESS_TEST("multiple sessions same graph with placeholder and square") {
+    tf_wrap::SafeGraph g;
+    
+    (void)g.NewOperation("Placeholder", "X")
+        .SetAttrType("dtype", TF_FLOAT)
+        .SetAttrShape("shape", {})
+        .Finish();
+    
+    auto* x = g.GetOperationOrThrow("X");
+    (void)g.NewOperation("Square", "Y")
+        .AddInput(tf_wrap::Output(x, 0))
+        .Finish();
+    
+    std::vector<std::unique_ptr<tf_wrap::SafeSession>> sessions;
+    for (int i = 0; i < 4; ++i) {
+        sessions.push_back(std::make_unique<tf_wrap::SafeSession>(g));
+    }
+    
+    std::atomic<int> success_count{0};
+    
+    auto worker = [&](int id) {
+        auto& session = *sessions[id];
+        for (int i = 0; i < 100; ++i) {
+            float val = static_cast<float>(id * 100 + i);
+            auto input = tf_wrap::FastTensor::FromScalar<float>(val);
+            auto results = session.Run(
+                {{"X", 0, input.handle()}},
+                {{"Y", 0}},
+                {}
+            );
+            if (std::abs(results[0].ToScalar<float>() - val * val) < 0.01f) {
+                ++success_count;
+            }
+        }
+    };
+    
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 4; ++i) {
+        threads.emplace_back(worker, i);
+    }
+    for (auto& th : threads) {
+        th.join();
+    }
+    
+    REQUIRE(success_count == 400);
+}
+
+TEST_CASE("session recovers after shape error with matmul") {
+    tf_wrap::FastGraph g;
+    
+    (void)g.NewOperation("Placeholder", "X")
+        .SetAttrType("dtype", TF_FLOAT)
+        .SetAttrShape("shape", {2, 2})
+        .Finish();
+    (void)g.NewOperation("Placeholder", "Y")
+        .SetAttrType("dtype", TF_FLOAT)
+        .SetAttrShape("shape", {2, 2})
+        .Finish();
+    
+    auto* x_op = g.GetOperationOrThrow("X");
+    auto* y_op = g.GetOperationOrThrow("Y");
+    
+    (void)g.NewOperation("MatMul", "Result")
+        .AddInput(tf_wrap::Output(x_op, 0))
+        .AddInput(tf_wrap::Output(y_op, 0))
+        .Finish();
+    
+    tf_wrap::FastSession s(g);
+    
+    // First cause an error with incompatible shapes (3x3 vs 2x2)
+    auto bad_x = tf_wrap::FastTensor::FromVector<float>({3, 3}, std::vector<float>(9, 1.0f));
+    auto bad_y = tf_wrap::FastTensor::FromVector<float>({2, 2}, std::vector<float>(4, 1.0f));
+    
+    bool threw = false;
+    try {
+        (void)s.Run(
+            {{"X", 0, bad_x.handle()}, {"Y", 0, bad_y.handle()}},
+            {{"Result", 0}},
+            {}
+        );
+    } catch (...) {
+        threw = true;
+    }
+    REQUIRE(threw);
+    
+    // Now run with correct shapes - should succeed
+    // Identity matrix multiplication: [[1,0],[0,1]] * [[1,2],[3,4]] = [[1,2],[3,4]]
+    auto good_x = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1, 0, 0, 1});
+    auto good_y = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1, 2, 3, 4});
+    
+    auto results = s.Run(
+        {{"X", 0, good_x.handle()}, {"Y", 0, good_y.handle()}},
+        {{"Result", 0}},
+        {}
+    );
+    
+    REQUIRE(results.size() == 1);
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v[0] == 1.0f);  // (1,1)
+    REQUIRE(v[1] == 2.0f);  // (1,2)
+    REQUIRE(v[2] == 3.0f);  // (2,1)
+    REQUIRE(v[3] == 4.0f);  // (2,2)
+}
+
 // ============================================================================
 // Tensor Shape and Type Tests (no Session::Run - stub safe)
 // ============================================================================
