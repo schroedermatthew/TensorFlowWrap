@@ -194,7 +194,7 @@ TEST_CASE("resolve_output throws for negative index") {
     Const(graph, "const", t.handle(), TF_FLOAT);
     
     Session session(graph);
-    CHECK_THROWS_AS(session.resolve_output("const", -1), std::out_of_range);
+    CHECK_THROWS_AS(session.resolve_output("const", -1), std::runtime_error);
 }
 
 TEST_CASE("resolve_output throws for out of range index") {
@@ -204,8 +204,8 @@ TEST_CASE("resolve_output throws for out of range index") {
     
     Session session(graph);
     // Const has 1 output, so index 1 is out of range
-    CHECK_THROWS_AS(session.resolve_output("const", 1), std::out_of_range);
-    CHECK_THROWS_AS(session.resolve_output("const", 100), std::out_of_range);
+    CHECK_THROWS_AS(session.resolve_output("const", 1), std::runtime_error);
+    CHECK_THROWS_AS(session.resolve_output("const", 100), std::runtime_error);
 }
 
 TEST_CASE("Session::Run validates fetch indices") {
@@ -219,7 +219,7 @@ TEST_CASE("Session::Run validates fetch indices") {
     CHECK_NOTHROW(session.Run({Fetch{"const", 0}}));
     
     // Invalid fetch index
-    CHECK_THROWS_AS(session.Run({Fetch{"const", 1}}), std::out_of_range);
+    CHECK_THROWS_AS(session.Run({Fetch{"const", 1}}), std::runtime_error);
 }
 
 TEST_CASE("Session::Run validates feed indices") {
@@ -237,7 +237,7 @@ TEST_CASE("Session::Run validates feed indices") {
     // Invalid feed index
     CHECK_THROWS_AS(
         session.Run({Feed{"input", 1, input}}, {Fetch{"output", 0}}),
-        std::out_of_range);
+        std::runtime_error);
 }
 
 } // TEST_SUITE

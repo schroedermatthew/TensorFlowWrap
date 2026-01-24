@@ -345,7 +345,7 @@ public:
         
         const int num_outputs = TF_OperationNumOutputs(op);
         if (index < 0 || index >= num_outputs) {
-            throw std::out_of_range(tf_wrap::detail::format(
+            throw std::runtime_error(tf_wrap::detail::format(
                 "Session::resolve_output: output index {} out of range for operation '{}' "
                 "(has {} outputs, valid indices are 0-{})",
                 index, op_name, num_outputs, num_outputs > 0 ? num_outputs - 1 : 0));
