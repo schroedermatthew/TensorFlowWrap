@@ -255,14 +255,12 @@ public:
     Tensor(const Tensor&) = delete;
     Tensor& operator=(const Tensor&) = delete;
 
-    Tensor(Tensor&& other) noexcept : state_(std::move(other.state_)) {
-        other.state_ = std::make_shared<TensorState>();
-    }
+    Tensor(Tensor&& other) noexcept 
+        : state_(std::exchange(other.state_, moved_from_state())) {}
     
     Tensor& operator=(Tensor&& other) noexcept {
         if (this != &other) {
-            state_ = std::move(other.state_);
-            other.state_ = std::make_shared<TensorState>();
+            state_ = std::exchange(other.state_, moved_from_state());
         }
         return *this;
     }
@@ -273,8 +271,14 @@ public:
 
     [[nodiscard]] const std::vector<std::int64_t>& shape() const noexcept { return state_->shape; }
     [[nodiscard]] int rank() const noexcept { return static_cast<int>(state_->shape.size()); }
-    [[nodiscard]] TF_DataType dtype() const noexcept { return state_->tensor ? TF_TensorType(state_->tensor) : TF_FLOAT; }
-    [[nodiscard]] const char* dtype_name() const noexcept { return tf_wrap::dtype_name(dtype()); }
+    
+    [[nodiscard]] TF_DataType dtype() const { 
+        if (!state_->tensor) {
+            throw std::runtime_error("dtype(): tensor is null (moved-from or empty)");
+        }
+        return TF_TensorType(state_->tensor); 
+    }
+    [[nodiscard]] const char* dtype_name() const { return tf_wrap::dtype_name(dtype()); }
     [[nodiscard]] std::size_t byte_size() const noexcept { return state_->tensor ? TF_TensorByteSize(state_->tensor) : 0; }
     
     [[nodiscard]] std::size_t num_elements() const {
@@ -380,17 +384,24 @@ public:
         return std::forward<Fn>(fn)(write<T>().span());
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // UNSAFE: Raw pointer access (lifetime footgun!)
+    // ─────────────────────────────────────────────────────────────────
+    // WARNING: The returned pointer is only valid while this Tensor exists.
+    // Prefer read<T>()/write<T>() which return views that keep the tensor alive.
+    // Use these only when interfacing with C APIs that require raw pointers.
+
     template<TensorScalar T>
-    [[nodiscard]] T* data() {
-        ensure_tensor_("data");
-        ensure_dtype_<T>("data");
+    [[nodiscard]] T* unsafe_data() {
+        ensure_tensor_("unsafe_data");
+        ensure_dtype_<T>("unsafe_data");
         return static_cast<T*>(TF_TensorData(state_->tensor));
     }
 
     template<TensorScalar T>
-    [[nodiscard]] const T* data() const {
-        ensure_tensor_("data");
-        ensure_dtype_<T>("data");
+    [[nodiscard]] const T* unsafe_data() const {
+        ensure_tensor_("unsafe_data");
+        ensure_dtype_<T>("unsafe_data");
         return static_cast<const T*>(TF_TensorData(state_->tensor));
     }
 
@@ -603,6 +614,14 @@ public:
 
 private:
     std::shared_ptr<TensorState> state_;
+    
+    // Returns a shared empty state for moved-from tensors.
+    // Initialized once, shared by all moved-from instances.
+    // This avoids allocation in noexcept move operations.
+    static std::shared_ptr<TensorState> moved_from_state() noexcept {
+        static auto instance = std::make_shared<TensorState>();
+        return instance;
+    }
 
     template<class InitFn>
     [[nodiscard]] static Tensor create_tensor_alloc_(
