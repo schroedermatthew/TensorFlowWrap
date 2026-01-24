@@ -95,23 +95,8 @@ public:
         other.desc_ = nullptr;
         other.finished_ = true;
     }
-<<<<<<< HEAD
 
     OperationBuilder& operator=(OperationBuilder&&) = delete;
-=======
-    
-    OperationBuilder& operator=(OperationBuilder&& other) noexcept {
-        if (this != &other) {
-            cleanup_desc_();
-            graph_state_ = std::move(other.graph_state_);
-            desc_ = other.desc_;
-            finished_ = other.finished_;
-            other.desc_ = nullptr;
-            other.finished_ = true;
-        }
-        return *this;
-    }
->>>>>>> 1182454810694b01398ec7aa912d4e2a28324fb8
     
     // ─────────────────────────────────────────────────────────────────
     // Attribute setters (fluent interface)
@@ -293,17 +278,11 @@ private:
 #ifndef NDEBUG
             std::fprintf(stderr,
                 "[TensorFlowWrap WARNING] OperationBuilder destroyed without Finish() - "
-<<<<<<< HEAD
                 "operation description discarded (stub frees, real TF leaks)\n");
 #endif
 #ifdef TF_WRAPPER_TF_STUB_ENABLED
             TF_DeleteOperationDescription(desc_);
 #endif
-=======
-                "operation was discarded\n");
-#endif
-            TF_DeleteOperationDescription(desc_);
->>>>>>> 1182454810694b01398ec7aa912d4e2a28324fb8
             desc_ = nullptr;
             finished_ = true;
         }
