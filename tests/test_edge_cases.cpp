@@ -1694,6 +1694,125 @@ TEST_CASE("chained add operations") {
 }
 
 // ============================================================================
+// Concurrent Multi-Session Stress Test (Const only - stub safe)
+// ============================================================================
+
+STRESS_TEST("multiple sessions concurrent const only") {
+    tf_wrap::SafeGraph g;
+    auto t = tf_wrap::SafeTensor::FromScalar<float>(42.0f);
+    (void)g.NewOperation("Const", "X")
+        .SetAttrTensor("value", t.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    std::vector<std::unique_ptr<tf_wrap::SafeSession>> sessions;
+    for (int i = 0; i < 4; ++i) {
+        sessions.push_back(std::make_unique<tf_wrap::SafeSession>(g));
+    }
+    
+    std::atomic<int> success_count{0};
+    
+    auto worker = [&](int id) {
+        auto& session = *sessions[id];
+        for (int i = 0; i < 100; ++i) {
+            auto results = session.Run({}, {{"X", 0}}, {});
+            if (results[0].ToScalar<float>() == 42.0f) {
+                ++success_count;
+            }
+        }
+    };
+    
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 4; ++i) {
+        threads.emplace_back(worker, i);
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    REQUIRE(success_count == 400);
+}
+
+// ============================================================================
+// Tensor Shape and Type Tests (no Session::Run - stub safe)
+// ============================================================================
+
+TEST_CASE("tensor reshape preserves data") {
+    auto original = tf_wrap::FastTensor::FromVector<float>({2, 3}, 
+        {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    
+    REQUIRE(original.shape().size() == 2);
+    REQUIRE(original.shape()[0] == 2);
+    REQUIRE(original.shape()[1] == 3);
+    REQUIRE(original.num_elements() == 6);
+    
+    auto v = original.ToVector<float>();
+    REQUIRE(v[0] == 1.0f);
+    REQUIRE(v[5] == 6.0f);
+}
+
+TEST_CASE("tensor different dtypes") {
+    auto f32 = tf_wrap::FastTensor::FromScalar<float>(1.5f);
+    auto f64 = tf_wrap::FastTensor::FromScalar<double>(2.5);
+    auto i32 = tf_wrap::FastTensor::FromScalar<int32_t>(42);
+    auto i64 = tf_wrap::FastTensor::FromScalar<int64_t>(123456789LL);
+    auto u8 = tf_wrap::FastTensor::FromScalar<uint8_t>(255);
+    
+    REQUIRE(f32.dtype() == TF_FLOAT);
+    REQUIRE(f64.dtype() == TF_DOUBLE);
+    REQUIRE(i32.dtype() == TF_INT32);
+    REQUIRE(i64.dtype() == TF_INT64);
+    REQUIRE(u8.dtype() == TF_UINT8);
+    
+    REQUIRE(f32.ToScalar<float>() == 1.5f);
+    REQUIRE(f64.ToScalar<double>() == 2.5);
+    REQUIRE(i32.ToScalar<int32_t>() == 42);
+    REQUIRE(i64.ToScalar<int64_t>() == 123456789LL);
+    REQUIRE(u8.ToScalar<uint8_t>() == 255);
+}
+
+TEST_CASE("tensor multidimensional shapes") {
+    auto t1d = tf_wrap::FastTensor::FromVector<float>({5}, {1, 2, 3, 4, 5});
+    auto t2d = tf_wrap::FastTensor::FromVector<float>({2, 3}, {1, 2, 3, 4, 5, 6});
+    auto t3d = tf_wrap::FastTensor::FromVector<float>({2, 2, 2}, {1, 2, 3, 4, 5, 6, 7, 8});
+    auto t4d = tf_wrap::FastTensor::FromVector<float>({2, 2, 2, 2}, 
+        {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16});
+    
+    REQUIRE(t1d.shape().size() == 1);
+    REQUIRE(t2d.shape().size() == 2);
+    REQUIRE(t3d.shape().size() == 3);
+    REQUIRE(t4d.shape().size() == 4);
+    
+    REQUIRE(t1d.num_elements() == 5);
+    REQUIRE(t2d.num_elements() == 6);
+    REQUIRE(t3d.num_elements() == 8);
+    REQUIRE(t4d.num_elements() == 16);
+}
+
+TEST_CASE("tensor clone independence") {
+    auto original = tf_wrap::SharedTensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto clone1 = original.Clone();
+    auto clone2 = original.Clone();
+    
+    // Modify clone1
+    {
+        auto view = clone1.write<float>();
+        view[0] = 100.0f;
+    }
+    
+    // Modify clone2
+    {
+        auto view = clone2.write<float>();
+        view[0] = 200.0f;
+    }
+    
+    // All should be independent
+    REQUIRE(original.ToVector<float>()[0] == 1.0f);
+    REQUIRE(clone1.ToVector<float>()[0] == 100.0f);
+    REQUIRE(clone2.ToVector<float>()[0] == 200.0f);
+}
+
+// ============================================================================
 // Interleaved View Tests (no Session::Run - stub safe)
 // ============================================================================
 
