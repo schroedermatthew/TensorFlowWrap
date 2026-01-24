@@ -14,7 +14,6 @@
 #include <cctype>
 #include <charconv>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -352,7 +351,7 @@ private:
     std::vector<TF_Output> fetches_;
     std::vector<TF_Operation*> targets_;
     
-    // Per-runner resolution cache (no mutex needed - Runner is single-threaded)
+    // Per-runner resolution cache (Runner is single-use, not thread-safe)
     mutable std::unordered_map<std::string, TF_Output> cache_;
     
     TF_Output resolve(const Endpoint& endpoint) const {
@@ -382,7 +381,7 @@ class Model {
 public:
     Model() = default;
     
-    // Make Model moveable by using unique_ptr for mutex
+    // Moveable
     Model(Model&&) = default;
     Model& operator=(Model&&) = default;
     
@@ -399,7 +398,6 @@ public:
         auto [session, graph] = Session::LoadSavedModel(export_dir, tags);
         m.session_ = std::make_unique<Session>(std::move(session));
         m.graph_ = std::make_unique<Graph>(std::move(graph));
-        m.cache_mutex_ = std::make_unique<std::mutex>();
         return m;
     }
     
@@ -409,31 +407,6 @@ public:
             throw std::runtime_error("Model::runner: model not loaded");
         }
         return Runner(*session_);
-    }
-    
-    /// Resolve an output name to TF_Output (thread-safe, cached)
-    [[nodiscard]] TF_Output resolve_output(const std::string& name) const {
-        if (!graph_) {
-            throw std::runtime_error("Model::resolve_output: model not loaded");
-        }
-        
-        if (cache_mutex_) {
-            std::lock_guard<std::mutex> lock(*cache_mutex_);
-            
-            auto it = output_cache_.find(name);
-            if (it != output_cache_.end()) {
-                return it->second;
-            }
-            
-            TensorName tn = TensorName::parse(name);
-            TF_Output output = tn.to_output(graph_->handle());
-            output_cache_[name] = output;
-            return output;
-        }
-        
-        // No mutex (shouldn't happen after Load)
-        TensorName tn = TensorName::parse(name);
-        return tn.to_output(graph_->handle());
     }
     
     /// Convenience: run with single input/output
@@ -476,9 +449,6 @@ public:
 private:
     std::unique_ptr<Session> session_;
     std::unique_ptr<Graph> graph_;
-    
-    std::unique_ptr<std::mutex> cache_mutex_;
-    mutable std::unordered_map<std::string, TF_Output> output_cache_;
 };
 
 // ============================================================================
