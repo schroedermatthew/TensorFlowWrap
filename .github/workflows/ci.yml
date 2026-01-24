@@ -1,13 +1,42 @@
-# CI Configuration Updates for Test Improvements
-# Add these jobs to .github/workflows/ci.yml
+name: CI
 
-# =============================================================================
-# NEW JOB: 32-bit Linux Build
-# =============================================================================
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-64bit:
+    name: Linux 64-bit (GCC)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build and run tests
+        run: |
+          g++-14 -std=c++20 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I./include \
+            -I./third_party/tf_stub \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            -pthread \
+            tests/test_tensor.cpp \
+            third_party/tf_stub/tf_c_stub.cpp \
+            -o test_tensor
+          
+          ./test_tensor
 
   linux-32bit:
     name: Linux 32-bit (GCC)
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     
     steps:
       - uses: actions/checkout@v4
@@ -31,13 +60,10 @@
           
           ./test_safety_32
 
-# =============================================================================
-# NEW JOB: Safety Invariant Tests
-# =============================================================================
-
   test-safety:
     name: Safety Invariant Tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     
     steps:
       - uses: actions/checkout@v4
@@ -57,13 +83,10 @@
           
           ./test_safety
 
-# =============================================================================
-# NEW JOB: Stub Dtype Tracking Tests
-# =============================================================================
-
   test-stub-dtype:
     name: Stub Dtype Tracking Tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     
     steps:
       - uses: actions/checkout@v4
@@ -82,13 +105,10 @@
           
           ./test_stub_dtype
 
-# =============================================================================
-# NEW JOB: Easy Helpers Tests
-# =============================================================================
-
   test-easy-helpers:
     name: Easy Helpers Tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     
     steps:
       - uses: actions/checkout@v4
@@ -107,13 +127,10 @@
           
           ./test_easy_helpers
 
-# =============================================================================
-# NEW JOB: Bool Tensor Tests
-# =============================================================================
-
   test-bool-tensor:
     name: Bool Tensor Tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     
     steps:
       - uses: actions/checkout@v4
@@ -132,3 +149,26 @@
             -o test_bool_tensor
           
           ./test_bool_tensor
+
+  test-improvements:
+    name: All Improvements Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build and run all improvement tests
+        run: |
+          g++-14 -std=c++20 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I./include \
+            -I./third_party/tf_stub \
+            -I./tests \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            -pthread \
+            tests/test_improvements.cpp \
+            third_party/tf_stub/tf_c_stub.cpp \
+            -o test_improvements
+          
+          ./test_improvements
