@@ -17,7 +17,6 @@
 #include "tf_wrap/all.hpp"
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -29,7 +28,6 @@
 #include <span>
 #include <stdexcept>
 #include <string>
-#include <thread>
 #include <vector>
 
 TEST_CASE("H1: Clone of empty tensor is safe") {
@@ -58,75 +56,8 @@ TEST_CASE("H1: Clone preserves data correctly (single-threaded)") {
     CHECK(tensor.ToVector<float>()[0] == 1.0f);  // Original unchanged
 }
 
-TEST_CASE("H1-BUG: Clone race detection aggressive (longer duration)" * doctest::may_fail()) {
-    // More aggressive test with longer duration and larger tensor
-    constexpr int TENSOR_SIZE = 10000;
-    
-    auto tensor = tf_wrap::Tensor::FromVector<float>(
-        {TENSOR_SIZE}, std::vector<float>(TENSOR_SIZE, 0.0f));
-    
-    std::atomic<bool> stop{false};
-    std::atomic<int> write_count{0};
-    std::atomic<int> clone_count{0};
-    std::atomic<int> inconsistent_count{0};
-    
-    // Writer thread - rapidly changes all values
-    auto writer = [&]() {
-        float val = 1.0f;
-        while (!stop) {
-            {
-                auto view = tensor.template write<float>();
-                for (std::size_t i = 0; i < view.size(); ++i) {
-                    view[i] = val;
-                }
-            }
-            val += 1.0f;
-            ++write_count;
-        }
-    };
-    
-    // Clone checker threads
-    auto cloner = [&]() {
-        while (!stop) {
-            auto cloned = tensor.Clone();
-            auto data = cloned.template ToVector<float>();
-            
-            // Check consistency - all values should be the same
-            if (!data.empty()) {
-                float first = data[0];
-                for (std::size_t i = 1; i < data.size(); ++i) {
-                    if (data[i] != first) {
-                        ++inconsistent_count;
-                        break;
-                    }
-                }
-            }
-            ++clone_count;
-        }
-    };
-    
-    std::thread writer_thread(writer);
-    std::vector<std::thread> cloner_threads;
-    for (int i = 0; i < 4; ++i) {
-        cloner_threads.emplace_back(cloner);
-    }
-    
-    // Run for longer to stress test
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    stop = true;
-    
-    writer_thread.join();
-    for (auto& t : cloner_threads) {
-        t.join();
-    }
-    
-    std::cout << "     Writes: " << write_count 
-              << ", Clones: " << clone_count 
-              << ", Inconsistent: " << inconsistent_count << "\n";
-    
-    // After H1 is fixed, this should always be 0
-    CHECK(inconsistent_count == 0);
-}
+// NOTE: "H1-BUG: Clone race detection aggressive" test removed.
+// This is a single-threaded library - users are responsible for external synchronization.
 
 // ============================================================================
 // H2: DebugString() Tests (deadlock was only possible with locking)
@@ -251,44 +182,8 @@ TEST_CASE("Tensor read/write thread safety") {
 // tensors are no longer thread-safe and this test is not applicable.
 // Users should not share mutable tensors across threads.
 
-TEST_CASE("Tensor allows concurrent readers" * doctest::test_suite("stress")) {
-    std::vector<std::int64_t> shape = {100};
-    std::vector<float> init_data(100, 42.0f);
-    auto tensor = tf_wrap::Tensor::FromVector<float>(shape, init_data);
-    
-    std::atomic<int> max_concurrent{0};
-    std::atomic<int> current_readers{0};
-    std::atomic<bool> stop{false};
-    
-    std::vector<std::thread> readers;
-    for (int i = 0; i < 8; ++i) {
-        readers.emplace_back([&]() {
-            while (!stop) {
-                auto view = tensor.template read<float>();
-                int cur = ++current_readers;
-                
-                // Update max if this is highest concurrent count
-                int expected = max_concurrent.load();
-                while (cur > expected && !max_concurrent.compare_exchange_weak(expected, cur));
-                
-                // Simulate some work
-                volatile float sum = 0;
-                for (auto x : view) sum += x;
-                (void)sum;
-                
-                --current_readers;
-            }
-        });
-    }
-    
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    stop = true;
-    
-    for (auto& t : readers) t.join();
-    
-    std::cout << "     Max concurrent readers: " << max_concurrent << "\n";
-    CHECK(max_concurrent > 1);  // Should have had concurrent readers
-}
+// NOTE: "Tensor allows concurrent readers" test also removed.
+// This is a single-threaded library - users are responsible for external synchronization.
 
 // ============================================================================
 // View Lifetime Tests

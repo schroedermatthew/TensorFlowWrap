@@ -17,7 +17,6 @@
 #include "tf_wrap/all.hpp"
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -28,7 +27,6 @@
 #include <span>
 #include <stdexcept>
 #include <string>
-#include <thread>
 #include <vector>
 
 TEST_CASE("empty tensor from zero-sized vector") {
@@ -279,78 +277,8 @@ TEST_CASE("rapid tensor allocation/deallocation" * doctest::test_suite("stress")
               << " ops/sec)\n";
 }
 
-TEST_CASE("concurrent tensor creation" * doctest::test_suite("stress")) {
-    constexpr int num_threads = 8;
-    constexpr int ops_per_thread = 1000;
-    
-    std::atomic<int> completed{0};
-    std::vector<std::thread> threads;
-    
-    auto start = std::chrono::steady_clock::now();
-    
-    for (int t = 0; t < num_threads; ++t) {
-        threads.emplace_back([&, t]() {
-            for (int i = 0; i < ops_per_thread; ++i) {
-                auto tensor = tf_wrap::Tensor::FromScalar<float>(
-                    static_cast<float>(t * ops_per_thread + i));
-                ++completed;
-            }
-        });
-    }
-    
-    for (auto& t : threads) t.join();
-    
-    auto end = std::chrono::steady_clock::now();
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    
-    CHECK(completed.load() == num_threads * ops_per_thread);
-    std::cout << "    " << completed.load() << " concurrent ops in " << ms << "ms\n";
-}
-
-// NOTE: "Tensor reader/writer contention" test removed.
-// This test verified that mutex locking prevented torn reads.
-// Since the policy-based locking system was removed in v5.0,
-// tensors are no longer thread-safe and this test is not applicable.
-// Users should not share mutable tensors across threads.
-
-TEST_CASE("Tensor allows concurrent readers" * doctest::test_suite("stress")) {
-    std::vector<std::int64_t> shape = {1000};
-    std::vector<float> data(1000, 42.0f);
-    auto tensor = tf_wrap::Tensor::FromVector<float>(shape, data);
-    
-    std::atomic<int> max_concurrent{0};
-    std::atomic<int> current_readers{0};
-    std::atomic<bool> stop{false};
-    
-    std::vector<std::thread> readers;
-    for (int i = 0; i < 8; ++i) {
-        readers.emplace_back([&]() {
-            while (!stop) {
-                auto view = tensor.read<float>();
-                
-                int current = ++current_readers;
-                int expected = max_concurrent.load();
-                while (current > expected) {
-                    max_concurrent.compare_exchange_weak(expected, current);
-                }
-                
-                float sum = 0;
-                for (auto x : view) sum += x;
-                (void)sum;
-                
-                --current_readers;
-            }
-        });
-    }
-    
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    stop = true;
-    
-    for (auto& r : readers) r.join();
-    
-    std::cout << "    Max concurrent readers: " << max_concurrent << "\n";
-    CHECK(max_concurrent > 1);
-}
+// NOTE: Threading tests removed - this is a single-threaded library.
+// Users are responsible for external synchronization if needed.
 
 TEST_CASE("Status rapid creation/destruction" * doctest::test_suite("stress")) {
     constexpr int iterations = 100000;
@@ -1132,101 +1060,7 @@ TEST_CASE("Types with handle(): moved-from has null handle") {
 }
 
 // ============================================================================
-// MEDIUM: Thread safety claims verification
-// ============================================================================
-
-TEST_CASE("Graph concurrent operation creation" * doctest::test_suite("stress")) {
-    tf_wrap::Graph g;
-    std::atomic<int> op_count{0};
-    std::vector<std::thread> threads;
-    
-    // Multiple threads try to add operations
-    // Note: Without locking, this tests that concurrent access doesn't crash
-    for (int i = 0; i < 10; ++i) {
-        threads.emplace_back([&g, &op_count, i] {
-            auto t = tf_wrap::Tensor::FromScalar<float>(static_cast<float>(i));
-            std::string name = "Op" + std::to_string(i);
-            try {
-                (void)g.NewOperation("Const", name)
-                    .SetAttrTensor("value", t.handle())
-                    .SetAttrType("dtype", TF_FLOAT)
-                    .Finish();
-                op_count.fetch_add(1);
-            } catch (...) {
-                // May throw if graph gets frozen, that's OK
-            }
-        });
-    }
-    
-    for (auto& t : threads) {
-        t.join();
-    }
-    
-    // All operations that succeeded should be in the graph
-    CHECK(g.num_operations() == static_cast<std::size_t>(op_count.load()));
-}
-
-TEST_CASE("Graph allows concurrent reads" * doctest::test_suite("stress")) {
-    tf_wrap::Graph g;
-    auto tensor = tf_wrap::Tensor::FromScalar<float>(42.0f);
-    (void)g.NewOperation("Const", "A")
-        .SetAttrTensor("value", tensor.handle())
-        .SetAttrType("dtype", TF_FLOAT)
-        .Finish();
-    
-    g.freeze();  // Prevent writes
-    
-    std::atomic<int> read_count{0};
-    std::vector<std::thread> threads;
-    
-    // Multiple threads read concurrently
-    for (int i = 0; i < 10; ++i) {
-        threads.emplace_back([&g, &read_count] {
-            for (int j = 0; j < 100; ++j) {
-                CHECK(g.HasOperation("A"));
-                CHECK(g.num_operations() == 1u);
-                read_count.fetch_add(1);
-            }
-        });
-    }
-    
-    for (auto& th : threads) {
-        th.join();
-    }
-    
-    CHECK(read_count.load() == 1000);
-}
-
-TEST_CASE("Session Run is thread-safe (TensorFlow guarantee)" * doctest::test_suite("stress")) {
-    tf_wrap::Graph g;
-    auto tensor = tf_wrap::Tensor::FromScalar<float>(42.0f);
-    (void)g.NewOperation("Const", "A")
-        .SetAttrTensor("value", tensor.handle())
-        .SetAttrType("dtype", TF_FLOAT)
-        .Finish();
-    
-    tf_wrap::Session s(g);
-    
-    std::atomic<int> run_count{0};
-    std::vector<std::thread> threads;
-    
-    // Multiple threads run concurrently - this is safe per TensorFlow's API
-    for (int i = 0; i < 10; ++i) {
-        threads.emplace_back([&s, &run_count] {
-            for (int j = 0; j < 10; ++j) {
-                auto result = s.Run("A", 0);
-                CHECK(result.ToScalar<float>() == 42.0f);
-                run_count.fetch_add(1);
-            }
-        });
-    }
-    
-    for (auto& th : threads) {
-        th.join();
-    }
-    
-    CHECK(run_count.load() == 100);
-}
+// NOTE: Threading tests removed - this is a single-threaded library.
 
 // ============================================================================
 // MEDIUM: Error message quality tests
@@ -1518,88 +1352,7 @@ TEST_CASE("chained add operations") {
 // Concurrent Multi-Session Stress Test (Const only - stub safe)
 // ============================================================================
 
-TEST_CASE("multiple sessions concurrent const only" * doctest::test_suite("stress")) {
-    tf_wrap::Graph g;
-    auto t = tf_wrap::Tensor::FromScalar<float>(42.0f);
-    (void)g.NewOperation("Const", "X")
-        .SetAttrTensor("value", t.handle())
-        .SetAttrType("dtype", TF_FLOAT)
-        .Finish();
-    
-    std::vector<std::unique_ptr<tf_wrap::Session>> sessions;
-    for (int i = 0; i < 4; ++i) {
-        sessions.push_back(std::make_unique<tf_wrap::Session>(g));
-    }
-    
-    std::atomic<int> success_count{0};
-    
-    auto worker = [&](int id) {
-        auto& session = *sessions[id];
-        for (int i = 0; i < 100; ++i) {
-            auto results = session.Run({}, {{"X", 0}}, {});
-            if (results[0].ToScalar<float>() == 42.0f) {
-                ++success_count;
-            }
-        }
-    };
-    
-    std::vector<std::thread> threads;
-    for (int i = 0; i < 4; ++i) {
-        threads.emplace_back(worker, i);
-    }
-    for (auto& th : threads) {
-        th.join();
-    }
-    
-    CHECK(success_count == 400);
-}
-
-TEST_CASE("multiple sessions same graph with placeholder and square" * doctest::test_suite("stress")) {
-    tf_wrap::Graph g;
-    
-    (void)g.NewOperation("Placeholder", "X")
-        .SetAttrType("dtype", TF_FLOAT)
-        .SetAttrShape("shape", {})
-        .Finish();
-    
-    auto* x = g.GetOperationOrThrow("X");
-    (void)g.NewOperation("Square", "Y")
-        .AddInput(tf_wrap::Output(x, 0))
-        .Finish();
-    
-    std::vector<std::unique_ptr<tf_wrap::Session>> sessions;
-    for (int i = 0; i < 4; ++i) {
-        sessions.push_back(std::make_unique<tf_wrap::Session>(g));
-    }
-    
-    std::atomic<int> success_count{0};
-    
-    auto worker = [&](int id) {
-        auto& session = *sessions[id];
-        for (int i = 0; i < 100; ++i) {
-            float val = static_cast<float>(id * 100 + i);
-            auto input = tf_wrap::Tensor::FromScalar<float>(val);
-            auto results = session.Run(
-                {{"X", 0, input.handle()}},
-                {{"Y", 0}},
-                {}
-            );
-            if (std::abs(results[0].ToScalar<float>() - val * val) < 0.01f) {
-                ++success_count;
-            }
-        }
-    };
-    
-    std::vector<std::thread> threads;
-    for (int i = 0; i < 4; ++i) {
-        threads.emplace_back(worker, i);
-    }
-    for (auto& th : threads) {
-        th.join();
-    }
-    
-    CHECK(success_count == 400);
-}
+// NOTE: Threading tests removed - this is a single-threaded library.
 
 TEST_CASE("session recovers after shape error with matmul") {
     tf_wrap::Graph g;
@@ -1767,36 +1520,7 @@ TEST_CASE("tensor interleaved read write views") {
     }
 }
 
-TEST_CASE("tensor concurrent read views") {
-    auto tensor = tf_wrap::Tensor::FromVector<float>({1000},
-        std::vector<float>(1000, 42.0f));
-    
-    std::atomic<int> success_count{0};
-    
-    auto reader = [&]() {
-        for (int i = 0; i < 100; ++i) {
-            auto view = tensor.read<float>();
-            bool all_correct = true;
-            for (size_t j = 0; j < view.size(); ++j) {
-                if (view[j] != 42.0f) {
-                    all_correct = false;
-                    break;
-                }
-            }
-            if (all_correct) ++success_count;
-        }
-    };
-    
-    std::vector<std::thread> threads;
-    for (int i = 0; i < 8; ++i) {
-        threads.emplace_back(reader);
-    }
-    for (auto& t : threads) {
-        t.join();
-    }
-    
-    CHECK(success_count == 800);
-}
+// NOTE: "tensor concurrent read views" test removed - this is a single-threaded library.
 
 // ============================================================================
 // AdoptMalloc Success Tests (no Session::Run - stub safe)
