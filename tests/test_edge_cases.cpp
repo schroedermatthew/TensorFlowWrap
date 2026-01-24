@@ -386,56 +386,11 @@ STRESS_TEST("concurrent tensor creation") {
     std::cout << "    " << completed.load() << " concurrent ops in " << ms << "ms\n";
 }
 
-STRESS_TEST("Tensor reader/writer contention") {
-    std::vector<std::int64_t> shape = {1000};
-    auto tensor = tf_wrap::Tensor::Zeros<float>(shape);
-    
-    std::atomic<bool> stop{false};
-    std::atomic<int> reads{0};
-    std::atomic<int> writes{0};
-    std::atomic<bool> torn_read{false};
-    
-    // Writer thread
-    std::thread writer([&]() {
-        float value = 0.0f;
-        while (!stop && !torn_read) {
-            {
-                auto view = tensor.write<float>();
-                for (auto& x : view) x = value;
-            }
-            value += 1.0f;
-            ++writes;
-        }
-    });
-    
-    // Multiple reader threads
-    std::vector<std::thread> readers;
-    for (int i = 0; i < 4; ++i) {
-        readers.emplace_back([&]() {
-            while (!stop && !torn_read) {
-                auto view = tensor.read<float>();
-                float first = view[0];
-                for (std::size_t j = 1; j < view.size(); ++j) {
-                    if (view[j] != first) {
-                        torn_read = true;
-                        break;
-                    }
-                }
-                ++reads;
-            }
-        });
-    }
-    
-    // Run for 2 seconds
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-    stop = true;
-    
-    writer.join();
-    for (auto& r : readers) r.join();
-    
-    REQUIRE(!torn_read);
-    std::cout << "    " << reads << " reads, " << writes << " writes, no torn reads\n";
-}
+// NOTE: "Tensor reader/writer contention" test removed.
+// This test verified that mutex locking prevented torn reads.
+// Since the policy-based locking system was removed in v5.0,
+// tensors are no longer thread-safe and this test is not applicable.
+// Users should not share mutable tensors across threads.
 
 STRESS_TEST("Tensor allows concurrent readers") {
     std::vector<std::int64_t> shape = {1000};

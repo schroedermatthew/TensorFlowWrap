@@ -4588,39 +4588,7 @@ TEST(session_list_devices) {
     REQUIRE(found_cpu);
 }
 
-TEST(session_run_with_metadata) {
-    tf_wrap::Graph g;
-    
-    auto a = tf_wrap::Tensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
-    auto b = tf_wrap::Tensor::FromVector<float>({2, 2}, {5.0f, 6.0f, 7.0f, 8.0f});
-    
-    (void)g.NewOperation("Const", "A").SetAttrTensor("value", a.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
-    (void)g.NewOperation("Const", "B").SetAttrTensor("value", b.handle()).SetAttrType("dtype", TF_FLOAT).Finish();
-    
-    auto* op_a = g.GetOperationOrThrow("A");
-    auto* op_b = g.GetOperationOrThrow("B");
-    
-    (void)g.NewOperation("MatMul", "Result")
-        .AddInput(tf_wrap::Output(op_a, 0))
-        .AddInput(tf_wrap::Output(op_b, 0))
-        .Finish();
-    
-    tf_wrap::Session s(g);
-    
-    // Run with metadata collection
-    tf_wrap::Buffer metadata;
-    auto results = s.RunWithMetadata({}, {{"Result", 0}}, metadata);
-    
-    // Result should be correct
-    REQUIRE(results.size() == 1);
-    auto v = results[0].ToVector<float>();
-    REQUIRE(v[0] == 19.0f);  // MatMul result
-    
-    // Metadata buffer should have been populated (contains RunMetadata protobuf)
-    // Note: may be empty if TF wasn't built with tracing enabled
-    // Just verify the call didn't crash
-    REQUIRE(metadata.handle() != nullptr);
-}
+// NOTE: session_run_with_metadata test removed - RunWithMetadata not implemented in v5.0
 
 TEST(graph_add_control_input) {
     tf_wrap::Graph g;
@@ -5865,40 +5833,8 @@ TEST(session_options_set_target_local) {
 }
 
 // =============================================================================
-// Graph GetOutputs Tests
+// Graph GetOutputs Tests - REMOVED (GetOutputs not implemented in v5.0)
 // =============================================================================
-
-TEST(graph_get_outputs_empty) {
-    tf_wrap::Graph g;
-    auto outputs = g.GetOutputs();
-    REQUIRE(outputs.empty());
-}
-
-TEST(graph_get_outputs_finds_terminal_ops) {
-    tf_wrap::Graph g;
-    
-    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
-    (void)g.NewOperation("Const", "A")
-        .SetAttrTensor("value", t.handle())
-        .SetAttrType("dtype", TF_FLOAT)
-        .Finish();
-    (void)g.NewOperation("Const", "B")
-        .SetAttrTensor("value", t.handle())
-        .SetAttrType("dtype", TF_FLOAT)
-        .Finish();
-    
-    auto* op_a = g.GetOperationOrThrow("A");
-    auto* op_b = g.GetOperationOrThrow("B");
-    
-    (void)g.NewOperation("AddV2", "Sum")
-        .AddInput(tf_wrap::Output(op_a, 0))
-        .AddInput(tf_wrap::Output(op_b, 0))
-        .Finish();
-    
-    auto outputs = g.GetOutputs();
-    // Sum has no consumers, should appear in outputs
-    REQUIRE(!outputs.empty());
-}
 
 // =============================================================================
 // GraphFunction CopyTo Tests
@@ -6421,45 +6357,8 @@ TEST(zeros_multidimensional) {
 }
 
 // =============================================================================
-// RunWithMetadata Tests
+// RunWithMetadata Tests - REMOVED (RunWithMetadata not implemented in v5.0)
 // =============================================================================
-
-TEST(run_with_metadata_returns_metadata) {
-    tf_wrap::Graph g;
-    
-    auto a = tf_wrap::Tensor::FromVector<float>({100, 100}, 
-        std::vector<float>(10000, 1.0f));
-    auto b = tf_wrap::Tensor::FromVector<float>({100, 100}, 
-        std::vector<float>(10000, 2.0f));
-    
-    (void)g.NewOperation("Const", "A")
-        .SetAttrTensor("value", a.handle())
-        .SetAttrType("dtype", TF_FLOAT)
-        .Finish();
-    (void)g.NewOperation("Const", "B")
-        .SetAttrTensor("value", b.handle())
-        .SetAttrType("dtype", TF_FLOAT)
-        .Finish();
-    
-    auto* op_a = g.GetOperationOrThrow("A");
-    auto* op_b = g.GetOperationOrThrow("B");
-    
-    (void)g.NewOperation("MatMul", "Result")
-        .AddInput(tf_wrap::Output(op_a, 0))
-        .AddInput(tf_wrap::Output(op_b, 0))
-        .Finish();
-    
-    tf_wrap::Session s(g);
-    tf_wrap::Buffer metadata;
-    
-    auto results = s.RunWithMetadata({}, {{"Result", 0}}, metadata);
-    
-    REQUIRE(results.size() == 1);
-    REQUIRE(results[0].shape()[0] == 100);
-    REQUIRE(results[0].shape()[1] == 100);
-    // Note: metadata may or may not be populated depending on TF version/config
-    // The important thing is that RunWithMetadata doesn't crash
-}
 
 // =============================================================================
 // PartialRun Error Path Tests
