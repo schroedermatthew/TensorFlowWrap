@@ -126,6 +126,20 @@ jobs:
           
           ./test_ops
 
+      - name: Build and run improvements tests
+        run: |
+          g++-${{ matrix.version }} -std=c++${{ matrix.std }} \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            -pthread \
+            ${{ env.TEST_DIR }}/test_improvements.cpp \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            -o test_improvements
+          
+          ./test_improvements
+
   # ===========================================================================
   # Linux Clang
   # ===========================================================================
@@ -198,6 +212,21 @@ jobs:
           
           ./test_ops
 
+      - name: Build and run improvements tests
+        run: |
+          clang++-${{ matrix.version }} -std=c++${{ matrix.std }} \
+            -Wall -Wextra -Wpedantic -Werror \
+            -Wno-gnu-zero-variadic-macro-arguments \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            -pthread \
+            ${{ env.TEST_DIR }}/test_improvements.cpp \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            -o test_improvements
+          
+          ./test_improvements
+
   # ===========================================================================
   # Windows MSVC
   # ===========================================================================
@@ -256,6 +285,19 @@ jobs:
             /Fe:test_ops.exe
           
           test_ops.exe
+
+      - name: Build and run improvements tests
+        shell: cmd
+        run: |
+          cl /std:c++${{ matrix.std }} /W4 /WX /EHsc ^
+            /I${{ env.INCLUDE_DIR }} ^
+            /I${{ env.STUB_DIR }} ^
+            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
+            ${{ env.TEST_DIR }}\test_improvements.cpp ^
+            ${{ env.STUB_DIR }}\tf_c_stub.cpp ^
+            /Fe:test_improvements.exe
+          
+          test_improvements.exe
 
   # ===========================================================================
   # AddressSanitizer
@@ -521,54 +563,6 @@ jobs:
       - name: Run comprehensive bug tests (including SafeGraph/SafeTensor)
         timeout-minutes: 5
         run: ./test_comprehensive --all
-
-  # ===========================================================================
-  # P0/P1 Improvements Tests (dtype tracking, bool safety, bounds, easy layer)
-  # ===========================================================================
-  improvements-test:
-    name: Improvements Tests
-    runs-on: ubuntu-24.04
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install GCC
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-13
-
-      - name: Build improvements tests
-        run: |
-          g++-13 -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            -pthread \
-            ${{ env.TEST_DIR }}/test_improvements.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_improvements
-
-      - name: Run improvements tests
-        run: ./test_improvements
-
-      - name: Build improvements tests with ASAN
-        run: |
-          g++-13 -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -g -fsanitize=address -fno-omit-frame-pointer \
-            -I${{ env.INCLUDE_DIR }} \
-            -I${{ env.STUB_DIR }} \
-            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
-            -pthread \
-            ${{ env.TEST_DIR }}/test_improvements.cpp \
-            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
-            -o test_improvements_asan
-
-      - name: Run improvements tests with ASAN
-        env:
-          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
-        run: ./test_improvements_asan
 
   # ===========================================================================
   # Real TensorFlow Integration Test (Multiple Versions)
@@ -890,6 +884,19 @@ jobs:
           
           ./test_ops
 
+      - name: Build and run improvements tests
+        run: |
+          clang++ -std=c++20 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.TEST_DIR }}/test_improvements.cpp \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            -o test_improvements
+          
+          ./test_improvements
+
   # ===========================================================================
   # CI Success Gate
   # ===========================================================================
@@ -906,7 +913,6 @@ jobs:
       - sanitizer-tsan
       - header-check
       - stress-test
-      - improvements-test
       - strict-warnings
       - real-tensorflow
     if: always()
@@ -924,7 +930,6 @@ jobs:
           echo "  sanitizer-tsan:    ${{ needs.sanitizer-tsan.result }}"
           echo "  header-check:      ${{ needs.header-check.result }}"
           echo "  stress-test:       ${{ needs.stress-test.result }}"
-          echo "  improvements-test: ${{ needs.improvements-test.result }}"
           echo "  strict-warnings:   ${{ needs.strict-warnings.result }}"
           echo "  real-tensorflow:   ${{ needs.real-tensorflow.result }}"
           
@@ -937,7 +942,6 @@ jobs:
              [ "${{ needs.sanitizer-tsan.result }}" != "success" ] || \
              [ "${{ needs.header-check.result }}" != "success" ] || \
              [ "${{ needs.stress-test.result }}" != "success" ] || \
-             [ "${{ needs.improvements-test.result }}" != "success" ] || \
              [ "${{ needs.strict-warnings.result }}" != "success" ] || \
              [ "${{ needs.real-tensorflow.result }}" != "success" ]; then
             echo "❌ One or more jobs failed"
