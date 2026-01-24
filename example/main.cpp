@@ -16,6 +16,7 @@
 #include <chrono>
 #include <iostream>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <thread>
 #include <vector>
@@ -121,7 +122,7 @@ void example_view_lifetime() {
     std::cout << "=== Example 3: View Lifetime Safety ===\n";
     
     // Views keep tensor data alive even after Tensor object is destroyed
-    tf_wrap::Tensor::ReadView<float> view;
+    std::optional<tf_wrap::Tensor::ReadView<float>> view;
     
     {
         auto tensor = tf_wrap::Tensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
@@ -131,7 +132,7 @@ void example_view_lifetime() {
     
     // View still valid - it holds shared_ptr to TensorState
     std::cout << "  Outside scope, view data: ";
-    for (float x : view) {
+    for (float x : *view) {
         std::cout << x << " ";
     }
     std::cout << "\n\n";

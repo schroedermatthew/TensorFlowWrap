@@ -48,6 +48,16 @@ namespace tf_wrap {
 namespace detail {
     template<class>
     inline constexpr bool always_false_v = false;
+
+    [[nodiscard]] inline int checked_int(std::size_t v,
+                                        const char* context = "size conversion") {
+        if (v > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+            throw std::overflow_error(tf_wrap::detail::format(
+                "Integer overflow in {}: {} exceeds int max",
+                context, v));
+        }
+        return static_cast<int>(v);
+    }
     
     [[nodiscard]] inline std::size_t checked_mul(std::size_t a, std::size_t b,
                                                   const char* context = "size calculation") {
@@ -274,7 +284,11 @@ public:
         return static_cast<std::size_t>(n);
     }
 
-    [[nodiscard]] bool empty() const noexcept { return !state_->tensor || num_elements() == 0; }
+    [[nodiscard]] bool empty() const noexcept {
+        if (!state_->tensor) return true;
+        const std::int64_t n = TF_TensorElementCount(state_->tensor);
+        return n <= 0;
+    }
     [[nodiscard]] bool valid() const noexcept { return state_->tensor != nullptr; }
     [[nodiscard]] explicit operator bool() const noexcept { return state_->tensor != nullptr; }
     [[nodiscard]] TF_Tensor* handle() const noexcept { return state_->tensor; }
@@ -307,6 +321,24 @@ public:
         
         const auto dt = dtype();
         const auto& sh = shape();
+
+        if (dt == TF_STRING) {
+            const std::size_t n = num_elements();
+            const TF_TString* src = static_cast<const TF_TString*>(TF_TensorData(state_->tensor));
+            const std::size_t bytes = detail::checked_mul(n, sizeof(TF_TString), "Tensor::Clone");
+
+            return create_tensor_alloc_(TF_STRING, sh, bytes,
+                [src, n](void* dst, std::size_t) {
+                    auto* out = static_cast<TF_TString*>(dst);
+                    for (std::size_t i = 0; i < n; ++i) {
+                        TF_TString_Init(&out[i]);
+                        const char* p = TF_TString_GetDataPointer(&src[i]);
+                        const std::size_t sz = TF_TString_GetSize(&src[i]);
+                        TF_TString_Copy(&out[i], p ? p : "", sz);
+                    }
+                });
+        }
+
         const auto bytes = byte_size();
         const void* src = TF_TensorData(state_->tensor);
         
@@ -458,13 +490,30 @@ public:
     [[nodiscard]] static Tensor FromRaw(TF_Tensor* raw) {
         if (!raw) throw std::invalid_argument("Tensor::FromRaw: null TF_Tensor*");
 
+        struct RawTensorGuard {
+            TF_Tensor* t{nullptr};
+            ~RawTensorGuard() {
+                if (t) {
+                    TF_DeleteTensor(t);
+                }
+            }
+            TF_Tensor* release() noexcept {
+                TF_Tensor* out = t;
+                t = nullptr;
+                return out;
+            }
+        } guard{raw};
+
         Tensor t;
-        t.state_->tensor = raw;
         const int ndims = TF_NumDims(raw);
+        if (ndims < 0) {
+            throw std::runtime_error("Tensor::FromRaw: TF_NumDims returned negative");
+        }
         t.state_->shape.reserve(static_cast<std::size_t>(ndims));
         for (int i = 0; i < ndims; ++i) {
             t.state_->shape.push_back(TF_Dim(raw, i));
         }
+        t.state_->tensor = guard.release();
         return t;
     }
 
@@ -565,7 +614,7 @@ private:
         Tensor t;
         std::vector<std::int64_t> shape_vec(dims.begin(), dims.end());
         const int64_t* dims_ptr = shape_vec.empty() ? nullptr : shape_vec.data();
-        const int num_dims = static_cast<int>(shape_vec.size());
+        const int num_dims = detail::checked_int(shape_vec.size(), "Tensor::Allocate num_dims");
 
         TF_Tensor* tensor = TF_AllocateTensor(dtype, dims_ptr, num_dims, byte_len);
         if (!tensor) throw std::runtime_error("TF_AllocateTensor: failed to create tensor");
@@ -604,7 +653,7 @@ private:
         Tensor t;
         std::vector<std::int64_t> shape_vec(dims.begin(), dims.end());
         const int64_t* dims_ptr = shape_vec.empty() ? nullptr : shape_vec.data();
-        const int num_dims = static_cast<int>(shape_vec.size());
+        const int num_dims = detail::checked_int(shape_vec.size(), "Tensor::Adopt num_dims");
 
         TF_Tensor* tensor = TF_NewTensor(dtype, dims_ptr, num_dims, data_ptr, byte_len,
                                           deallocator, deallocator_arg);

@@ -54,11 +54,7 @@ inline void append_one(std::ostringstream& os, const char* s) { os << (s ? s : "
 template<class T>
 inline void append_one(std::ostringstream& os, const T& v)
 {
-    if constexpr (std::is_same_v<T, std::string>) {
-        os << v;
-    } else {
-        os << v;
-    }
+    os << v;
 }
 
 template<class... Args>

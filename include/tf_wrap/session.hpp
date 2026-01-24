@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -275,31 +276,31 @@ private:
 class Session {
 public:
     explicit Session(Graph& graph, const SessionOptions& opts = SessionOptions())
-        : graph_handle_(graph.handle())
+        : graph_state_(graph.share_state())
     {
-        if (!graph_handle_) {
+        if (!graph_state_ || !graph_state_->graph) {
             throw std::runtime_error("Session: cannot create session from moved-from graph");
         }
-        
-        graph.freeze();
-        
+
         Status st;
-        session_ = TF_NewSession(graph_handle_, opts.get(), st.get());
+        session_ = TF_NewSession(graph_state_->graph, opts.get(), st.get());
         st.throw_if_error("TF_NewSession");
+
+        graph_state_->frozen = true;
     }
     
     explicit Session(Graph& graph, TF_SessionOptions* opts)
-        : graph_handle_(graph.handle())
+        : graph_state_(graph.share_state())
     {
-        if (!graph_handle_) {
+        if (!graph_state_ || !graph_state_->graph) {
             throw std::runtime_error("Session: cannot create session from moved-from graph");
         }
-        
-        graph.freeze();
-        
+
         Status st;
-        session_ = TF_NewSession(graph_handle_, opts, st.get());
+        session_ = TF_NewSession(graph_state_->graph, opts, st.get());
         st.throw_if_error("TF_NewSession");
+
+        graph_state_->frozen = true;
     }
     
     ~Session() noexcept { Cleanup(); }
@@ -309,19 +310,19 @@ public:
     
     Session(Session&& other) noexcept
         : session_(other.session_)
-        , graph_handle_(other.graph_handle_)
+        , graph_state_(std::move(other.graph_state_))
     {
         other.session_ = nullptr;
-        other.graph_handle_ = nullptr;
+        other.graph_state_.reset();
     }
     
     Session& operator=(Session&& other) noexcept {
         if (this != &other) {
             Cleanup();
             session_ = other.session_;
-            graph_handle_ = other.graph_handle_;
+            graph_state_ = std::move(other.graph_state_);
             other.session_ = nullptr;
-            other.graph_handle_ = nullptr;
+            other.graph_state_.reset();
         }
         return *this;
     }
@@ -348,7 +349,7 @@ public:
         input_vals.reserve(feeds.size());
         
         for (const auto& f : feeds) {
-            TF_Operation* op = TF_GraphOperationByName(graph_handle_, f.op_name.c_str());
+            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, f.op_name.c_str());
             if (!op) {
                 throw std::runtime_error(tf_wrap::detail::format(
                     "Feed operation '{}' not found", f.op_name));
@@ -361,7 +362,7 @@ public:
         output_ops.reserve(fetches.size());
         
         for (const auto& f : fetches) {
-            TF_Operation* op = TF_GraphOperationByName(graph_handle_, f.op_name.c_str());
+            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, f.op_name.c_str());
             if (!op) {
                 throw std::runtime_error(tf_wrap::detail::format(
                     "Fetch operation '{}' not found", f.op_name));
@@ -373,7 +374,7 @@ public:
         target_ops.reserve(targets.size());
         
         for (const auto& t : targets) {
-            TF_Operation* op = TF_GraphOperationByName(graph_handle_, t.c_str());
+            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, t.c_str());
             if (!op) {
                 throw std::runtime_error(tf_wrap::detail::format(
                     "Target operation '{}' not found", t));
@@ -382,30 +383,50 @@ public:
         }
         
         std::vector<TF_Tensor*> output_vals(fetches.size(), nullptr);
+
+        const int num_inputs  = detail::checked_int(feeds.size(), "Session::Run feeds");
+        const int num_outputs = detail::checked_int(fetches.size(), "Session::Run fetches");
+        const int num_targets = detail::checked_int(targets.size(), "Session::Run targets");
         
         Status st;
         TF_SessionRun(
             session_,
             run_options,
-            input_ops.data(), input_vals.data(), static_cast<int>(feeds.size()),
-            output_ops.data(), output_vals.data(), static_cast<int>(fetches.size()),
-            target_ops.data(), static_cast<int>(targets.size()),
+            input_ops.data(), input_vals.data(), num_inputs,
+            output_ops.data(), output_vals.data(), num_outputs,
+            target_ops.data(), num_targets,
             run_metadata,
             st.get());
-        
-        if (!st.ok()) {
-            for (auto* t : output_vals) {
+
+        struct TensorDeleter {
+            void operator()(TF_Tensor* t) const noexcept {
                 if (t) TF_DeleteTensor(t);
             }
-            st.throw_if_error("TF_SessionRun");
-        }
-        
-        std::vector<Tensor> results;
-        results.reserve(fetches.size());
+        };
+        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+
+        std::vector<RawTensorPtr> owned;
+        owned.reserve(output_vals.size());
         for (auto* t : output_vals) {
-            results.push_back(Tensor::FromRaw(t));
+            owned.emplace_back(t);
         }
-        
+
+        st.throw_if_error("TF_SessionRun");
+
+        for (std::size_t i = 0; i < owned.size(); ++i) {
+            if (!owned[i]) {
+                throw std::runtime_error(tf_wrap::detail::format(
+                    "TF_SessionRun: fetch '{}' returned null tensor",
+                    fetches[i].op_name));
+            }
+        }
+
+        std::vector<Tensor> results;
+        results.reserve(owned.size());
+        for (auto& p : owned) {
+            results.push_back(Tensor::FromRaw(p.release()));
+        }
+
         return results;
     }
     
@@ -482,7 +503,7 @@ public:
         std::vector<TF_Output> input_ops;
         input_ops.reserve(inputs.size());
         for (const auto& f : inputs) {
-            TF_Operation* op = TF_GraphOperationByName(graph_handle_, f.op_name.c_str());
+            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, f.op_name.c_str());
             if (!op) {
                 throw std::runtime_error(tf_wrap::detail::format(
                     "PartialRunSetup: input '{}' not found", f.op_name));
@@ -493,7 +514,7 @@ public:
         std::vector<TF_Output> output_ops;
         output_ops.reserve(outputs.size());
         for (const auto& f : outputs) {
-            TF_Operation* op = TF_GraphOperationByName(graph_handle_, f.op_name.c_str());
+            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, f.op_name.c_str());
             if (!op) {
                 throw std::runtime_error(tf_wrap::detail::format(
                     "PartialRunSetup: output '{}' not found", f.op_name));
@@ -504,7 +525,7 @@ public:
         std::vector<TF_Operation*> target_ops;
         target_ops.reserve(targets.size());
         for (const auto& t : targets) {
-            TF_Operation* op = TF_GraphOperationByName(graph_handle_, t.c_str());
+            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, t.c_str());
             if (!op) {
                 throw std::runtime_error(tf_wrap::detail::format(
                     "PartialRunSetup: target '{}' not found", t));
@@ -517,9 +538,9 @@ public:
         
         TF_SessionPRunSetup(
             session_,
-            input_ops.data(), static_cast<int>(inputs.size()),
-            output_ops.data(), static_cast<int>(outputs.size()),
-            target_ops.data(), static_cast<int>(targets.size()),
+            input_ops.data(), detail::checked_int(inputs.size(), "Session::PartialRunSetup inputs"),
+            output_ops.data(), detail::checked_int(outputs.size(), "Session::PartialRunSetup outputs"),
+            target_ops.data(), detail::checked_int(targets.size(), "Session::PartialRunSetup targets"),
             &handle,
             st.get());
         
@@ -546,7 +567,7 @@ public:
         input_vals.reserve(feeds.size());
         
         for (const auto& f : feeds) {
-            TF_Operation* op = TF_GraphOperationByName(graph_handle_, f.op_name.c_str());
+            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, f.op_name.c_str());
             if (!op) {
                 throw std::runtime_error(tf_wrap::detail::format(
                     "PartialRun: feed '{}' not found", f.op_name));
@@ -558,7 +579,7 @@ public:
         std::vector<TF_Output> output_ops;
         output_ops.reserve(fetches.size());
         for (const auto& f : fetches) {
-            TF_Operation* op = TF_GraphOperationByName(graph_handle_, f.op_name.c_str());
+            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, f.op_name.c_str());
             if (!op) {
                 throw std::runtime_error(tf_wrap::detail::format(
                     "PartialRun: fetch '{}' not found", f.op_name));
@@ -569,7 +590,7 @@ public:
         std::vector<TF_Operation*> target_ops;
         target_ops.reserve(targets.size());
         for (const auto& t : targets) {
-            TF_Operation* op = TF_GraphOperationByName(graph_handle_, t.c_str());
+            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, t.c_str());
             if (!op) {
                 throw std::runtime_error(tf_wrap::detail::format(
                     "PartialRun: target '{}' not found", t));
@@ -578,29 +599,49 @@ public:
         }
         
         std::vector<TF_Tensor*> output_vals(fetches.size(), nullptr);
+
+        const int num_inputs  = detail::checked_int(feeds.size(), "Session::PartialRun feeds");
+        const int num_outputs = detail::checked_int(fetches.size(), "Session::PartialRun fetches");
+        const int num_targets = detail::checked_int(targets.size(), "Session::PartialRun targets");
         
         Status st;
         TF_SessionPRun(
             session_,
             handle.get(),
-            input_ops.data(), input_vals.data(), static_cast<int>(feeds.size()),
-            output_ops.data(), output_vals.data(), static_cast<int>(fetches.size()),
-            target_ops.data(), static_cast<int>(targets.size()),
+            input_ops.data(), input_vals.data(), num_inputs,
+            output_ops.data(), output_vals.data(), num_outputs,
+            target_ops.data(), num_targets,
             st.get());
-        
-        if (!st.ok()) {
-            for (auto* t : output_vals) {
+
+        struct TensorDeleter {
+            void operator()(TF_Tensor* t) const noexcept {
                 if (t) TF_DeleteTensor(t);
             }
-            st.throw_if_error("TF_SessionPRun");
-        }
-        
-        std::vector<Tensor> results;
-        results.reserve(fetches.size());
+        };
+        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+
+        std::vector<RawTensorPtr> owned;
+        owned.reserve(output_vals.size());
         for (auto* t : output_vals) {
-            results.push_back(Tensor::FromRaw(t));
+            owned.emplace_back(t);
         }
-        
+
+        st.throw_if_error("TF_SessionPRun");
+
+        for (std::size_t i = 0; i < owned.size(); ++i) {
+            if (!owned[i]) {
+                throw std::runtime_error(tf_wrap::detail::format(
+                    "TF_SessionPRun: fetch '{}' returned null tensor",
+                    fetches[i].op_name));
+            }
+        }
+
+        std::vector<Tensor> results;
+        results.reserve(owned.size());
+        for (auto& p : owned) {
+            results.push_back(Tensor::FromRaw(p.release()));
+        }
+
         return results;
     }
     
@@ -609,7 +650,9 @@ public:
     // ─────────────────────────────────────────────────────────────────
     
     [[nodiscard]] TF_Session* handle() const noexcept { return session_; }
-    [[nodiscard]] TF_Graph* graph_handle() const noexcept { return graph_handle_; }
+    [[nodiscard]] TF_Graph* graph_handle() const noexcept {
+        return graph_state_ ? graph_state_->graph : nullptr;
+    }
     [[nodiscard]] bool valid() const noexcept { return session_ != nullptr; }
     
     // ─────────────────────────────────────────────────────────────────
@@ -635,7 +678,7 @@ public:
             nullptr,
             export_dir.c_str(),
             tag_ptrs.data(),
-            static_cast<int>(tags.size()),
+            detail::checked_int(tags.size(), "Session::LoadSavedModel tags"),
             graph.handle(),
             nullptr,
             st.get());
@@ -646,14 +689,14 @@ public:
         
         Session session;
         session.session_ = raw_session;
-        session.graph_handle_ = graph.handle();
+        session.graph_state_ = graph.share_state();
         
         return {std::move(session), std::move(graph)};
     }
 
 private:
     TF_Session* session_{nullptr};
-    TF_Graph* graph_handle_{nullptr};
+    std::shared_ptr<detail::GraphState> graph_state_{};
     
     Session() = default;
     
@@ -668,7 +711,7 @@ private:
         }
         
         session_ = nullptr;
-        graph_handle_ = nullptr;
+        graph_state_.reset();
     }
 };
 
