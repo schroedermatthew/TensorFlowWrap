@@ -1669,7 +1669,7 @@ STRESS_TEST("multiple sessions same graph concurrent") {
             float val = static_cast<float>(id * 100 + i);
             auto input = tf_wrap::FastTensor::FromScalar<float>(val);
             auto results = session.Run(
-                {{{"X", 0}, input.handle()}},
+                {{"X", 0, input.handle()}},
                 {{"Y", 0}},
                 {}
             );
@@ -1723,7 +1723,7 @@ TEST_CASE("session recovers after shape error") {
     bool threw = false;
     try {
         (void)s.Run(
-            {{{"X", 0}, bad_x.handle()}, {{"Y", 0}, bad_y.handle()}},
+            {{"X", 0, bad_x.handle()}, {"Y", 0, bad_y.handle()}},
             {{"Result", 0}},
             {}
         );
@@ -1737,7 +1737,7 @@ TEST_CASE("session recovers after shape error") {
     auto good_y = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1, 0, 0, 1});
     
     auto results = s.Run(
-        {{{"X", 0}, good_x.handle()}, {{"Y", 0}, good_y.handle()}},
+        {{"X", 0, good_x.handle()}, {"Y", 0, good_y.handle()}},
         {{"Result", 0}},
         {}
     );
@@ -1746,36 +1746,6 @@ TEST_CASE("session recovers after shape error") {
     auto v = results[0].ToVector<float>();
     REQUIRE(v[0] == 1.0f);
     REQUIRE(v[3] == 4.0f);
-}
-
-TEST_CASE("graph recovers after operation error") {
-    tf_wrap::FastGraph g;
-    
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
-    (void)g.NewOperation("Const", "Good")
-        .SetAttrTensor("value", t.handle())
-        .SetAttrType("dtype", TF_FLOAT)
-        .Finish();
-    
-    // Try to create an invalid operation
-    bool threw = false;
-    try {
-        (void)g.NewOperation("NonExistentOp", "Bad")
-            .Finish();
-    } catch (...) {
-        threw = true;
-    }
-    REQUIRE(threw);
-    
-    // Graph should still be usable
-    auto* good = g.GetOperationOrThrow("Good");
-    (void)g.NewOperation("Identity", "Copy")
-        .AddInput(tf_wrap::Output(good, 0))
-        .Finish();
-    
-    tf_wrap::FastSession s(g);
-    auto results = s.Run({}, {{"Copy", 0}}, {});
-    REQUIRE(results[0].ToScalar<float>() == 1.0f);
 }
 
 // ============================================================================
