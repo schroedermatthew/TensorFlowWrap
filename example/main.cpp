@@ -3,12 +3,11 @@
 //
 // This example shows:
 // 1. Basic graph construction and execution
-// 2. Thread-safe tensor access with views
+// 2. Tensor views and lifetime safety
 // 3. Multi-threaded session execution
-// 4. SharedMutex for concurrent reads
-// 5. Callback-based access
-// 6. Error handling
-// 7. Different tensor factories
+// 4. Callback-based access
+// 5. Error handling
+// 6. Different tensor factories
 
 #include "tf_wrap/all.hpp"
 
@@ -29,14 +28,14 @@ void example_basic() {
     std::cout << "=== Example 1: Basic Graph Construction ===\n";
     
     // Create a simple graph: Const -> Identity
-    tf_wrap::Graph<> graph;
+    tf_wrap::Graph graph;
     
     // Create a constant tensor [1, 8] with value 0.5
     std::vector<std::int64_t> shape = {1, 8};
     std::vector<float> values(8, 0.5f);
-    auto const_tensor = tf_wrap::Tensor<>::FromVector<float>(shape, values);
+    auto const_tensor = tf_wrap::Tensor::FromVector<float>(shape, values);
     
-    // Add Const operation - using rvalue chaining (no std::move needed!)
+    // Add Const operation - using rvalue chaining
     auto const_op = graph.NewOperation("Const", "my_constant")
         .SetAttrTensor("value", const_tensor.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -48,8 +47,8 @@ void example_basic() {
         .Finish();
     
     // Create session and run
-    tf_wrap::Session<> session(graph);
-    auto result = session.Run(tf_wrap::Fetch{"output", 0});
+    tf_wrap::Session session(graph);
+    auto result = session.Run("output", 0);
     
     // Access results safely
     auto view = result.read<float>();
@@ -61,18 +60,18 @@ void example_basic() {
 }
 
 // ============================================================================
-// Example 2: Thread-safe session with Mutex policy
+// Example 2: Multi-threaded session execution
 // ============================================================================
 
 void example_threaded_session() {
     std::cout << "=== Example 2: Multi-threaded Session ===\n";
     
     // Build graph (single-threaded)
-    tf_wrap::Graph<> graph;
+    tf_wrap::Graph graph;
     
     std::vector<std::int64_t> shape = {1, 4};
     std::vector<float> values = {1.0f, 2.0f, 3.0f, 4.0f};
-    auto tensor = tf_wrap::Tensor<>::FromVector<float>(shape, values);
+    auto tensor = tf_wrap::Tensor::FromVector<float>(shape, values);
     
     auto const_op = graph.NewOperation("Const", "data")
         .SetAttrTensor("value", tensor.handle())
@@ -83,8 +82,8 @@ void example_threaded_session() {
         .AddInput(const_op, 0)
         .Finish();
     
-    // Thread-safe session with Mutex policy
-    tf_wrap::Session<tf_wrap::policy::Mutex> session(graph);
+    // Session::Run() is thread-safe (TensorFlow's guarantee)
+    tf_wrap::Session session(graph);
     
     std::atomic<int> total_runs{0};
     constexpr int num_threads = 4;
@@ -94,14 +93,15 @@ void example_threaded_session() {
     for (int i = 0; i < num_threads; ++i) {
         workers.emplace_back([&session, &total_runs, i]() {
             for (int j = 0; j < runs_per_thread; ++j) {
-                auto result = session.Run(tf_wrap::Fetch{"result", 0});
+                auto result = session.Run("result", 0);
                 
                 auto view = result.read<float>();
                 float sum = std::accumulate(view.begin(), view.end(), 0.0f);
                 
+                if (j == 0) {
+                    std::cout << "  Thread " << i << " got sum: " << sum << "\n";
+                }
                 ++total_runs;
-                std::cout << "Thread " << i << " run " << j 
-                          << ": sum = " << sum << "\n";
             }
         });
     }
@@ -110,208 +110,205 @@ void example_threaded_session() {
         t.join();
     }
     
-    std::cout << "Total runs completed: " << total_runs << "\n\n";
+    std::cout << "Total successful runs: " << total_runs << "\n\n";
 }
 
 // ============================================================================
-// Example 3: SharedMutex for concurrent tensor reads
+// Example 3: Tensor view lifetime safety
 // ============================================================================
 
-void example_shared_tensor() {
-    std::cout << "=== Example 3: SharedMutex Concurrent Reads ===\n";
+void example_view_lifetime() {
+    std::cout << "=== Example 3: View Lifetime Safety ===\n";
     
-    // Create tensor with SharedMutex policy
-    std::vector<std::int64_t> shape = {1000};
-    std::vector<float> data(1000);
-    std::iota(data.begin(), data.end(), 0.0f);
+    // Views keep tensor data alive even after Tensor object is destroyed
+    tf_wrap::Tensor::ReadView<float> view;
     
-    tf_wrap::Tensor<tf_wrap::policy::SharedMutex> tensor = 
-        tf_wrap::Tensor<tf_wrap::policy::SharedMutex>::FromVector<float>(shape, data);
-    
-    std::atomic<int> max_concurrent{0};
-    std::atomic<int> current_readers{0};
-    
-    auto reader = [&]() {
-        for (int i = 0; i < 20; ++i) {
-            auto view = tensor.read<float>();  // Shared lock
-            
-            int n = ++current_readers;
-            max_concurrent = std::max(max_concurrent.load(), n);
-            
-            // Simulate work - iterate over first 100 elements manually
-            float sum = 0;
-            std::size_t count = std::min(view.size(), std::size_t{100});
-            for (std::size_t i = 0; i < count; ++i) sum += view[i];
-            (void)sum;
-            
-            std::this_thread::sleep_for(std::chrono::microseconds(50));
-            --current_readers;
-        }
-    };
-    
-    std::thread t1(reader), t2(reader), t3(reader), t4(reader);
-    t1.join(); t2.join(); t3.join(); t4.join();
-    
-    std::cout << "Max concurrent readers: " << max_concurrent 
-              << " (should be > 1 with SharedMutex)\n\n";
-}
-
-// ============================================================================
-// Example 4: Write view for safe mutation
-// ============================================================================
-
-void example_write_view() {
-    std::cout << "=== Example 4: Write View ===\n";
-    
-    std::vector<std::int64_t> shape = {8};
-    auto tensor = tf_wrap::Tensor<tf_wrap::policy::Mutex>::Zeros<float>(shape);
-    
-    std::cout << "Before: ";
     {
-        auto view = tensor.read<float>();
-        for (float x : view) std::cout << x << " ";
-    }
-    std::cout << "\n";
+        auto tensor = tf_wrap::Tensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
+        view = tensor.read<float>();
+        std::cout << "  Inside scope, tensor exists\n";
+    }  // tensor destroyed here
     
-    // Write using exclusive lock
-    {
-        auto view = tensor.write<float>();
-        for (std::size_t i = 0; i < view.size(); ++i) {
-            view[i] = static_cast<float>(i * i);
-        }
-    }  // Lock released
-    
-    std::cout << "After:  ";
-    {
-        auto view = tensor.read<float>();
-        for (float x : view) std::cout << x << " ";
+    // View still valid - it holds shared_ptr to TensorState
+    std::cout << "  Outside scope, view data: ";
+    for (float x : view) {
+        std::cout << x << " ";
     }
     std::cout << "\n\n";
 }
 
 // ============================================================================
-// Example 5: Callback-based access
+// Example 4: Callback-based access
 // ============================================================================
 
-void example_callbacks() {
-    std::cout << "=== Example 5: Callback-based Access ===\n";
+void example_callback() {
+    std::cout << "=== Example 4: Callback-based Access ===\n";
     
-    std::vector<std::int64_t> shape = {5};
-    std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+    std::vector<std::int64_t> shape = {100};
+    std::vector<float> data(100);
+    std::iota(data.begin(), data.end(), 0.0f);  // 0, 1, 2, ..., 99
     
-    tf_wrap::SafeTensor tensor = tf_wrap::SafeTensor::FromVector<float>(shape, data);
+    auto tensor = tf_wrap::Tensor::FromVector<float>(shape, data);
     
-    // Read with callback
-    float sum = tensor.with_read<float>([](std::span<const float> s) {
-        return std::accumulate(s.begin(), s.end(), 0.0f);
-    });
-    std::cout << "Sum: " << sum << "\n";
-    
-    // Write with callback
-    tensor.with_write<float>([](std::span<float> s) {
-        for (float& x : s) x *= 2.0f;
+    // Callback receives a span - scope is clear
+    float sum = tensor.with_read<float>([](std::span<const float> data) {
+        return std::accumulate(data.begin(), data.end(), 0.0f);
     });
     
-    // Verify
-    float new_sum = tensor.with_read<float>([](std::span<const float> s) {
-        return std::accumulate(s.begin(), s.end(), 0.0f);
+    std::cout << "  Sum of 0..99: " << sum << " (expected: 4950)\n";
+    
+    // Mutation with callback
+    tensor.with_write<float>([](std::span<float> data) {
+        for (float& x : data) {
+            x *= 2.0f;  // Double all values
+        }
     });
-    std::cout << "Sum after doubling: " << new_sum << "\n\n";
+    
+    float new_sum = tensor.with_read<float>([](std::span<const float> data) {
+        return std::accumulate(data.begin(), data.end(), 0.0f);
+    });
+    
+    std::cout << "  After doubling: " << new_sum << " (expected: 9900)\n\n";
 }
 
 // ============================================================================
-// Example 6: Different tensor factories
+// Example 5: Tensor factories
 // ============================================================================
 
 void example_factories() {
-    std::cout << "=== Example 6: Tensor Factories ===\n";
+    std::cout << "=== Example 5: Tensor Factories ===\n";
     
-    // FromVector
-    auto t1 = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1, 2, 3, 4});
-    std::cout << "FromVector: shape=[" << t1.shape()[0] << "," << t1.shape()[1] 
-              << "], dtype=" << t1.dtype_name() << "\n";
+    // FromVector - most common for initializing with data
+    auto t1 = tf_wrap::Tensor::FromVector<float>({2, 2}, {1, 2, 3, 4});
+    std::cout << "  FromVector: " << t1.num_elements() << " elements, dtype=" 
+              << t1.dtype_name() << "\n";
     
-    // FromScalar
-    auto t2 = tf_wrap::FastTensor::FromScalar<double>(3.14159);
-    std::cout << "FromScalar: value=" << t2.read<double>()[0] 
-              << ", dtype=" << t2.dtype_name() << "\n";
+    // FromScalar - for single values
+    auto t2 = tf_wrap::Tensor::FromScalar<double>(3.14159);
+    std::cout << "  FromScalar: " << t2.ToScalar<double>() << "\n";
     
-    // Allocate (uninitialized)
-    auto t3 = tf_wrap::FastTensor::Allocate<std::int32_t>({100});
-    std::cout << "Allocate: " << t3.num_elements() << " elements, "
-              << t3.byte_size() << " bytes\n";
+    // Allocate - uninitialized (faster when you'll overwrite)
+    auto t3 = tf_wrap::Tensor::Allocate<std::int32_t>({100});
+    std::cout << "  Allocate: " << t3.byte_size() << " bytes\n";
     
-    // Zeros
-    auto t4 = tf_wrap::FastTensor::Zeros<float>({3, 3});
-    bool all_zero = t4.with_read<float>([](std::span<const float> s) {
-        return std::all_of(s.begin(), s.end(), [](float x) { return x == 0.0f; });
-    });
-    std::cout << "Zeros: all zero = " << std::boolalpha << all_zero << "\n\n";
+    // Zeros - initialized to zero
+    auto t4 = tf_wrap::Tensor::Zeros<float>({3, 3});
+    auto view = t4.read<float>();
+    bool all_zero = std::all_of(view.begin(), view.end(), 
+                                 [](float x) { return x == 0.0f; });
+    std::cout << "  Zeros: all zeros = " << (all_zero ? "yes" : "no") << "\n";
+    
+    // Clone - deep copy
+    auto t5 = t1.Clone();
+    std::cout << "  Clone: " << t5.num_elements() << " elements (copy of t1)\n\n";
 }
 
 // ============================================================================
-// Example 7: Error handling
+// Example 6: Error handling
 // ============================================================================
 
 void example_errors() {
-    std::cout << "=== Example 7: Error Handling ===\n";
+    std::cout << "=== Example 6: Error Handling ===\n";
     
-    auto tensor = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto tensor = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
-    // Type mismatch
+    // Type mismatch throws
     try {
-        (void)tensor.read<double>();
-        std::cout << "This should not print\n";
+        auto view = tensor.read<int>();  // Wrong type!
     } catch (const std::runtime_error& e) {
-        std::cout << "Caught dtype error: " << e.what() << "\n";
+        std::cout << "  Caught type mismatch: " << e.what() << "\n";
     }
     
-    // Null tensor
+    // Null tensor throws
     try {
-        (void)tf_wrap::FastTensor::FromRaw(nullptr);
-        std::cout << "This should not print\n";
+        (void)tf_wrap::Tensor::FromRaw(nullptr);
     } catch (const std::invalid_argument& e) {
-        std::cout << "Caught null error: " << e.what() << "\n";
+        std::cout << "  Caught null tensor: " << e.what() << "\n";
     }
     
-    // Dimension mismatch
+    // Shape mismatch throws
     try {
-        (void)tf_wrap::FastTensor::FromVector<float>({2, 3}, {1, 2, 3});  // Need 6, got 3
-        std::cout << "This should not print\n";
+        (void)tf_wrap::Tensor::FromVector<float>({2, 3}, {1, 2, 3});  // Need 6, got 3
     } catch (const std::invalid_argument& e) {
-        std::cout << "Caught dimension error (truncated): " 
-                  << std::string(e.what()).substr(0, 60) << "...\n";
+        std::cout << "  Caught shape mismatch: " << e.what() << "\n";
     }
     
     std::cout << "\n";
 }
 
 // ============================================================================
-// Example 8: Graph with different policies
+// Example 7: Graph with multiple operations
 // ============================================================================
 
-void example_graph_policies() {
-    std::cout << "=== Example 8: Graph Policy Flexibility ===\n";
+void example_complex_graph() {
+    std::cout << "=== Example 7: Complex Graph ===\n";
     
-    // Graph with SharedMutex
-    tf_wrap::SharedGraph graph;
+    tf_wrap::Graph graph;
     
-    auto tensor = tf_wrap::FastTensor::FromScalar<float>(42.0f);
+    auto tensor = tf_wrap::Tensor::FromScalar<float>(42.0f);
     
-    auto const_op = graph.NewOperation("Const", "answer")
+    // Build: Const(42) -> Add(x, x) -> Identity
+    auto const_op = graph.NewOperation("Const", "x")
         .SetAttrTensor("value", tensor.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    (void)graph.NewOperation("Identity", "out")
+    auto add_op = graph.NewOperation("AddV2", "doubled")
+        .AddInput(const_op, 0)
+        .AddInput(const_op, 0)  // x + x
+        .SetAttrType("T", TF_FLOAT)
+        .Finish();
+    
+    (void)graph.NewOperation("Identity", "output")
+        .AddInput(add_op, 0)
+        .Finish();
+    
+    // Run multiple times
+    tf_wrap::Session session(graph);
+    
+    for (int i = 0; i < 3; ++i) {
+        auto result = session.Run("output", 0);
+        std::cout << "  Run " << i << ": " << result.ToScalar<float>() 
+                  << " (expected: 84)\n";
+    }
+    
+    std::cout << "\n";
+}
+
+// ============================================================================
+// Example 8: Device enumeration
+// ============================================================================
+
+void example_devices() {
+    std::cout << "=== Example 8: Device Enumeration ===\n";
+    
+    tf_wrap::Graph graph;
+    auto tensor = tf_wrap::Tensor::FromScalar<float>(1.0f);
+    
+    auto const_op = graph.NewOperation("Const", "x")
+        .SetAttrTensor("value", tensor.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+    
+    (void)graph.NewOperation("Identity", "y")
         .AddInput(const_op, 0)
         .Finish();
     
-    // Session with Mutex, Graph with SharedMutex - different policies OK!
-    tf_wrap::SafeSession session(graph);
+    tf_wrap::Session session(graph);
     
-    auto result = session.Run("out");
-    std::cout << "Result: " << result.read<float>()[0] << "\n\n";
+    auto devices = session.ListDevices();
+    std::cout << "  Available devices: " << devices.count() << "\n";
+    
+    for (int i = 0; i < devices.count(); ++i) {
+        auto dev = devices.at(i);
+        std::cout << "    " << dev.name << " (" << dev.type << ")";
+        if (dev.memory_bytes > 0) {
+            std::cout << " - " << (dev.memory_bytes / 1024 / 1024) << " MB";
+        }
+        std::cout << "\n";
+    }
+    
+    std::cout << "  Has GPU: " << (session.HasGPU() ? "yes" : "no") << "\n\n";
 }
 
 // ============================================================================
@@ -319,25 +316,23 @@ void example_graph_policies() {
 // ============================================================================
 
 int main() {
+    std::cout << "TensorFlow C++20 Wrapper Examples\n";
+    std::cout << "==================================\n\n";
+    
     try {
-        std::cout << "╔══════════════════════════════════════════════════════════╗\n";
-        std::cout << "║     TensorFlow C++20 Wrapper - Merged Implementation     ║\n";
-        std::cout << "╚══════════════════════════════════════════════════════════╝\n\n";
-        
         example_basic();
         example_threaded_session();
-        example_shared_tensor();
-        example_write_view();
-        example_callbacks();
+        example_view_lifetime();
+        example_callback();
         example_factories();
         example_errors();
-        example_graph_policies();
+        example_complex_graph();
+        example_devices();
         
-        std::cout << "✓ All examples completed successfully!\n";
+        std::cout << "All examples completed successfully!\n";
         return 0;
-        
     } catch (const std::exception& e) {
-        std::cerr << "✗ Fatal error: " << e.what() << "\n";
+        std::cerr << "FATAL ERROR: " << e.what() << "\n";
         return 1;
     }
 }

@@ -10,9 +10,9 @@
 // Usage:
 //   using namespace tf_wrap::ops;
 //   
-//   FastGraph graph;
-//   auto t1 = FastTensor::FromScalar<float>(1.0f);
-//   auto t2 = FastTensor::FromScalar<float>(2.0f);
+//   Graph graph;
+//   auto t1 = Tensor::FromScalar<float>(1.0f);
+//   auto t2 = Tensor::FromScalar<float>(2.0f);
 //   
 //   auto c1 = Const(graph, "c1", t1.handle(), TF_FLOAT);
 //   auto c2 = Const(graph, "c2", t2.handle(), TF_FLOAT);
@@ -83,9 +83,9 @@ private:
 // ============================================================================
 
 /// Returns x + y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Add(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -99,9 +99,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x + y element-wise (with broadcasting)
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult AddV2(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -115,9 +115,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x - y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Sub(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -131,9 +131,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x * y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Mul(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -147,9 +147,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x / y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Div(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -163,9 +163,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x / y element-wise for real types
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult RealDiv(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -179,9 +179,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns floor(x / y) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult FloorDiv(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -195,9 +195,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x % y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Mod(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -211,9 +211,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x^y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Pow(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -227,9 +227,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns max(x, y) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Maximum(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -243,9 +243,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns min(x, y) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Minimum(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -259,9 +259,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns -x element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Neg(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -273,9 +273,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns |x| element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Abs(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -287,9 +287,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns sign of x element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Sign(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -301,9 +301,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns 1/x element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Reciprocal(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -315,9 +315,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x^2 element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Square(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -329,9 +329,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns sqrt(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Sqrt(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -343,9 +343,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns 1/sqrt(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Rsqrt(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -357,9 +357,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns e^x element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Exp(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -371,9 +371,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns e^x - 1 element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Expm1(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -385,9 +385,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns ln(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Log(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -399,9 +399,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns ln(1 + x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Log1p(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -413,9 +413,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns sin(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Sin(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -427,9 +427,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns cos(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Cos(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -441,9 +441,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns tan(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Tan(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -455,9 +455,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns asin(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Asin(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -469,9 +469,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns acos(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Acos(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -483,9 +483,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns atan(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Atan(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -497,9 +497,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns sinh(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Sinh(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -511,9 +511,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns cosh(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Cosh(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -525,9 +525,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns tanh(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Tanh(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -539,9 +539,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns ceil(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Ceil(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -553,9 +553,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns floor(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Floor(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -567,9 +567,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns round(x) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Round(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -581,9 +581,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns round to nearest integer element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Rint(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -595,9 +595,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns 1/(1+e^(-x)) element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Sigmoid(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -614,9 +614,9 @@ template<typename GraphPolicy>
 // ============================================================================
 
 /// Matrix multiplication
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult MatMul(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output a,
     TF_Output b,
@@ -630,9 +630,9 @@ template<typename GraphPolicy>
 }
 
 /// Batched matrix multiplication
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult BatchMatMul(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -646,9 +646,9 @@ template<typename GraphPolicy>
 }
 
 /// Batched matrix multiplication with broadcasting
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult BatchMatMulV2(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -662,9 +662,9 @@ template<typename GraphPolicy>
 }
 
 /// Permutes dimensions according to perm
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Transpose(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output perm,
@@ -680,9 +680,9 @@ template<typename GraphPolicy>
 }
 
 /// Matrix inverse
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult MatrixInverse(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T) {
@@ -694,9 +694,9 @@ template<typename GraphPolicy>
 }
 
 /// Matrix determinant
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult MatrixDeterminant(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T) {
@@ -708,9 +708,9 @@ template<typename GraphPolicy>
 }
 
 /// Cholesky decomposition
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Cholesky(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T) {
@@ -722,9 +722,9 @@ template<typename GraphPolicy>
 }
 
 /// QR decomposition
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Qr(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T) {
@@ -736,9 +736,9 @@ template<typename GraphPolicy>
 }
 
 /// SVD decomposition
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Svd(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T) {
@@ -750,9 +750,9 @@ template<typename GraphPolicy>
 }
 
 /// Einstein summation
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Einsum(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     std::span<const TF_Output> inputs,
     std::string_view equation,
@@ -773,9 +773,9 @@ template<typename GraphPolicy>
 // ============================================================================
 
 /// Sum along axis
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Sum(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output axis,
@@ -791,9 +791,9 @@ template<typename GraphPolicy>
 }
 
 /// Product along axis
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Prod(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output axis,
@@ -809,9 +809,9 @@ template<typename GraphPolicy>
 }
 
 /// Mean along axis
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Mean(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output axis,
@@ -827,9 +827,9 @@ template<typename GraphPolicy>
 }
 
 /// Maximum along axis
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Max(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output axis,
@@ -845,9 +845,9 @@ template<typename GraphPolicy>
 }
 
 /// Minimum along axis
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Min(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output axis,
@@ -863,9 +863,9 @@ template<typename GraphPolicy>
 }
 
 /// Logical AND along axis
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult All(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output axis,
@@ -879,9 +879,9 @@ template<typename GraphPolicy>
 }
 
 /// Logical OR along axis
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Any(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output axis,
@@ -895,9 +895,9 @@ template<typename GraphPolicy>
 }
 
 /// Index of maximum along axis
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ArgMax(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output axis,
@@ -915,9 +915,9 @@ template<typename GraphPolicy>
 }
 
 /// Index of minimum along axis
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ArgMin(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output axis,
@@ -940,9 +940,9 @@ template<typename GraphPolicy>
 // ============================================================================
 
 /// Returns x == y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Equal(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -956,9 +956,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x != y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult NotEqual(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -972,9 +972,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x < y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Less(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -988,9 +988,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x <= y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult LessEqual(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -1004,9 +1004,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x > y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Greater(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -1020,9 +1020,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x >= y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult GreaterEqual(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y,
@@ -1036,9 +1036,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x AND y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult LogicalAnd(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y) {
@@ -1050,9 +1050,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns x OR y element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult LogicalOr(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output y) {
@@ -1064,9 +1064,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns NOT x element-wise
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult LogicalNot(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x) {
     return OpResult(graph.NewOperation("LogicalNot", std::string(name)).AddInput(x).Finish());
@@ -1078,9 +1078,9 @@ template<typename GraphPolicy>
 // ============================================================================
 
 /// ReLU activation: max(0, x)
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Relu(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output features,
     TF_DataType T) {
@@ -1092,9 +1092,9 @@ template<typename GraphPolicy>
 }
 
 /// ReLU6 activation: min(max(0, x), 6)
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Relu6(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output features,
     TF_DataType T) {
@@ -1106,9 +1106,9 @@ template<typename GraphPolicy>
 }
 
 /// Leaky ReLU activation
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult LeakyRelu(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output features,
     TF_DataType T) {
@@ -1120,9 +1120,9 @@ template<typename GraphPolicy>
 }
 
 /// ELU activation
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Elu(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output features,
     TF_DataType T) {
@@ -1134,9 +1134,9 @@ template<typename GraphPolicy>
 }
 
 /// SELU activation
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Selu(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output features,
     TF_DataType T) {
@@ -1148,9 +1148,9 @@ template<typename GraphPolicy>
 }
 
 /// Softmax activation
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Softmax(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output logits,
     TF_DataType T) {
@@ -1162,9 +1162,9 @@ template<typename GraphPolicy>
 }
 
 /// Log-softmax activation
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult LogSoftmax(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output logits,
     TF_DataType T) {
@@ -1176,9 +1176,9 @@ template<typename GraphPolicy>
 }
 
 /// Softplus activation: ln(1 + e^x)
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Softplus(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output features,
     TF_DataType T) {
@@ -1190,9 +1190,9 @@ template<typename GraphPolicy>
 }
 
 /// Softsign activation: x / (|x| + 1)
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Softsign(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output features,
     TF_DataType T) {
@@ -1204,9 +1204,9 @@ template<typename GraphPolicy>
 }
 
 /// Adds bias to value
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult BiasAdd(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output value,
     TF_Output bias,
@@ -1220,9 +1220,9 @@ template<typename GraphPolicy>
 }
 
 /// 2D convolution
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Conv2D(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output filter,
@@ -1240,9 +1240,9 @@ template<typename GraphPolicy>
 }
 
 /// Conv2D input gradient (transposed convolution)
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Conv2DBackpropInput(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input_sizes,
     TF_Output filter,
@@ -1262,9 +1262,9 @@ template<typename GraphPolicy>
 }
 
 /// Depthwise 2D convolution
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult DepthwiseConv2dNative(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output filter,
@@ -1282,9 +1282,9 @@ template<typename GraphPolicy>
 }
 
 /// Max pooling
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult MaxPool(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T,
@@ -1302,9 +1302,9 @@ template<typename GraphPolicy>
 }
 
 /// Average pooling
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult AvgPool(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output value,
     TF_DataType T,
@@ -1322,9 +1322,9 @@ template<typename GraphPolicy>
 }
 
 /// 3D max pooling
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult MaxPool3D(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T,
@@ -1342,9 +1342,9 @@ template<typename GraphPolicy>
 }
 
 /// 3D average pooling
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult AvgPool3D(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T,
@@ -1362,9 +1362,9 @@ template<typename GraphPolicy>
 }
 
 /// Fused batch normalization
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult FusedBatchNorm(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output scale,
@@ -1384,9 +1384,9 @@ template<typename GraphPolicy>
 }
 
 /// Fused batch normalization V3
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult FusedBatchNormV3(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_Output scale,
@@ -1408,9 +1408,9 @@ template<typename GraphPolicy>
 }
 
 /// Local response normalization
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult LRN(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T) {
@@ -1434,9 +1434,9 @@ template<typename GraphPolicy>
 // Or use Select() with a random boolean mask and zeros.
 
 /// Softmax cross entropy loss
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult SoftmaxCrossEntropyWithLogits(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output features,
     TF_Output labels,
@@ -1450,9 +1450,9 @@ template<typename GraphPolicy>
 }
 
 /// Sparse softmax cross entropy loss
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult SparseSoftmaxCrossEntropyWithLogits(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output features,
     TF_Output labels,
@@ -1473,9 +1473,9 @@ template<typename GraphPolicy>
 // ============================================================================
 
 /// Constant tensor
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Const(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Tensor* value,
     TF_DataType dtype) {
@@ -1487,9 +1487,9 @@ template<typename GraphPolicy>
 }
 
 /// Placeholder for feeding data
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Placeholder(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_DataType dtype,
     std::span<const int64_t> shape) {
@@ -1501,9 +1501,9 @@ template<typename GraphPolicy>
 }
 
 /// Identity function
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Identity(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T) {
@@ -1515,18 +1515,18 @@ template<typename GraphPolicy>
 }
 
 /// Identity for multiple tensors
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult IdentityN(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     std::span<const TF_Output> input) {
     return OpResult(graph.NewOperation("IdentityN", std::string(name)).AddInputList(input).Finish());
 }
 
 /// Reshape tensor
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Reshape(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output tensor,
     TF_Output shape,
@@ -1542,9 +1542,9 @@ template<typename GraphPolicy>
 }
 
 /// Remove size-1 dimensions
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Squeeze(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T) {
@@ -1556,9 +1556,9 @@ template<typename GraphPolicy>
 }
 
 /// Insert dimension of size 1
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ExpandDims(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output axis,
@@ -1574,9 +1574,9 @@ template<typename GraphPolicy>
 }
 
 /// Concatenate tensors
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Concat(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output concat_dim,
     std::span<const TF_Output> values,
@@ -1592,9 +1592,9 @@ template<typename GraphPolicy>
 }
 
 /// Concatenate tensors V2
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ConcatV2(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     std::span<const TF_Output> values,
     TF_Output axis,
@@ -1612,9 +1612,9 @@ template<typename GraphPolicy>
 }
 
 /// Split tensor into subtensors
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Split(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output split_dim,
     TF_Output value,
@@ -1630,9 +1630,9 @@ template<typename GraphPolicy>
 }
 
 /// Split tensor with variable sizes
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult SplitV(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output value,
     TF_Output size_splits,
@@ -1652,9 +1652,9 @@ template<typename GraphPolicy>
 }
 
 /// Slice from tensor
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Slice(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output begin,
@@ -1672,9 +1672,9 @@ template<typename GraphPolicy>
 }
 
 /// Strided slice from tensor
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult StridedSlice(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output begin,
@@ -1694,9 +1694,9 @@ template<typename GraphPolicy>
 }
 
 /// Gather slices from tensor
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Gather(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output params,
     TF_Output indices,
@@ -1712,9 +1712,9 @@ template<typename GraphPolicy>
 }
 
 /// Gather slices with axis
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult GatherV2(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output params,
     TF_Output indices,
@@ -1734,9 +1734,9 @@ template<typename GraphPolicy>
 }
 
 /// Gather slices with N-dimensional indices
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult GatherNd(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output params,
     TF_Output indices,
@@ -1752,9 +1752,9 @@ template<typename GraphPolicy>
 }
 
 /// Scatter updates into tensor
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ScatterNd(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output indices,
     TF_Output updates,
@@ -1772,9 +1772,9 @@ template<typename GraphPolicy>
 }
 
 /// Tile tensor
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Tile(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output multiples,
@@ -1790,9 +1790,9 @@ template<typename GraphPolicy>
 }
 
 /// Pad tensor with zeros
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Pad(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output paddings,
@@ -1808,9 +1808,9 @@ template<typename GraphPolicy>
 }
 
 /// Pad tensor with constant value
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult PadV2(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output paddings,
@@ -1828,9 +1828,9 @@ template<typename GraphPolicy>
 }
 
 /// Pad tensor with mirrored values
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult MirrorPad(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output paddings,
@@ -1848,9 +1848,9 @@ template<typename GraphPolicy>
 }
 
 /// Reverse tensor along axes
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ReverseV2(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output tensor,
     TF_Output axis,
@@ -1866,9 +1866,9 @@ template<typename GraphPolicy>
 }
 
 /// Stack tensors along axis (pack)
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Pack(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     std::span<const TF_Output> values,
     TF_DataType T,
@@ -1882,9 +1882,9 @@ template<typename GraphPolicy>
 }
 
 /// Unstack tensor along axis (unpack)
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Unpack(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output value,
     TF_DataType T,
@@ -1898,9 +1898,9 @@ template<typename GraphPolicy>
 }
 
 /// Get tensor shape
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Shape(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T,
@@ -1914,9 +1914,9 @@ template<typename GraphPolicy>
 }
 
 /// Get shapes of multiple tensors
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ShapeN(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     std::span<const TF_Output> input,
     TF_DataType T,
@@ -1932,9 +1932,9 @@ template<typename GraphPolicy>
 }
 
 /// Get tensor rank
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Rank(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T) {
@@ -1946,9 +1946,9 @@ template<typename GraphPolicy>
 }
 
 /// Get number of elements
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Size(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T,
@@ -1962,9 +1962,9 @@ template<typename GraphPolicy>
 }
 
 /// Fill tensor with scalar value
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Fill(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output dims,
     TF_Output value,
@@ -1990,9 +1990,9 @@ template<typename GraphPolicy>
 //    auto zeros = ZerosLike(graph, "zeros", other_tensor_output, TF_FLOAT);
 
 /// Create tensor of zeros with same shape
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ZerosLike(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -2004,9 +2004,9 @@ template<typename GraphPolicy>
 }
 
 /// Create tensor of ones with same shape
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult OnesLike(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType T) {
@@ -2018,9 +2018,9 @@ template<typename GraphPolicy>
 }
 
 /// Create range [start, limit) with delta step
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Range(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output start,
     TF_Output limit,
@@ -2036,9 +2036,9 @@ template<typename GraphPolicy>
 }
 
 /// Create linearly spaced values
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult LinSpace(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output start,
     TF_Output stop,
@@ -2056,9 +2056,9 @@ template<typename GraphPolicy>
 }
 
 /// Broadcast to shape
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult BroadcastTo(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output shape,
@@ -2074,9 +2074,9 @@ template<typename GraphPolicy>
 }
 
 /// Returns indices of true elements
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Where(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output condition,
     TF_DataType T) {
@@ -2088,9 +2088,9 @@ template<typename GraphPolicy>
 }
 
 /// Select elements based on condition
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult SelectV2(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output condition,
     TF_Output t,
@@ -2111,9 +2111,9 @@ template<typename GraphPolicy>
 // ============================================================================
 
 /// Cast tensor to different type
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Cast(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output x,
     TF_DataType SrcT,
@@ -2127,9 +2127,9 @@ template<typename GraphPolicy>
 }
 
 /// Bitcast without copying data
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Bitcast(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T,
@@ -2143,9 +2143,9 @@ template<typename GraphPolicy>
 }
 
 /// Check for NaN/Inf values
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult CheckNumerics(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output tensor,
     TF_DataType T,
@@ -2164,9 +2164,9 @@ template<typename GraphPolicy>
 // ============================================================================
 
 /// Uniform random values [0, 1)
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult RandomUniform(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output shape,
     TF_DataType dtype,
@@ -2180,9 +2180,9 @@ template<typename GraphPolicy>
 }
 
 /// Standard normal random values
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult RandomStandardNormal(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output shape,
     TF_DataType dtype,
@@ -2196,9 +2196,9 @@ template<typename GraphPolicy>
 }
 
 /// Truncated normal random values
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult TruncatedNormal(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output shape,
     TF_DataType dtype,
@@ -2212,9 +2212,9 @@ template<typename GraphPolicy>
 }
 
 /// Randomly shuffle tensor
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult RandomShuffle(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output value,
     TF_DataType T) {
@@ -2226,9 +2226,9 @@ template<typename GraphPolicy>
 }
 
 /// Draw samples from multinomial distribution
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Multinomial(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output logits,
     TF_Output num_samples,
@@ -2249,9 +2249,9 @@ template<typename GraphPolicy>
 // ============================================================================
 
 /// Resize images using bilinear interpolation
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ResizeBilinear(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output images,
     TF_Output size,
@@ -2265,9 +2265,9 @@ template<typename GraphPolicy>
 }
 
 /// Resize images using nearest neighbor
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ResizeNearestNeighbor(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output images,
     TF_Output size,
@@ -2281,9 +2281,9 @@ template<typename GraphPolicy>
 }
 
 /// Resize images using bicubic interpolation
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ResizeBicubic(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output images,
     TF_Output size,
@@ -2297,9 +2297,9 @@ template<typename GraphPolicy>
 }
 
 /// Extract and resize crops from images
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult CropAndResize(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output image,
     TF_Output boxes,
@@ -2317,9 +2317,9 @@ template<typename GraphPolicy>
 }
 
 /// Non-maximum suppression for object detection
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult NonMaxSuppression(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output boxes,
     TF_Output scores,
@@ -2333,9 +2333,9 @@ template<typename GraphPolicy>
 }
 
 /// Non-maximum suppression V3
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult NonMaxSuppressionV3(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output boxes,
     TF_Output scores,
@@ -2353,18 +2353,18 @@ template<typename GraphPolicy>
 }
 
 /// Decode JPEG image
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult DecodeJpeg(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output contents) {
     return OpResult(graph.NewOperation("DecodeJpeg", std::string(name)).AddInput(contents).Finish());
 }
 
 /// Decode PNG image
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult DecodePng(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output contents,
     TF_DataType dtype) {
@@ -2376,18 +2376,18 @@ template<typename GraphPolicy>
 }
 
 /// Encode image as JPEG
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult EncodeJpeg(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output image) {
     return OpResult(graph.NewOperation("EncodeJpeg", std::string(name)).AddInput(image).Finish());
 }
 
 /// Encode image as PNG
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult EncodePng(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output image,
     TF_DataType T) {
@@ -2404,17 +2404,17 @@ template<typename GraphPolicy>
 // ============================================================================
 
 /// No operation (placeholder)
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult NoOp(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name) {
     return OpResult(graph.NewOperation("NoOp", std::string(name)).Finish());
 }
 
 /// Stop gradient propagation
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult StopGradient(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T) {
@@ -2426,9 +2426,9 @@ template<typename GraphPolicy>
 }
 
 /// Prevent gradient propagation with message
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult PreventGradient(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_DataType T) {
@@ -2440,9 +2440,9 @@ template<typename GraphPolicy>
 }
 
 /// Print tensor values for debugging
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Print(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     std::span<const TF_Output> data,
@@ -2456,9 +2456,9 @@ template<typename GraphPolicy>
 }
 
 /// Assert condition is true
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Assert(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output condition,
     std::span<const TF_Output> data) {
@@ -2475,9 +2475,9 @@ template<typename GraphPolicy>
 // ============================================================================
 
 /// Join strings
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult StringJoin(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     std::span<const TF_Output> inputs,
     int64_t N) {
@@ -2489,9 +2489,9 @@ template<typename GraphPolicy>
 }
 
 /// Split strings
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult StringSplit(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output delimiter) {
@@ -2503,9 +2503,9 @@ template<typename GraphPolicy>
 }
 
 /// Replace regex pattern
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult RegexReplace(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output input,
     TF_Output pattern,
@@ -2524,18 +2524,18 @@ template<typename GraphPolicy>
 // ============================================================================
 
 /// Read entire file contents
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ReadFile(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output filename) {
     return OpResult(graph.NewOperation("ReadFile", std::string(name)).AddInput(filename).Finish());
 }
 
 /// Write contents to file
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult WriteFile(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output filename,
     TF_Output contents) {
@@ -2547,9 +2547,9 @@ template<typename GraphPolicy>
 }
 
 /// Find files matching pattern
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult MatchingFiles(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output pattern) {
     return OpResult(graph.NewOperation("MatchingFiles", std::string(name)).AddInput(pattern).Finish());
@@ -2561,9 +2561,9 @@ template<typename GraphPolicy>
 // ============================================================================
 
 /// Create variable
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult Variable(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     std::span<const int64_t> shape,
     TF_DataType dtype) {
@@ -2575,9 +2575,9 @@ template<typename GraphPolicy>
 }
 
 /// Create variable V2
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult VariableV2(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     std::span<const int64_t> shape,
     TF_DataType dtype) {
@@ -2589,9 +2589,9 @@ template<typename GraphPolicy>
 }
 
 /// Create variable handle
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult VarHandleOp(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_DataType dtype,
     std::span<const int64_t> shape) {
@@ -2603,9 +2603,9 @@ template<typename GraphPolicy>
 }
 
 /// Read variable value
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult ReadVariableOp(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output resource,
     TF_DataType dtype) {
@@ -2617,9 +2617,9 @@ template<typename GraphPolicy>
 }
 
 /// Assign value to variable
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult AssignVariableOp(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output resource,
     TF_Output value,
@@ -2633,9 +2633,9 @@ template<typename GraphPolicy>
 }
 
 /// Add value to variable
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult AssignAddVariableOp(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output resource,
     TF_Output value,
@@ -2649,9 +2649,9 @@ template<typename GraphPolicy>
 }
 
 /// Subtract value from variable
-template<typename GraphPolicy>
+
 [[nodiscard]] inline OpResult AssignSubVariableOp(
-    Graph<GraphPolicy>& graph,
+    Graph& graph,
     std::string_view name,
     TF_Output resource,
     TF_Output value,

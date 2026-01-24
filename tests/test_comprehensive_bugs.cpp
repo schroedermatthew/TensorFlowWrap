@@ -3,10 +3,10 @@
 //
 // This file tests:
 // - H1: Clone() race condition
-// - H2: DebugString() deadlock with SafeGraph
+// - H2: DebugString() deadlock with Graph
 // - M1: LoadSavedModel lifetime issues
 // - View lifetime safety
-// - SafeGraph/SafeTensor/SafeSession coverage
+// - Graph/Tensor/Session coverage
 //
 // Compile: g++ -std=c++20 -pthread -fsanitize=thread -I../include test_comprehensive_bugs.cpp ../third_party/tf_stub/tf_c_stub.cpp -o test_bugs
 
@@ -106,13 +106,13 @@ inline void require_throws_impl(Fn&& fn, const char* expr, const char* ex_name,
 
 BUG_DEMO_TEST("H1-BUG: Clone during concurrent write detects torn reads") {
     // This test demonstrates BUG H1: Clone() reads without lock
-    // With SharedTensor, write() takes exclusive lock but Clone() doesn't lock
+    // With Tensor, write() takes exclusive lock but Clone() doesn't lock
     
     constexpr int TENSOR_SIZE = 1000;
     
     std::vector<std::int64_t> shape = {TENSOR_SIZE};
     std::vector<float> init_data(TENSOR_SIZE, 0.0f);
-    auto tensor = tf_wrap::SharedTensor::FromVector<float>(shape, init_data);
+    auto tensor = tf_wrap::Tensor::FromVector<float>(shape, init_data);
     
     std::atomic<bool> stop{false};
     std::atomic<int> corrupted{0};
@@ -175,13 +175,13 @@ BUG_DEMO_TEST("H1-BUG: Clone during concurrent write detects torn reads") {
 }
 
 TEST_CASE("H1: Clone of empty tensor is safe") {
-    tf_wrap::SharedTensor empty;
+    tf_wrap::Tensor empty;
     auto clone = empty.Clone();
     REQUIRE(clone.empty());
 }
 
 TEST_CASE("H1: Clone preserves data correctly (single-threaded)") {
-    auto tensor = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    auto tensor = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
     auto clone = tensor.Clone();
     
     auto orig_data = tensor.ToVector<float>();
@@ -204,7 +204,7 @@ BUG_DEMO_TEST("H1-BUG: Clone race detection aggressive (longer duration)") {
     // More aggressive test with longer duration and larger tensor
     constexpr int TENSOR_SIZE = 10000;
     
-    auto tensor = tf_wrap::SharedTensor::FromVector<float>(
+    auto tensor = tf_wrap::Tensor::FromVector<float>(
         {TENSOR_SIZE}, std::vector<float>(TENSOR_SIZE, 0.0f));
     
     std::atomic<bool> stop{false};
@@ -274,15 +274,15 @@ BUG_DEMO_TEST("H1-BUG: Clone race detection aggressive (longer duration)") {
 // H2: DebugString() Deadlock Tests
 // ============================================================================
 
-BUG_DEMO_TEST("H2-BUG: SafeGraph DebugString deadlock check") {
+BUG_DEMO_TEST("H2-BUG: Graph DebugString deadlock check") {
     // This test demonstrates BUG H2: DebugString() calls num_operations()
-    // which tries to acquire the same lock -> deadlock with Mutex policy
+    // which would try to acquire the same lock if locking was enabled
     //
     // WARNING: This test WILL DEADLOCK if the bug is not fixed!
     
-    tf_wrap::SafeGraph g;  // Uses policy::Mutex
+    tf_wrap::Graph g;
     
-    auto tensor = tf_wrap::FastTensor::FromScalar<float>(42.0f);
+    auto tensor = tf_wrap::Tensor::FromScalar<float>(42.0f);
     (void)g.NewOperation("Const", "test_const")
         .SetAttrTensor("value", tensor.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -298,7 +298,7 @@ BUG_DEMO_TEST("H2-BUG: SafeGraph DebugString deadlock check") {
     if (status == std::future_status::timeout) {
         std::cout << "     DEADLOCK DETECTED (expected before fix)\n";
         // The deadlock is the bug - we detected it
-        throw std::runtime_error("Deadlock detected in SafeGraph::DebugString");
+        throw std::runtime_error("Deadlock detected in Graph::DebugString");
     } else {
         std::string result = future.get();
         REQUIRE(result.find("test_const") != std::string::npos);
@@ -307,10 +307,10 @@ BUG_DEMO_TEST("H2-BUG: SafeGraph DebugString deadlock check") {
     }
 }
 
-TEST_CASE("H2: FastGraph DebugString works (no deadlock with NoLock)") {
-    tf_wrap::FastGraph g;
+TEST_CASE("H2: Graph DebugString works (no deadlock with NoLock)") {
+    tf_wrap::Graph g;
     
-    auto tensor = tf_wrap::FastTensor::FromScalar<float>(42.0f);
+    auto tensor = tf_wrap::Tensor::FromScalar<float>(42.0f);
     (void)g.NewOperation("Const", "myconst")
         .SetAttrTensor("value", tensor.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -320,12 +320,12 @@ TEST_CASE("H2: FastGraph DebugString works (no deadlock with NoLock)") {
     REQUIRE(debug.find("myconst") != std::string::npos);
 }
 
-TEST_CASE("H2: SafeGraph num_operations standalone") {
-    tf_wrap::SafeGraph g;
+TEST_CASE("H2: Graph num_operations standalone") {
+    tf_wrap::Graph g;
     
     REQUIRE(g.num_operations() == 0);
     
-    auto tensor = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto tensor = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g.NewOperation("Const", "c1")
         .SetAttrTensor("value", tensor.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -335,14 +335,14 @@ TEST_CASE("H2: SafeGraph num_operations standalone") {
 }
 
 // ============================================================================
-// SafeGraph/SafeTensor/SafeSession Coverage
+// Graph/Tensor/Session Coverage
 // ============================================================================
 
-TEST_CASE("SafeGraph all methods work") {
-    tf_wrap::SafeGraph g;
+TEST_CASE("Graph all methods work") {
+    tf_wrap::Graph g;
     
-    auto t1 = tf_wrap::FastTensor::FromScalar<float>(1.0f);
-    auto t2 = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    auto t1 = tf_wrap::Tensor::FromScalar<float>(1.0f);
+    auto t2 = tf_wrap::Tensor::FromScalar<float>(2.0f);
     
     (void)g.NewOperation("Const", "const1")
         .SetAttrTensor("value", t1.handle())
@@ -371,8 +371,8 @@ TEST_CASE("SafeGraph all methods work") {
     REQUIRE(threw);
 }
 
-TEST_CASE("SafeTensor read/write thread safety") {
-    auto tensor = tf_wrap::SafeTensor::FromVector<float>({5}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f});
+TEST_CASE("Tensor read/write thread safety") {
+    auto tensor = tf_wrap::Tensor::FromVector<float>({5}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f});
     
     // Writer
     {
@@ -388,10 +388,10 @@ TEST_CASE("SafeTensor read/write thread safety") {
     }
 }
 
-STRESS_TEST("SafeTensor concurrent access is serialized") {
+STRESS_TEST("Tensor concurrent access is serialized") {
     std::vector<std::int64_t> shape = {100};
     std::vector<float> init_data(100, 0.0f);
-    auto tensor = tf_wrap::SafeTensor::FromVector<float>(shape, init_data);
+    auto tensor = tf_wrap::Tensor::FromVector<float>(shape, init_data);
     
     std::atomic<bool> stop{false};
     std::atomic<int> reads{0};
@@ -437,10 +437,10 @@ STRESS_TEST("SafeTensor concurrent access is serialized") {
     REQUIRE(torn == 0);
 }
 
-STRESS_TEST("SharedTensor allows concurrent readers") {
+STRESS_TEST("Tensor allows concurrent readers") {
     std::vector<std::int64_t> shape = {100};
     std::vector<float> init_data(100, 42.0f);
-    auto tensor = tf_wrap::SharedTensor::FromVector<float>(shape, init_data);
+    auto tensor = tf_wrap::Tensor::FromVector<float>(shape, init_data);
     
     std::atomic<int> max_concurrent{0};
     std::atomic<int> current_readers{0};
@@ -482,10 +482,10 @@ STRESS_TEST("SharedTensor allows concurrent readers") {
 
 TEST_CASE("View keeps tensor alive after Tensor destroyed") {
     // Create tensor in inner scope, but extract view
-    std::optional<tf_wrap::SharedTensor::ReadView<float>> opt_view;
+    std::optional<tf_wrap::Tensor::ReadView<float>> opt_view;
     
     {
-        auto tensor = tf_wrap::SharedTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+        auto tensor = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
         opt_view.emplace(tensor.read<float>());
     }  // tensor destroyed, but view keeps shared_ptr to state alive
     
@@ -498,10 +498,10 @@ TEST_CASE("View keeps tensor alive after Tensor destroyed") {
 }
 
 TEST_CASE("Write view keeps tensor alive") {
-    std::optional<tf_wrap::SharedTensor::WriteView<float>> opt_view;
+    std::optional<tf_wrap::Tensor::WriteView<float>> opt_view;
     
     {
-        auto tensor = tf_wrap::SharedTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+        auto tensor = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
         opt_view.emplace(tensor.write<float>());
     }  // tensor destroyed, but view keeps shared_ptr to state alive
     
@@ -520,8 +520,8 @@ TEST_CASE("Write view keeps tensor alive") {
 
 TEST_CASE("M1: Session and Graph structured binding") {
     // This demonstrates correct usage
-    tf_wrap::FastGraph graph;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph graph;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -537,7 +537,7 @@ TEST_CASE("M1: Session and Graph structured binding") {
 // ============================================================================
 
 TEST_CASE("L1: Empty tensor error handling consistency") {
-    tf_wrap::FastTensor empty;
+    tf_wrap::Tensor empty;
     
     // byte_size() returns 0 silently
     REQUIRE(empty.byte_size() == 0);
@@ -553,8 +553,8 @@ TEST_CASE("L1: Empty tensor error handling consistency") {
 // Additional Edge Cases
 // ============================================================================
 
-TEST_CASE("Multiple read views from same SharedTensor") {
-    auto tensor = tf_wrap::SharedTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+TEST_CASE("Multiple read views from same Tensor") {
+    auto tensor = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
     
     auto view1 = tensor.read<float>();
     auto view2 = tensor.read<float>();  // Both hold shared locks
@@ -565,7 +565,7 @@ TEST_CASE("Multiple read views from same SharedTensor") {
 }
 
 TEST_CASE("Tensor move leaves valid empty state") {
-    auto t1 = tf_wrap::FastTensor::FromScalar<float>(42.0f);
+    auto t1 = tf_wrap::Tensor::FromScalar<float>(42.0f);
     auto t2 = std::move(t1);
     
     // t1 should be in valid empty state
@@ -579,8 +579,8 @@ TEST_CASE("Tensor move leaves valid empty state") {
 }
 
 TEST_CASE("Graph move: moved-from must throw on use") {
-    tf_wrap::FastGraph g1;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph g1;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g1.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -588,7 +588,7 @@ TEST_CASE("Graph move: moved-from must throw on use") {
     
     REQUIRE(g1.num_operations() == 1);
     
-    tf_wrap::FastGraph g2 = std::move(g1);
+    tf_wrap::Graph g2 = std::move(g1);
     
     // g2 should have the operation
     REQUIRE(g2.num_operations() == 1);

@@ -34,8 +34,8 @@ static int tests_failed = 0;
 // ============================================================================
 
 TEST(math_ops_compile) {
-    tf_wrap::FastGraph graph;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph graph;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
     auto c1 = graph.NewOperation("Const", "c1")
         .SetAttrTensor("value", t.handle())
@@ -76,17 +76,17 @@ TEST(math_ops_compile) {
 }
 
 TEST(nn_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Scalar for element-wise ops
-    auto t_scalar = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto t_scalar = tf_wrap::Tensor::FromScalar<float>(1.0f);
     auto c_scalar = graph.NewOperation("Const", "c_scalar")
         .SetAttrTensor("value", t_scalar.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     // Rank-1 tensor for softmax (requires at least rank 1)
-    auto t_vec = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    auto t_vec = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
     auto c_vec = graph.NewOperation("Const", "c_vec")
         .SetAttrTensor("value", t_vec.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -113,12 +113,12 @@ TEST(nn_ops_compile) {
 }
 
 TEST(matrix_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // MatMul requires rank-2 tensors (matrices)
     // Create 2x2 matrices
-    auto t1 = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
-    auto t2 = tf_wrap::FastTensor::FromVector<float>({2, 2}, {5.0f, 6.0f, 7.0f, 8.0f});
+    auto t1 = tf_wrap::Tensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto t2 = tf_wrap::Tensor::FromVector<float>({2, 2}, {5.0f, 6.0f, 7.0f, 8.0f});
     
     auto c1 = graph.NewOperation("Const", "c1")
         .SetAttrTensor("value", t1.handle())
@@ -141,8 +141,8 @@ TEST(matrix_ops_compile) {
 }
 
 TEST(comparison_ops_compile) {
-    tf_wrap::FastGraph graph;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph graph;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
     auto c1 = graph.NewOperation("Const", "c1")
         .SetAttrTensor("value", t.handle())
@@ -176,8 +176,8 @@ TEST(comparison_ops_compile) {
 }
 
 TEST(array_ops_compile) {
-    tf_wrap::FastGraph graph;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph graph;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
@@ -199,12 +199,12 @@ TEST(array_ops_compile) {
 }
 
 TEST(reduction_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Reduction ops need tensors with valid axes
     // Use a rank-1 tensor so axis 0 is valid
-    auto t_data = tf_wrap::FastTensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
-    auto t_axis = tf_wrap::FastTensor::FromScalar<int32_t>(0);
+    auto t_data = tf_wrap::Tensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto t_axis = tf_wrap::Tensor::FromScalar<int32_t>(0);
     
     auto data = graph.NewOperation("Const", "data")
         .SetAttrTensor("value", t_data.handle())
@@ -232,8 +232,8 @@ TEST(reduction_ops_compile) {
 }
 
 TEST(opresult_properties) {
-    tf_wrap::FastGraph graph;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph graph;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
     auto c = graph.NewOperation("Const", "my_const")
         .SetAttrTensor("value", t.handle())
@@ -255,8 +255,8 @@ TEST(opresult_properties) {
 }
 
 TEST(cast_op_compile) {
-    tf_wrap::FastGraph graph;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph graph;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
@@ -273,8 +273,8 @@ TEST(cast_op_compile) {
 }
 
 TEST(control_flow_ops_compile) {
-    tf_wrap::FastGraph graph;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph graph;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
@@ -293,8 +293,8 @@ TEST(control_flow_ops_compile) {
 }
 
 TEST(trig_ops_compile) {
-    tf_wrap::FastGraph graph;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(0.5f);
+    tf_wrap::Graph graph;
+    auto t = tf_wrap::Tensor::FromScalar<float>(0.5f);
     
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
@@ -316,8 +316,8 @@ TEST(trig_ops_compile) {
 }
 
 TEST(more_math_ops_compile) {
-    tf_wrap::FastGraph graph;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(2.5f);
+    tf_wrap::Graph graph;
+    auto t = tf_wrap::Tensor::FromScalar<float>(2.5f);
     
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
@@ -342,9 +342,9 @@ TEST(more_math_ops_compile) {
 }
 
 TEST(more_binary_ops_compile) {
-    tf_wrap::FastGraph graph;
-    auto t1 = tf_wrap::FastTensor::FromScalar<float>(10.0f);
-    auto t2 = tf_wrap::FastTensor::FromScalar<float>(3.0f);
+    tf_wrap::Graph graph;
+    auto t1 = tf_wrap::Tensor::FromScalar<float>(10.0f);
+    auto t2 = tf_wrap::Tensor::FromScalar<float>(3.0f);
     
     auto c1 = graph.NewOperation("Const", "c1")
         .SetAttrTensor("value", t1.handle())
@@ -369,24 +369,24 @@ TEST(more_binary_ops_compile) {
 }
 
 TEST(array_manipulation_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Create a 2x3 tensor
-    auto t = tf_wrap::FastTensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto t = tf_wrap::Tensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     // Shape for reshape: [3, 2]
-    auto shape_t = tf_wrap::FastTensor::FromVector<int32_t>({2}, {3, 2});
+    auto shape_t = tf_wrap::Tensor::FromVector<int32_t>({2}, {3, 2});
     auto shape = graph.NewOperation("Const", "shape")
         .SetAttrTensor("value", shape_t.handle())
         .SetAttrType("dtype", TF_INT32)
         .Finish();
     
     // Axis for expand_dims
-    auto axis_t = tf_wrap::FastTensor::FromScalar<int32_t>(0);
+    auto axis_t = tf_wrap::Tensor::FromScalar<int32_t>(0);
     auto axis = graph.NewOperation("Const", "axis")
         .SetAttrTensor("value", axis_t.handle())
         .SetAttrType("dtype", TF_INT32)
@@ -404,24 +404,24 @@ TEST(array_manipulation_ops_compile) {
 }
 
 TEST(transpose_tile_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Create a 2x3 tensor
-    auto t = tf_wrap::FastTensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto t = tf_wrap::Tensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     // Perm for transpose: [1, 0]
-    auto perm_t = tf_wrap::FastTensor::FromVector<int32_t>({2}, {1, 0});
+    auto perm_t = tf_wrap::Tensor::FromVector<int32_t>({2}, {1, 0});
     auto perm = graph.NewOperation("Const", "perm")
         .SetAttrTensor("value", perm_t.handle())
         .SetAttrType("dtype", TF_INT32)
         .Finish();
     
     // Multiples for tile: [2, 1]
-    auto mult_t = tf_wrap::FastTensor::FromVector<int32_t>({2}, {2, 1});
+    auto mult_t = tf_wrap::Tensor::FromVector<int32_t>({2}, {2, 1});
     auto mult = graph.NewOperation("Const", "mult")
         .SetAttrTensor("value", mult_t.handle())
         .SetAttrType("dtype", TF_INT32)
@@ -438,38 +438,38 @@ TEST(transpose_tile_ops_compile) {
 }
 
 TEST(slice_gather_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Create a 1D tensor [0, 1, 2, 3, 4]
-    auto t = tf_wrap::FastTensor::FromVector<float>({5}, {0.0f, 1.0f, 2.0f, 3.0f, 4.0f});
+    auto t = tf_wrap::Tensor::FromVector<float>({5}, {0.0f, 1.0f, 2.0f, 3.0f, 4.0f});
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     // Begin for slice: [1]
-    auto begin_t = tf_wrap::FastTensor::FromVector<int32_t>({1}, {1});
+    auto begin_t = tf_wrap::Tensor::FromVector<int32_t>({1}, {1});
     auto begin = graph.NewOperation("Const", "begin")
         .SetAttrTensor("value", begin_t.handle())
         .SetAttrType("dtype", TF_INT32)
         .Finish();
     
     // Size for slice: [3]
-    auto size_t_tensor = tf_wrap::FastTensor::FromVector<int32_t>({1}, {3});
+    auto size_t_tensor = tf_wrap::Tensor::FromVector<int32_t>({1}, {3});
     auto size_op = graph.NewOperation("Const", "size")
         .SetAttrTensor("value", size_t_tensor.handle())
         .SetAttrType("dtype", TF_INT32)
         .Finish();
     
     // Indices for gather: [0, 2, 4]
-    auto indices_t = tf_wrap::FastTensor::FromVector<int32_t>({3}, {0, 2, 4});
+    auto indices_t = tf_wrap::Tensor::FromVector<int32_t>({3}, {0, 2, 4});
     auto indices = graph.NewOperation("Const", "indices")
         .SetAttrTensor("value", indices_t.handle())
         .SetAttrType("dtype", TF_INT32)
         .Finish();
     
     // Axis for gather
-    auto axis_t = tf_wrap::FastTensor::FromScalar<int32_t>(0);
+    auto axis_t = tf_wrap::Tensor::FromScalar<int32_t>(0);
     auto axis = graph.NewOperation("Const", "axis")
         .SetAttrTensor("value", axis_t.handle())
         .SetAttrType("dtype", TF_INT32)
@@ -488,11 +488,11 @@ TEST(slice_gather_ops_compile) {
 }
 
 TEST(concat_split_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Create two 1D tensors
-    auto t1 = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
-    auto t2 = tf_wrap::FastTensor::FromVector<float>({3}, {4.0f, 5.0f, 6.0f});
+    auto t1 = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    auto t2 = tf_wrap::Tensor::FromVector<float>({3}, {4.0f, 5.0f, 6.0f});
     
     auto c1 = graph.NewOperation("Const", "c1")
         .SetAttrTensor("value", t1.handle())
@@ -505,7 +505,7 @@ TEST(concat_split_ops_compile) {
         .Finish();
     
     // Axis for concat
-    auto axis_t = tf_wrap::FastTensor::FromScalar<int32_t>(0);
+    auto axis_t = tf_wrap::Tensor::FromScalar<int32_t>(0);
     auto axis = graph.NewOperation("Const", "axis")
         .SetAttrTensor("value", axis_t.handle())
         .SetAttrType("dtype", TF_INT32)
@@ -519,7 +519,7 @@ TEST(concat_split_ops_compile) {
     (void)ConcatV2(graph, "concat", concat_values, axis_out, TF_FLOAT, 2, TF_INT32);
     
     // For split, we need a tensor that can be split
-    auto t_split = tf_wrap::FastTensor::FromVector<float>({6}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto t_split = tf_wrap::Tensor::FromVector<float>({6}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
     auto c_split = graph.NewOperation("Const", "c_split")
         .SetAttrTensor("value", t_split.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -532,12 +532,12 @@ TEST(concat_split_ops_compile) {
 }
 
 TEST(pack_unpack_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Create scalar tensors to pack
-    auto t1 = tf_wrap::FastTensor::FromScalar<float>(1.0f);
-    auto t2 = tf_wrap::FastTensor::FromScalar<float>(2.0f);
-    auto t3 = tf_wrap::FastTensor::FromScalar<float>(3.0f);
+    auto t1 = tf_wrap::Tensor::FromScalar<float>(1.0f);
+    auto t2 = tf_wrap::Tensor::FromScalar<float>(2.0f);
+    auto t3 = tf_wrap::Tensor::FromScalar<float>(3.0f);
     
     auto c1 = graph.NewOperation("Const", "c1")
         .SetAttrTensor("value", t1.handle())
@@ -566,26 +566,26 @@ TEST(pack_unpack_ops_compile) {
 }
 
 TEST(fill_range_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Dims for Fill: [2, 3]
-    auto dims_t = tf_wrap::FastTensor::FromVector<int32_t>({2}, {2, 3});
+    auto dims_t = tf_wrap::Tensor::FromVector<int32_t>({2}, {2, 3});
     auto dims = graph.NewOperation("Const", "dims")
         .SetAttrTensor("value", dims_t.handle())
         .SetAttrType("dtype", TF_INT32)
         .Finish();
     
     // Value to fill
-    auto val_t = tf_wrap::FastTensor::FromScalar<float>(5.0f);
+    auto val_t = tf_wrap::Tensor::FromScalar<float>(5.0f);
     auto val = graph.NewOperation("Const", "val")
         .SetAttrTensor("value", val_t.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     // Range parameters
-    auto start_t = tf_wrap::FastTensor::FromScalar<float>(0.0f);
-    auto limit_t = tf_wrap::FastTensor::FromScalar<float>(10.0f);
-    auto delta_t = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    auto start_t = tf_wrap::Tensor::FromScalar<float>(0.0f);
+    auto limit_t = tf_wrap::Tensor::FromScalar<float>(10.0f);
+    auto delta_t = tf_wrap::Tensor::FromScalar<float>(2.0f);
     
     auto start = graph.NewOperation("Const", "start")
         .SetAttrTensor("value", start_t.handle())
@@ -615,24 +615,24 @@ TEST(fill_range_ops_compile) {
 }
 
 TEST(pad_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Create a 2x2 tensor
-    auto t = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto t = tf_wrap::Tensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     // Paddings: [[1, 1], [1, 1]] - pad 1 on each side
-    auto pad_t = tf_wrap::FastTensor::FromVector<int32_t>({2, 2}, {1, 1, 1, 1});
+    auto pad_t = tf_wrap::Tensor::FromVector<int32_t>({2, 2}, {1, 1, 1, 1});
     auto paddings = graph.NewOperation("Const", "paddings")
         .SetAttrTensor("value", pad_t.handle())
         .SetAttrType("dtype", TF_INT32)
         .Finish();
     
     // Constant value for PadV2
-    auto const_val_t = tf_wrap::FastTensor::FromScalar<float>(0.0f);
+    auto const_val_t = tf_wrap::Tensor::FromScalar<float>(0.0f);
     auto const_val = graph.NewOperation("Const", "const_val")
         .SetAttrTensor("value", const_val_t.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -650,31 +650,31 @@ TEST(pad_ops_compile) {
 }
 
 TEST(broadcast_select_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Scalar tensor
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     // Target shape: [2, 3]
-    auto shape_t = tf_wrap::FastTensor::FromVector<int32_t>({2}, {2, 3});
+    auto shape_t = tf_wrap::Tensor::FromVector<int32_t>({2}, {2, 3});
     auto shape = graph.NewOperation("Const", "shape")
         .SetAttrTensor("value", shape_t.handle())
         .SetAttrType("dtype", TF_INT32)
         .Finish();
     
     // Condition for SelectV2
-    auto cond_t = tf_wrap::FastTensor::FromScalar<bool>(true);
+    auto cond_t = tf_wrap::Tensor::FromScalar<bool>(true);
     auto cond = graph.NewOperation("Const", "cond")
         .SetAttrTensor("value", cond_t.handle())
         .SetAttrType("dtype", TF_BOOL)
         .Finish();
     
     // Second value for SelectV2
-    auto t2 = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    auto t2 = tf_wrap::Tensor::FromScalar<float>(2.0f);
     auto c2 = graph.NewOperation("Const", "c2")
         .SetAttrTensor("value", t2.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -691,24 +691,24 @@ TEST(broadcast_select_ops_compile) {
 }
 
 TEST(reverse_where_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Create a 1D tensor
-    auto t = tf_wrap::FastTensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto t = tf_wrap::Tensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     // Axis for reverse
-    auto axis_t = tf_wrap::FastTensor::FromVector<int32_t>({1}, {0});
+    auto axis_t = tf_wrap::Tensor::FromVector<int32_t>({1}, {0});
     auto axis = graph.NewOperation("Const", "axis")
         .SetAttrTensor("value", axis_t.handle())
         .SetAttrType("dtype", TF_INT32)
         .Finish();
     
     // Boolean tensor for Where - use scalar bool
-    auto bool_t = tf_wrap::FastTensor::FromScalar<bool>(true);
+    auto bool_t = tf_wrap::Tensor::FromScalar<bool>(true);
     auto bool_c = graph.NewOperation("Const", "bool_c")
         .SetAttrTensor("value", bool_t.handle())
         .SetAttrType("dtype", TF_BOOL)
@@ -725,10 +725,10 @@ TEST(reverse_where_ops_compile) {
 }
 
 TEST(logical_reduce_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Create rank-1 int tensor and cast to bool (FromVector<bool> is broken due to std::vector<bool>)
-    auto t = tf_wrap::FastTensor::FromVector<int32_t>({4}, {1, 1, 0, 1});
+    auto t = tf_wrap::Tensor::FromVector<int32_t>({4}, {1, 1, 0, 1});
     auto c_int = graph.NewOperation("Const", "c_int")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_INT32)
@@ -742,7 +742,7 @@ TEST(logical_reduce_ops_compile) {
         .Finish();
     
     // Axis
-    auto axis_t = tf_wrap::FastTensor::FromScalar<int32_t>(0);
+    auto axis_t = tf_wrap::Tensor::FromScalar<int32_t>(0);
     auto axis = graph.NewOperation("Const", "axis")
         .SetAttrTensor("value", axis_t.handle())
         .SetAttrType("dtype", TF_INT32)
@@ -759,17 +759,17 @@ TEST(logical_reduce_ops_compile) {
 }
 
 TEST(leaky_relu_biasadd_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Input tensor [1, 2, 2, 1] for BiasAdd (NHWC format)
-    auto t = tf_wrap::FastTensor::FromVector<float>({1, 2, 2, 1}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto t = tf_wrap::Tensor::FromVector<float>({1, 2, 2, 1}, {1.0f, 2.0f, 3.0f, 4.0f});
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     // Bias tensor [1] (matches last dim of input)
-    auto bias_t = tf_wrap::FastTensor::FromVector<float>({1}, {0.5f});
+    auto bias_t = tf_wrap::Tensor::FromVector<float>({1}, {0.5f});
     auto bias = graph.NewOperation("Const", "bias")
         .SetAttrTensor("value", bias_t.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -786,10 +786,10 @@ TEST(leaky_relu_biasadd_ops_compile) {
 }
 
 TEST(conv2d_pool_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Input: [batch=1, height=4, width=4, channels=1]
-    auto t_input = tf_wrap::FastTensor::FromVector<float>({1, 4, 4, 1}, 
+    auto t_input = tf_wrap::Tensor::FromVector<float>({1, 4, 4, 1}, 
         {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
          1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f});
     auto input = graph.NewOperation("Const", "input")
@@ -798,7 +798,7 @@ TEST(conv2d_pool_ops_compile) {
         .Finish();
     
     // Filter: [height=2, width=2, in_channels=1, out_channels=1]
-    auto t_filter = tf_wrap::FastTensor::FromVector<float>({2, 2, 1, 1}, {0.25f, 0.25f, 0.25f, 0.25f});
+    auto t_filter = tf_wrap::Tensor::FromVector<float>({2, 2, 1, 1}, {0.25f, 0.25f, 0.25f, 0.25f});
     auto filter = graph.NewOperation("Const", "filter")
         .SetAttrTensor("value", t_filter.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -823,10 +823,10 @@ TEST(conv2d_pool_ops_compile) {
 }
 
 TEST(lrn_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Input: [batch=1, height=2, width=2, channels=4]
-    auto t = tf_wrap::FastTensor::FromVector<float>({1, 2, 2, 4}, 
+    auto t = tf_wrap::Tensor::FromVector<float>({1, 2, 2, 4}, 
         {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f,
          1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f});
     auto c = graph.NewOperation("Const", "c")
@@ -845,10 +845,10 @@ TEST(lrn_ops_compile) {
 }
 
 TEST(random_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Shape for random tensors
-    auto shape_t = tf_wrap::FastTensor::FromVector<int32_t>({2}, {3, 3});
+    auto shape_t = tf_wrap::Tensor::FromVector<int32_t>({2}, {3, 3});
     auto shape = graph.NewOperation("Const", "shape")
         .SetAttrTensor("value", shape_t.handle())
         .SetAttrType("dtype", TF_INT32)
@@ -867,12 +867,12 @@ TEST(random_ops_compile) {
 }
 
 TEST(linspace_zeros_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // LinSpace parameters
-    auto start_t = tf_wrap::FastTensor::FromScalar<float>(0.0f);
-    auto stop_t = tf_wrap::FastTensor::FromScalar<float>(10.0f);
-    auto num_t = tf_wrap::FastTensor::FromScalar<int32_t>(5);
+    auto start_t = tf_wrap::Tensor::FromScalar<float>(0.0f);
+    auto stop_t = tf_wrap::Tensor::FromScalar<float>(10.0f);
+    auto num_t = tf_wrap::Tensor::FromScalar<int32_t>(5);
     
     auto start = graph.NewOperation("Const", "start")
         .SetAttrTensor("value", start_t.handle())
@@ -900,9 +900,9 @@ TEST(linspace_zeros_ops_compile) {
 }
 
 TEST(placeholder_const_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto t = tf_wrap::FastTensor::FromScalar<float>(42.0f);
+    auto t = tf_wrap::Tensor::FromScalar<float>(42.0f);
     
     using namespace tf_wrap::ops;
     
@@ -913,10 +913,10 @@ TEST(placeholder_const_ops_compile) {
 }
 
 TEST(identityn_shapen_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto t1 = tf_wrap::FastTensor::FromVector<float>({2}, {1.0f, 2.0f});
-    auto t2 = tf_wrap::FastTensor::FromVector<float>({3}, {3.0f, 4.0f, 5.0f});
+    auto t1 = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
+    auto t2 = tf_wrap::Tensor::FromVector<float>({3}, {3.0f, 4.0f, 5.0f});
     
     auto c1 = graph.NewOperation("Const", "c1")
         .SetAttrTensor("value", t1.handle())
@@ -940,9 +940,9 @@ TEST(identityn_shapen_ops_compile) {
 }
 
 TEST(bitcast_checknumerics_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -960,11 +960,11 @@ TEST(bitcast_checknumerics_ops_compile) {
 }
 
 TEST(linalg_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Square matrix for linear algebra ops (must be positive definite for Cholesky)
     // Using a symmetric positive definite matrix: [[4,2],[2,5]]
-    auto t = tf_wrap::FastTensor::FromVector<float>({2, 2}, {4.0f, 2.0f, 2.0f, 5.0f});
+    auto t = tf_wrap::Tensor::FromVector<float>({2, 2}, {4.0f, 2.0f, 2.0f, 5.0f});
     auto c = graph.NewOperation("Const", "c")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -983,10 +983,10 @@ TEST(linalg_ops_compile) {
 }
 
 TEST(batchmatmulv2_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto t1 = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
-    auto t2 = tf_wrap::FastTensor::FromVector<float>({2, 2}, {5.0f, 6.0f, 7.0f, 8.0f});
+    auto t1 = tf_wrap::Tensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto t2 = tf_wrap::Tensor::FromVector<float>({2, 2}, {5.0f, 6.0f, 7.0f, 8.0f});
     
     auto c1 = graph.NewOperation("Const", "c1")
         .SetAttrTensor("value", t1.handle())
@@ -1007,10 +1007,10 @@ TEST(batchmatmulv2_ops_compile) {
 }
 
 TEST(einsum_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto t1 = tf_wrap::FastTensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
-    auto t2 = tf_wrap::FastTensor::FromVector<float>({3, 2}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto t1 = tf_wrap::Tensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto t2 = tf_wrap::Tensor::FromVector<float>({3, 2}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
     
     auto c1 = graph.NewOperation("Const", "c1")
         .SetAttrTensor("value", t1.handle())
@@ -1031,12 +1031,12 @@ TEST(einsum_ops_compile) {
 }
 
 TEST(strided_slice_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto t_data = tf_wrap::FastTensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
-    auto t_begin = tf_wrap::FastTensor::FromVector<int32_t>({1}, {0});
-    auto t_end = tf_wrap::FastTensor::FromVector<int32_t>({1}, {3});
-    auto t_strides = tf_wrap::FastTensor::FromVector<int32_t>({1}, {2});
+    auto t_data = tf_wrap::Tensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto t_begin = tf_wrap::Tensor::FromVector<int32_t>({1}, {0});
+    auto t_end = tf_wrap::Tensor::FromVector<int32_t>({1}, {3});
+    auto t_strides = tf_wrap::Tensor::FromVector<int32_t>({1}, {2});
     
     auto data = graph.NewOperation("Const", "data")
         .SetAttrTensor("value", t_data.handle())
@@ -1067,11 +1067,11 @@ TEST(strided_slice_ops_compile) {
 }
 
 TEST(splitv_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto t_data = tf_wrap::FastTensor::FromVector<float>({6}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
-    auto t_splits = tf_wrap::FastTensor::FromVector<int32_t>({2}, {2, 4});
-    auto t_axis = tf_wrap::FastTensor::FromScalar<int32_t>(0);
+    auto t_data = tf_wrap::Tensor::FromVector<float>({6}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto t_splits = tf_wrap::Tensor::FromVector<int32_t>({2}, {2, 4});
+    auto t_axis = tf_wrap::Tensor::FromScalar<int32_t>(0);
     
     auto data = graph.NewOperation("Const", "data")
         .SetAttrTensor("value", t_data.handle())
@@ -1097,11 +1097,11 @@ TEST(splitv_ops_compile) {
 }
 
 TEST(gathernd_scatternd_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // GatherNd: params [2,3], indices [[0,1],[1,0]]
-    auto t_params = tf_wrap::FastTensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
-    auto t_indices = tf_wrap::FastTensor::FromVector<int32_t>({2, 2}, {0, 1, 1, 0});
+    auto t_params = tf_wrap::Tensor::FromVector<float>({2, 3}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    auto t_indices = tf_wrap::Tensor::FromVector<int32_t>({2, 2}, {0, 1, 1, 0});
     
     auto params = graph.NewOperation("Const", "params")
         .SetAttrTensor("value", t_params.handle())
@@ -1119,9 +1119,9 @@ TEST(gathernd_scatternd_ops_compile) {
     (void)GatherNd(graph, "gathernd", params_out, indices_out, TF_FLOAT, TF_INT32);
     
     // ScatterNd: indices [2,1], updates [2], shape [4]
-    auto t_sc_indices = tf_wrap::FastTensor::FromVector<int32_t>({2, 1}, {0, 2});
-    auto t_updates = tf_wrap::FastTensor::FromVector<float>({2}, {9.0f, 10.0f});
-    auto t_shape = tf_wrap::FastTensor::FromVector<int32_t>({1}, {4});
+    auto t_sc_indices = tf_wrap::Tensor::FromVector<int32_t>({2, 1}, {0, 2});
+    auto t_updates = tf_wrap::Tensor::FromVector<float>({2}, {9.0f, 10.0f});
+    auto t_shape = tf_wrap::Tensor::FromVector<int32_t>({1}, {4});
     
     auto sc_indices = graph.NewOperation("Const", "sc_indices")
         .SetAttrTensor("value", t_sc_indices.handle())
@@ -1146,11 +1146,11 @@ TEST(gathernd_scatternd_ops_compile) {
 }
 
 TEST(concat_legacy_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto t1 = tf_wrap::FastTensor::FromVector<float>({2}, {1.0f, 2.0f});
-    auto t2 = tf_wrap::FastTensor::FromVector<float>({2}, {3.0f, 4.0f});
-    auto t_axis = tf_wrap::FastTensor::FromScalar<int32_t>(0);
+    auto t1 = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
+    auto t2 = tf_wrap::Tensor::FromVector<float>({2}, {3.0f, 4.0f});
+    auto t_axis = tf_wrap::Tensor::FromScalar<int32_t>(0);
     
     auto c1 = graph.NewOperation("Const", "c1")
         .SetAttrTensor("value", t1.handle())
@@ -1178,14 +1178,14 @@ TEST(concat_legacy_ops_compile) {
 }
 
 TEST(fused_batchnorm_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Input: [batch=1, height=2, width=2, channels=2]
-    auto t_x = tf_wrap::FastTensor::FromVector<float>({1, 2, 2, 2}, {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f});
-    auto t_scale = tf_wrap::FastTensor::FromVector<float>({2}, {1.0f, 1.0f});
-    auto t_offset = tf_wrap::FastTensor::FromVector<float>({2}, {0.0f, 0.0f});
-    auto t_mean = tf_wrap::FastTensor::FromVector<float>({2}, {0.0f, 0.0f});
-    auto t_variance = tf_wrap::FastTensor::FromVector<float>({2}, {1.0f, 1.0f});
+    auto t_x = tf_wrap::Tensor::FromVector<float>({1, 2, 2, 2}, {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f});
+    auto t_scale = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 1.0f});
+    auto t_offset = tf_wrap::Tensor::FromVector<float>({2}, {0.0f, 0.0f});
+    auto t_mean = tf_wrap::Tensor::FromVector<float>({2}, {0.0f, 0.0f});
+    auto t_variance = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 1.0f});
     
     auto x = graph.NewOperation("Const", "x")
         .SetAttrTensor("value", t_x.handle())
@@ -1222,12 +1222,12 @@ TEST(fused_batchnorm_ops_compile) {
 }
 
 TEST(crossentropy_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Features: [batch=2, classes=3], Labels: [batch=2, classes=3] (one-hot)
-    auto t_features = tf_wrap::FastTensor::FromVector<float>({2, 3}, {0.5f, 0.3f, 0.2f, 0.1f, 0.8f, 0.1f});
-    auto t_labels = tf_wrap::FastTensor::FromVector<float>({2, 3}, {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f});
-    auto t_sparse_labels = tf_wrap::FastTensor::FromVector<int32_t>({2}, {0, 1});
+    auto t_features = tf_wrap::Tensor::FromVector<float>({2, 3}, {0.5f, 0.3f, 0.2f, 0.1f, 0.8f, 0.1f});
+    auto t_labels = tf_wrap::Tensor::FromVector<float>({2, 3}, {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f});
+    auto t_sparse_labels = tf_wrap::Tensor::FromVector<int32_t>({2}, {0, 1});
     
     auto features = graph.NewOperation("Const", "features")
         .SetAttrTensor("value", t_features.handle())
@@ -1254,12 +1254,12 @@ TEST(crossentropy_ops_compile) {
 }
 
 TEST(pool3d_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Input: [batch=1, depth=4, height=4, width=4, channels=1] - 64 elements
     std::vector<int64_t> input_dims = {1, 4, 4, 4, 1};
     std::vector<float> input_data(64, 1.0f);
-    auto t_input = tf_wrap::FastTensor::FromVector<float>(input_dims, input_data);
+    auto t_input = tf_wrap::Tensor::FromVector<float>(input_dims, input_data);
     
     auto input = graph.NewOperation("Const", "input")
         .SetAttrTensor("value", t_input.handle())
@@ -1279,14 +1279,14 @@ TEST(pool3d_ops_compile) {
 }
 
 TEST(depthwise_conv_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Input: [batch=1, height=4, width=4, in_channels=1]
     std::vector<int64_t> input_dims = {1, 4, 4, 1};
     std::vector<float> input_data(16, 1.0f);
-    auto t_input = tf_wrap::FastTensor::FromVector<float>(input_dims, input_data);
+    auto t_input = tf_wrap::Tensor::FromVector<float>(input_dims, input_data);
     // Filter: [height=2, width=2, in_channels=1, channel_multiplier=1]
-    auto t_filter = tf_wrap::FastTensor::FromVector<float>({2, 2, 1, 1}, {1.0f, 1.0f, 1.0f, 1.0f});
+    auto t_filter = tf_wrap::Tensor::FromVector<float>({2, 2, 1, 1}, {1.0f, 1.0f, 1.0f, 1.0f});
     
     auto input = graph.NewOperation("Const", "input")
         .SetAttrTensor("value", t_input.handle())
@@ -1308,14 +1308,14 @@ TEST(depthwise_conv_ops_compile) {
 }
 
 TEST(conv2d_backprop_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Input sizes: [batch=1, height=4, width=4, channels=1]
-    auto t_sizes = tf_wrap::FastTensor::FromVector<int32_t>({4}, {1, 4, 4, 1});
+    auto t_sizes = tf_wrap::Tensor::FromVector<int32_t>({4}, {1, 4, 4, 1});
     // Filter: [height=2, width=2, out_channels=1, in_channels=1]
-    auto t_filter = tf_wrap::FastTensor::FromVector<float>({2, 2, 1, 1}, {1.0f, 1.0f, 1.0f, 1.0f});
+    auto t_filter = tf_wrap::Tensor::FromVector<float>({2, 2, 1, 1}, {1.0f, 1.0f, 1.0f, 1.0f});
     // Output gradient: [batch=1, height=3, width=3, channels=1]
-    auto t_out_backprop = tf_wrap::FastTensor::FromVector<float>({1, 3, 3, 1}, 
+    auto t_out_backprop = tf_wrap::Tensor::FromVector<float>({1, 3, 3, 1}, 
         {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f});
     
     auto sizes = graph.NewOperation("Const", "sizes")
@@ -1346,12 +1346,12 @@ TEST(dropout_ops_compile) {
     // Note: "Dropout" op doesn't exist in TensorFlow C API.
     // Dropout is typically implemented as a combination of RandomUniform, Floor, Mul, etc.
     // This test verifies Select which can be used in dropout-like implementations.
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto t_x = tf_wrap::FastTensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto t_x = tf_wrap::Tensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
     // Use int and cast to bool (FromVector<bool> is broken due to std::vector<bool>)
-    auto t_cond_int = tf_wrap::FastTensor::FromVector<int32_t>({4}, {1, 0, 1, 0});
-    auto t_zeros = tf_wrap::FastTensor::FromVector<float>({4}, {0.0f, 0.0f, 0.0f, 0.0f});
+    auto t_cond_int = tf_wrap::Tensor::FromVector<int32_t>({4}, {1, 0, 1, 0});
+    auto t_zeros = tf_wrap::Tensor::FromVector<float>({4}, {0.0f, 0.0f, 0.0f, 0.0f});
     
     auto x = graph.NewOperation("Const", "x")
         .SetAttrTensor("value", t_x.handle())
@@ -1385,12 +1385,12 @@ TEST(dropout_ops_compile) {
 }
 
 TEST(multinomial_randomshuffle_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Logits: [batch=1, classes=4]
-    auto t_logits = tf_wrap::FastTensor::FromVector<float>({1, 4}, {0.1f, 0.2f, 0.3f, 0.4f});
-    auto t_num_samples = tf_wrap::FastTensor::FromScalar<int32_t>(5);
-    auto t_value = tf_wrap::FastTensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto t_logits = tf_wrap::Tensor::FromVector<float>({1, 4}, {0.1f, 0.2f, 0.3f, 0.4f});
+    auto t_num_samples = tf_wrap::Tensor::FromScalar<int32_t>(5);
+    auto t_value = tf_wrap::Tensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
     
     auto logits = graph.NewOperation("Const", "logits")
         .SetAttrTensor("value", t_logits.handle())
@@ -1417,7 +1417,7 @@ TEST(multinomial_randomshuffle_ops_compile) {
 }
 
 TEST(variable_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     using namespace tf_wrap::ops;
     
@@ -1431,14 +1431,14 @@ TEST(variable_ops_compile) {
 }
 
 TEST(variable_read_assign_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     using namespace tf_wrap::ops;
     
     std::vector<int64_t> shape = {2, 2};
     auto var_handle = VarHandleOp(graph, "varhandle", TF_FLOAT, shape);
     
-    auto t_value = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto t_value = tf_wrap::Tensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
     auto value = graph.NewOperation("Const", "value")
         .SetAttrTensor("value", t_value.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -1455,13 +1455,13 @@ TEST(variable_read_assign_ops_compile) {
 }
 
 TEST(image_resize_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Image: [batch=1, height=4, width=4, channels=1]
     std::vector<int64_t> image_dims = {1, 4, 4, 1};
     std::vector<float> image_data(16, 0.5f);
-    auto t_image = tf_wrap::FastTensor::FromVector<float>(image_dims, image_data);
-    auto t_size = tf_wrap::FastTensor::FromVector<int32_t>({2}, {8, 8});
+    auto t_image = tf_wrap::Tensor::FromVector<float>(image_dims, image_data);
+    auto t_size = tf_wrap::Tensor::FromVector<int32_t>({2}, {8, 8});
     
     auto image = graph.NewOperation("Const", "image")
         .SetAttrTensor("value", t_image.handle())
@@ -1484,18 +1484,18 @@ TEST(image_resize_ops_compile) {
 }
 
 TEST(crop_and_resize_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Image: [batch=1, height=4, width=4, channels=1]
     std::vector<int64_t> image_dims = {1, 4, 4, 1};
     std::vector<float> image_data(16, 0.5f);
-    auto t_image = tf_wrap::FastTensor::FromVector<float>(image_dims, image_data);
+    auto t_image = tf_wrap::Tensor::FromVector<float>(image_dims, image_data);
     // Boxes: [num_boxes=1, 4] normalized coords [y1, x1, y2, x2]
-    auto t_boxes = tf_wrap::FastTensor::FromVector<float>({1, 4}, {0.0f, 0.0f, 1.0f, 1.0f});
+    auto t_boxes = tf_wrap::Tensor::FromVector<float>({1, 4}, {0.0f, 0.0f, 1.0f, 1.0f});
     // Box indices: which image each box belongs to
-    auto t_box_ind = tf_wrap::FastTensor::FromVector<int32_t>({1}, {0});
+    auto t_box_ind = tf_wrap::Tensor::FromVector<int32_t>({1}, {0});
     // Crop size
-    auto t_crop_size = tf_wrap::FastTensor::FromVector<int32_t>({2}, {2, 2});
+    auto t_crop_size = tf_wrap::Tensor::FromVector<int32_t>({2}, {2, 2});
     
     auto image = graph.NewOperation("Const", "image")
         .SetAttrTensor("value", t_image.handle())
@@ -1526,19 +1526,19 @@ TEST(crop_and_resize_ops_compile) {
 }
 
 TEST(nms_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Boxes: [num_boxes=3, 4]
-    auto t_boxes = tf_wrap::FastTensor::FromVector<float>({3, 4}, {
+    auto t_boxes = tf_wrap::Tensor::FromVector<float>({3, 4}, {
         0.0f, 0.0f, 1.0f, 1.0f,
         0.1f, 0.1f, 1.1f, 1.1f,
         2.0f, 2.0f, 3.0f, 3.0f
     });
     // Scores: [num_boxes=3]
-    auto t_scores = tf_wrap::FastTensor::FromVector<float>({3}, {0.9f, 0.8f, 0.7f});
-    auto t_max_output = tf_wrap::FastTensor::FromScalar<int32_t>(2);
-    auto t_iou_threshold = tf_wrap::FastTensor::FromScalar<float>(0.5f);
-    auto t_score_threshold = tf_wrap::FastTensor::FromScalar<float>(0.0f);
+    auto t_scores = tf_wrap::Tensor::FromVector<float>({3}, {0.9f, 0.8f, 0.7f});
+    auto t_max_output = tf_wrap::Tensor::FromScalar<int32_t>(2);
+    auto t_iou_threshold = tf_wrap::Tensor::FromScalar<float>(0.5f);
+    auto t_score_threshold = tf_wrap::Tensor::FromScalar<float>(0.0f);
     
     auto boxes = graph.NewOperation("Const", "boxes")
         .SetAttrTensor("value", t_boxes.handle())
@@ -1582,11 +1582,11 @@ TEST(nms_ops_compile) {
 // ============================================================================
 
 TEST(file_io_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Create string tensors for filenames
     // Note: TF_STRING type is used for string ops
-    auto t_filename = tf_wrap::FastTensor::FromScalar<float>(0.0f); // placeholder value
+    auto t_filename = tf_wrap::Tensor::FromScalar<float>(0.0f); // placeholder value
     auto filename = graph.NewOperation("Placeholder", "filename")
         .SetAttrType("dtype", TF_STRING)
         .Finish();
@@ -1614,7 +1614,7 @@ TEST(file_io_ops_compile) {
 }
 
 TEST(image_decode_encode_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Contents placeholder for encoded image data
     auto contents = graph.NewOperation("Placeholder", "contents")
@@ -1622,7 +1622,7 @@ TEST(image_decode_encode_ops_compile) {
         .Finish();
     
     // Image placeholder for raw image data (HWC format, uint8)
-    auto t_image = tf_wrap::FastTensor::FromVector<uint8_t>({2, 2, 3}, 
+    auto t_image = tf_wrap::Tensor::FromVector<uint8_t>({2, 2, 3}, 
         {255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255}); // 2x2 RGB image
     auto image = graph.NewOperation("Const", "image")
         .SetAttrTensor("value", t_image.handle())
@@ -1646,7 +1646,7 @@ TEST(image_decode_encode_ops_compile) {
 }
 
 TEST(string_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // String placeholders
     auto str1 = graph.NewOperation("Placeholder", "str1")
@@ -1687,17 +1687,17 @@ TEST(string_ops_compile) {
 }
 
 TEST(print_assert_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Create tensor for Print input
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     auto input = graph.NewOperation("Const", "input")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
     // Create boolean tensor for Assert condition
-    auto t_bool = tf_wrap::FastTensor::FromScalar<bool>(true);
+    auto t_bool = tf_wrap::Tensor::FromScalar<bool>(true);
     auto condition = graph.NewOperation("Const", "condition")
         .SetAttrTensor("value", t_bool.handle())
         .SetAttrType("dtype", TF_BOOL)
@@ -1719,10 +1719,10 @@ TEST(print_assert_ops_compile) {
 }
 
 TEST(pack_ops_compile) {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto t1 = tf_wrap::FastTensor::FromVector<float>({2}, {1.0f, 2.0f});
-    auto t2 = tf_wrap::FastTensor::FromVector<float>({2}, {3.0f, 4.0f});
+    auto t1 = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
+    auto t2 = tf_wrap::Tensor::FromVector<float>({2}, {3.0f, 4.0f});
     
     auto c1 = graph.NewOperation("Const", "c1")
         .SetAttrTensor("value", t1.handle())

@@ -10,11 +10,11 @@
 int main()
 {
     try {
-        tf_wrap::FastGraph g;
+        tf_wrap::Graph g;
 
         // Const A - Use initializer_list overload (both args must be init lists)
         {
-            auto a_tensor = tf_wrap::FastTensor::FromVector<float>({2}, {1.0f, 2.0f});
+            auto a_tensor = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
             (void)g.NewOperation("Const", "A")
                 .SetAttrTensor("value", a_tensor.handle())
                 .SetAttrType("dtype", TF_FLOAT)
@@ -23,7 +23,7 @@ int main()
 
         // Const B
         {
-            auto b_tensor = tf_wrap::FastTensor::FromVector<float>({2}, {10.0f, 20.0f});
+            auto b_tensor = tf_wrap::Tensor::FromVector<float>({2}, {10.0f, 20.0f});
             (void)g.NewOperation("Const", "B")
                 .SetAttrTensor("value", b_tensor.handle())
                 .SetAttrType("dtype", TF_FLOAT)
@@ -41,7 +41,7 @@ int main()
                 .Finish();
         }
 
-        tf_wrap::FastSession s(g);
+        tf_wrap::Session s(g);
         
         // Run the graph
         std::vector<tf_wrap::Fetch> fetches = {tf_wrap::Fetch{"AddAB", 0}};

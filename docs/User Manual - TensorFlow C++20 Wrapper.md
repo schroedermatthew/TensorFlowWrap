@@ -2,14 +2,14 @@
 doc_id: UM-TFWRAPPER-001
 doc_type: "User Manual"
 title: "TensorFlow C++20 Wrapper"
-fatp_components: ["tf_wrap/all", "tf_wrap/tensor", "tf_wrap/graph", "tf_wrap/session", "tf_wrap/status", "tf_wrap/policy"]
-topics: ["TensorFlow C API wrapping", "RAII resource management", "policy-based thread safety", "tensor memory safety", "graph building", "session execution", "SavedModel loading", "device enumeration"]
-constraints: ["TensorFlow C API lifetime rules", "thread-safe tensor access", "lock guard lifetime", "exception safety", "moved-from object safety", "graph must outlive session"]
+fatp_components: ["tf_wrap/all", "tf_wrap/tensor", "tf_wrap/graph", "tf_wrap/session", "tf_wrap/status"]
+topics: ["TensorFlow C API wrapping", "RAII resource management", "tensor memory safety", "graph building", "session execution", "SavedModel loading", "device enumeration"]
+constraints: ["TensorFlow C API lifetime rules", "tensor view lifetime", "exception safety", "moved-from object safety", "graph must outlive session"]
 cxx_standard: "C++20"
 std_equivalent: null
 boost_equivalent: null
 build_modes: ["Debug", "Release"]
-last_verified: "2025-01-21"
+last_verified: "2026-01-24"
 audience: ["C++ developers", "ML engineers", "AI assistants"]
 status: "reviewed"
 ---
@@ -18,7 +18,7 @@ status: "reviewed"
 
 ## Scope
 
-This manual covers correct usage of the TensorFlow C++20 Wrapper library, including tensor creation, thread-safe data access, graph building, session execution, and error handling. After reading this manual, you will understand when to use each thread-safety policy, how to avoid common lifetime pitfalls, and how to integrate the library into production code.
+This manual covers correct usage of the TensorFlow C++20 Wrapper library, including tensor creation, data access, graph building, session execution, and error handling. After reading this manual, you will understand how to avoid common lifetime pitfalls and how to integrate the library into production code.
 
 ## Not covered
 
@@ -41,11 +41,11 @@ This manual covers correct usage of the TensorFlow C++20 Wrapper library, includ
 **Component:** TensorFlow C++20 Wrapper  
 **Primary use case:** Type-safe, RAII-managed TensorFlow inference in C++ applications  
 **Integration pattern:** Header-only; include `<tf_wrap/all.hpp>` and link against TensorFlow C library  
-**Key API:** `tf_wrap::Tensor<Policy>`, `tf_wrap::Graph<Policy>`, `tf_wrap::Session<Policy>`, `tf_wrap::Status`, `tf_wrap::Device`  
+**Key API:** `tf_wrap::Tensor`, `tf_wrap::Graph`, `tf_wrap::Session`, `tf_wrap::Status`, `tf_wrap::Device`  
 **std equivalent:** None. The TensorFlow C++ API (`tensorflow/cc`) exists but requires building TensorFlow from source  
 **Migration from std:** N/A — no standard equivalent  
 **Common mistakes:** Holding tensor views across scope boundaries, forgetting to call `Finish()` on operation builders, using wrong dtype template parameter, destroying graph before session  
-**Performance notes:** `NoLock` policy has zero overhead; `SharedMutex` enables concurrent reads; view-based access avoids copies; `HasGPU()` enables runtime hardware detection
+**Performance notes:** View-based access avoids copies; `HasGPU()` enables runtime hardware detection
 
 ---
 
@@ -54,7 +54,7 @@ This manual covers correct usage of the TensorFlow C++20 Wrapper library, includ
 - [The TensorFlow C API Problem](#the-tensorflow-c-api-problem)
 - [Architecture: How the Wrapper Works](#architecture-how-the-wrapper-works)
 - [Quick Start](#quick-start)
-- [Thread Safety: Three Policies, Three Tradeoffs](#thread-safety-three-policies-three-tradeoffs)
+- [Threading](#threading)
 - [Tensor Creation: Five Factories, Five Philosophies](#tensor-creation-five-factories-five-philosophies)
 - [Tensor Data Access: Views, Callbacks, and Unsafe Pointers](#tensor-data-access-views-callbacks-and-unsafe-pointers)
 - [Graph Building: The Operation Builder Pattern](#graph-building-the-operation-builder-pattern)
@@ -102,56 +102,31 @@ TF_DeleteStatus(status);  // Must delete on success path too!
 
 The status must be deleted on both the error path and the success path. Miss either deletion point and you leak. The wrapper's `tf_wrap::Status` class eliminates this entire category of bugs — the destructor handles deletion regardless of which path executes.
 
-The second most common failure is the use-after-free tensor access. A function returns a pointer to tensor data, the caller stores the pointer, and later the tensor is deleted while the pointer is still in use. The wrapper's view system prevents this by tying data access to lock guard lifetime, making dangling access a compile-time impossibility rather than a runtime mystery.
+The second most common failure is the use-after-free tensor access. A function returns a pointer to tensor data, the caller stores the pointer, and later the tensor is deleted while the pointer is still in use. The wrapper's view system prevents this by tying data access to shared ownership — views hold a `shared_ptr` that keeps the data alive, making dangling access impossible rather than a runtime mystery.
 
 ---
 
 ## Architecture: How the Wrapper Works
 
-### The Policy Template Pattern
+### RAII Wrappers for TensorFlow C Types
 
-Every major wrapper class — `Tensor`, `Graph`, `Session` — is templated on a *policy* that controls thread-safety behavior. This design, sometimes called "policy-based design," separates the what (tensor storage, graph operations) from the how (synchronization strategy).
+The wrapper provides RAII classes for TensorFlow's C types. Each wrapper owns its underlying resource and releases it in the destructor:
 
-```mermaid
-graph LR
-    subgraph "Policy Selection"
-        P1[NoLock<br/>Zero overhead]
-        P2[Mutex<br/>Exclusive access]
-        P3[SharedMutex<br/>Reader-writer]
-    end
-    
-    subgraph "Wrapper Classes"
-        T[Tensor&lt;Policy&gt;]
-        G[Graph&lt;Policy&gt;]
-        S[Session&lt;Policy&gt;]
-    end
-    
-    P1 --> T
-    P2 --> T
-    P3 --> T
-    P1 --> G
-    P2 --> G
-    P3 --> G
-    P1 --> S
-    P2 --> S
-    
-    style P1 fill:#90EE90
-    style P2 fill:#FFB6C1
-    style P3 fill:#87CEEB
-```
-
-The three policies form a spectrum from speed to safety. `NoLock` provides zero synchronization overhead for single-threaded code. `Mutex` provides exclusive access for multi-threaded mutation. `SharedMutex` allows multiple concurrent readers with exclusive writers. The choice is made at compile time, ensuring zero runtime overhead for the synchronization you don't need.
-
-This architecture means the same `Tensor` class can be instantiated as `Tensor<policy::NoLock>` for a hot loop where profiling proves no contention exists, or as `Tensor<policy::SharedMutex>` for a shared cache where reads dominate writes. The compiler generates different code for each, with no virtual dispatch and no branches to check which mode is active.
+| Wrapper | Underlying C Type | Cleanup |
+|---------|------------------|---------|
+| `Tensor` | `TF_Tensor*` | `TF_DeleteTensor()` |
+| `Graph` | `TF_Graph*` | `TF_DeleteGraph()` |
+| `Session` | `TF_Session*` | `TF_CloseSession()` + `TF_DeleteSession()` |
+| `Status` | `TF_Status*` | `TF_DeleteStatus()` |
 
 ### Memory Layout and Ownership
 
-Internally, each `Tensor` object owns a `shared_ptr` to a `TensorState` structure containing the raw `TF_Tensor*`, the shape vector, and the policy's mutex (if any). This shared ownership serves a critical safety purpose: it allows tensor views to outlive the tensor object itself.
+Internally, each `Tensor` object owns a `shared_ptr` to a `TensorState` structure containing the raw `TF_Tensor*` and the shape vector. This shared ownership serves a critical safety purpose: it allows tensor views to outlive the tensor object itself.
 
 ```mermaid
 graph TB
     subgraph "Tensor Object"
-        T[Tensor&lt;Policy&gt;]
+        T[Tensor]
         SP1[shared_ptr]
     end
     
@@ -159,13 +134,11 @@ graph TB
         TS[TensorState]
         TF[TF_Tensor*]
         SH[shape vector]
-        MX[Policy mutex]
     end
     
     subgraph "View (temporary)"
         V[TensorView]
         SP2[shared_ptr]
-        LK[lock guard]
         SPN[span&lt;T&gt;]
     end
     
@@ -177,19 +150,15 @@ graph TB
     SP1 --> TS
     TS --> TF
     TS --> SH
-    TS --> MX
     TF --> DATA
     
     V --> SP2
     SP2 --> TS
-    V --> LK
-    LK -.->|holds| MX
     V --> SPN
     SPN -.->|points to| DATA
     
     style TS fill:#FFE4B5
     style DATA fill:#98FB98
-    style LK fill:#DDA0DD
 ```
 
 When you call `tensor.read<float>()`, the returned view captures a shared reference to the tensor's state. Even if the original `Tensor` object goes out of scope while the view is still alive, the underlying data remains valid because the view's shared_ptr keeps the state alive. This design eliminates an entire class of dangling-pointer bugs that plague C API wrappers.
@@ -221,10 +190,10 @@ The following complete example creates a computational graph with a single const
 
 int main() {
     // Create a tensor containing [1.0, 2.0, 3.0, 4.0] with shape [2, 2]
-    auto input = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto input = tf_wrap::Tensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
     
     // Build a graph with a single Const operation
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     auto const_op = graph.NewOperation("Const", "my_constant")
         .SetAttrTensor("value", input.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -236,7 +205,7 @@ int main() {
         .Finish();
     
     // Run the graph
-    tf_wrap::FastSession session(graph);
+    tf_wrap::Session session(graph);
     auto results = session.Run({}, {tf_wrap::Fetch{"output", 0}});
     
     // Print results
@@ -251,93 +220,66 @@ int main() {
 }
 ```
 
-The example uses `FastTensor`, `FastGraph`, and `FastSession` — type aliases for the `NoLock` policy variants. For single-threaded code, these provide the same functionality as the synchronized variants with no overhead.
+The example uses `Tensor`, `Graph`, and `Session` — the core wrapper classes. Views keep tensor data alive, preventing dangling pointers even if the tensor object is destroyed while a view exists.
 
 ---
 
-## Thread Safety: Three Policies, Three Tradeoffs
+## Threading
 
-### The Synchronization Spectrum
+### TensorFlowWrap Does Not Synchronize
 
-Choosing the right thread-safety policy requires understanding your access patterns. The wrong choice costs either unnecessary overhead (locks where none are needed) or correctness (no locks where races exist).
+This wrapper is a RAII and type-safety convenience layer. It does not provide thread synchronization.
 
-```mermaid
-graph TB
-    subgraph "NoLock Policy"
-        N1[Thread A: read] 
-        N2[Thread B: read]
-        N3[Thread C: write]
-        N1 -.->|no sync| N2
-        N2 -.->|DATA RACE!| N3
-    end
-    
-    subgraph "Mutex Policy"
-        M1[Thread A: read<br/>🔒 exclusive]
-        M2[Thread B: read<br/>⏳ waiting]
-        M3[Thread C: write<br/>⏳ waiting]
-        M1 -->|blocks| M2
-        M2 -->|blocks| M3
-    end
-    
-    subgraph "SharedMutex Policy"
-        S1[Thread A: read<br/>🔓 shared]
-        S2[Thread B: read<br/>🔓 shared]
-        S3[Thread C: write<br/>⏳ waiting]
-        S1 ---|concurrent| S2
-        S2 -->|blocks| S3
-    end
-    
-    style N3 fill:#FF6B6B
-    style S1 fill:#90EE90
-    style S2 fill:#90EE90
-```
+**Threading contract:**
 
-The `NoLock` policy provides zero synchronization. Its guard type is an empty struct that the compiler eliminates entirely. Use `NoLock` when tensors are created, used, and destroyed within a single thread, or when external synchronization (such as a higher-level mutex protecting an entire data structure) already prevents races.
+- `Session::Run()` is thread-safe (this is TensorFlow's guarantee, not the wrapper's)
+- Graph is frozen after Session creation (wrapper policy to prevent accidental mutation)
+- Tensors are NOT thread-safe — do not share mutable tensors across threads
+- Create per-thread input tensors; treat outputs as thread-local
 
-The `Mutex` policy wraps a `std::mutex`. Every access — read or write — acquires an exclusive lock. Use `Mutex` when any thread might modify tensor data and multiple threads access the same tensor. The mutual exclusion prevents torn reads (reading partial writes) at the cost of serializing all access.
+### Recommended Multi-Threaded Pattern
 
-The `SharedMutex` policy wraps a `std::shared_mutex`. Read access acquires a shared lock that permits other readers. Write access acquires an exclusive lock that blocks all other access. Use `SharedMutex` when reads vastly outnumber writes, such as inference caches where models are loaded once and queried many times.
-
-### Policy Selection in Practice
-
-The type aliases make policy selection explicit and readable. Each core class has three aliases following a consistent naming pattern: `Fast` for `NoLock`, `Safe` for `Mutex`, `Shared` for `SharedMutex`.
+For inference servers handling concurrent requests:
 
 ```cpp
-// Type aliases for Tensor
-using FastTensor   = Tensor<policy::NoLock>;      // Zero overhead
-using SafeTensor   = Tensor<policy::Mutex>;       // Exclusive locking
-using SharedTensor = Tensor<policy::SharedMutex>; // Reader-writer locking
+// Shared (read-only after creation)
+tf_wrap::Graph graph;
+// ... build graph ...
+tf_wrap::Session session(graph);  // Graph frozen here
 
-// Type aliases for Graph
-using FastGraph   = Graph<policy::NoLock>;
-using SafeGraph   = Graph<policy::Mutex>;
-using SharedGraph = Graph<policy::SharedMutex>;
-
-// Type aliases for Session
-using FastSession = Session<policy::NoLock>;
-using SafeSession = Session<policy::Mutex>;
+// Per-request (each thread creates its own)
+void handle_request(const std::vector<float>& input_data) {
+    // Thread-local input tensor
+    auto input = tf_wrap::Tensor::FromVector<float>({1, 784}, input_data);
+    
+    // Session::Run is thread-safe
+    auto results = session.Run(
+        {{"input", input}},
+        {{"output", 0}});
+    
+    // Thread-local output tensor
+    auto output = results[0].ToVector<float>();
+    // ... use output ...
+}
 ```
 
-A common pattern in inference servers is to use `FastTensor` for temporary computation buffers (created and destroyed within a single request handler) while using `SharedTensor` for shared model weights (loaded at startup, read by all request threads).
+Each request handler creates its own input tensors and receives its own output tensors. The only shared object is the Session, which TensorFlow guarantees is safe for concurrent `Run()` calls.
 
-### The Lock Guard Lifetime Rule
+### View Lifetime Safety
 
-Thread-safe tensor access works through RAII lock guards. When you call `tensor.read<float>()`, the returned view holds a lock that is released when the view is destroyed. This creates a critical rule: **the lock is held for the entire lifetime of the view**.
-
-Extending a view's lifetime unintentionally — by storing it in a data structure, returning it from a function, or capturing it in a lambda — extends the lock's lifetime correspondingly. A view stored in a class member holds its lock until the object is destroyed. A view captured by a lambda holds its lock until the lambda is destroyed.
-
-The callback-based access methods, `with_read()` and `with_write()`, exist specifically to make lock scope explicit. The lock is held only for the duration of the callback:
+While tensors don't provide thread synchronization, views do provide **lifetime safety**. A `TensorView` holds a `shared_ptr` to the tensor's internal state, ensuring the underlying data remains valid even if the original `Tensor` object is destroyed:
 
 ```cpp
-// Lock held only during callback execution
-tensor.with_read<float>([](std::span<const float> data) {
-    // Lock is held here
-    process(data);
-});
-// Lock released here, guaranteed
+tf_wrap::Tensor::ReadView<float> get_view() {
+    auto tensor = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    return tensor.read<float>();  // View keeps data alive
+}  // tensor destroyed here, but view's data is still valid
+
+auto view = get_view();
+float x = view[0];  // Safe: view holds shared_ptr to data
 ```
 
-This pattern makes it impossible to accidentally extend lock lifetime. The lambda cannot escape its scope, so the lock cannot outlive the intended access window.
+This prevents use-after-free bugs but does NOT provide thread synchronization.
 
 ---
 
@@ -380,7 +322,7 @@ Use `FromVector` when you have data in a vector and want TensorFlow to own its o
 
 ```cpp
 std::vector<float> data = compute_features();
-auto tensor = tf_wrap::FastTensor::FromVector<float>({batch_size, feature_dim}, data);
+auto tensor = tf_wrap::Tensor::FromVector<float>({batch_size, feature_dim}, data);
 // data vector can now be modified or destroyed safely
 ```
 
@@ -393,8 +335,8 @@ The shape (first argument) and data size must match. A shape of `{2, 3}` require
 Use `FromScalar` for scalar constants, learning rates, or single-valued parameters:
 
 ```cpp
-auto learning_rate = tf_wrap::FastTensor::FromScalar<float>(0.001f);
-auto batch_size = tf_wrap::FastTensor::FromScalar<int32_t>(32);
+auto learning_rate = tf_wrap::Tensor::FromScalar<float>(0.001f);
+auto batch_size = tf_wrap::Tensor::FromScalar<int32_t>(32);
 ```
 
 ### Allocate: Uninitialized Memory
@@ -404,7 +346,7 @@ auto batch_size = tf_wrap::FastTensor::FromScalar<int32_t>(32);
 Use `Allocate` when you will immediately overwrite all elements, such as output buffers for custom operations. Reading uninitialized memory is undefined behavior, so only use this factory when you can guarantee complete initialization before any read:
 
 ```cpp
-auto output = tf_wrap::FastTensor::Allocate<float>({height, width, channels});
+auto output = tf_wrap::Tensor::Allocate<float>({height, width, channels});
 // MUST write all elements before reading any
 fill_with_computed_values(output.write<float>());
 ```
@@ -416,8 +358,8 @@ fill_with_computed_values(output.write<float>());
 Use `Zeros` for accumulators, masks initialized to false, or any case where zero is the correct initial value:
 
 ```cpp
-auto accumulator = tf_wrap::FastTensor::Zeros<float>({embedding_dim});
-auto visited = tf_wrap::FastTensor::Zeros<bool>({graph_size});
+auto accumulator = tf_wrap::Tensor::Zeros<float>({embedding_dim});
+auto visited = tf_wrap::Tensor::Zeros<bool>({graph_size});
 ```
 
 ### Adopt and AdoptMalloc: External Memory Management
@@ -428,14 +370,14 @@ auto visited = tf_wrap::FastTensor::Zeros<bool>({graph_size});
 
 ```cpp
 void* buffer = custom_allocator.allocate(num_bytes);
-auto tensor = tf_wrap::FastTensor::AdoptMalloc<float>({rows, cols}, buffer, num_bytes);
+auto tensor = tf_wrap::Tensor::AdoptMalloc<float>({rows, cols}, buffer, num_bytes);
 // Tensor now owns buffer; will call free() on destruction
 ```
 
 `Adopt` takes a custom deallocator function, enabling integration with any memory management scheme. The deallocator receives the pointer, byte count, and an optional context pointer:
 
 ```cpp
-auto tensor = tf_wrap::FastTensor::Adopt(
+auto tensor = tf_wrap::Tensor::Adopt(
     TF_FLOAT,
     shape,
     gpu_buffer,
@@ -451,30 +393,29 @@ Both `Adopt` variants validate that the provided byte length matches the expecte
 
 ---
 
-## Tensor Data Access: Views, Callbacks, and Unsafe Pointers
+## Tensor Data Access: Views, Callbacks, and Direct Pointers
 
 ### The View Pattern
 
-Tensor data access uses a view pattern that provides both safety and efficiency. A view is a combination of a `std::span` (providing range-based access to the data) and a lock guard (providing thread-safety for synchronized tensors).
+Tensor data access uses a view pattern that provides both safety and efficiency. A view is a `std::span` wrapped with a `shared_ptr` to the tensor's internal state, ensuring the data remains valid for the view's lifetime.
 
-The `read<T>()` method returns a read-only view. For `SharedMutex` tensors, this acquires a shared lock, allowing concurrent readers. For `Mutex` tensors, this acquires an exclusive lock. For `NoLock` tensors, this acquires an empty guard with zero overhead:
+The `read<T>()` method returns a read-only view:
 
 ```cpp
-auto view = tensor.read<float>();  // Lock acquired here
+auto view = tensor.read<float>();
 for (float x : view) {
     std::cout << x << " ";
 }
-// Lock released when view goes out of scope
+// View keeps tensor data alive until it goes out of scope
 ```
 
-The `write<T>()` method returns a writable view with exclusive access. The returned span allows modification of elements:
+The `write<T>()` method returns a writable view that allows modification of elements:
 
 ```cpp
-auto view = tensor.write<float>();  // Exclusive lock acquired
+auto view = tensor.write<float>();
 for (float& x : view) {
     x *= 2.0f;  // Modify in place
 }
-// Lock released when view goes out of scope
 ```
 
 ### Type Safety at Access Time
@@ -482,7 +423,7 @@ for (float& x : view) {
 The template parameter to `read<T>()` and `write<T>()` must match the tensor's actual dtype. A tensor created with `FromVector<float>` must be accessed with `read<float>()`, not `read<int>()`. Mismatches throw `std::invalid_argument` with a message indicating both the expected and actual types:
 
 ```cpp
-auto tensor = tf_wrap::FastTensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
+auto tensor = tf_wrap::Tensor::FromVector<float>({4}, {1.0f, 2.0f, 3.0f, 4.0f});
 auto view = tensor.read<int>();  // Throws: "dtype mismatch: expected float32, got int32"
 ```
 
@@ -490,7 +431,7 @@ This runtime check catches type mismatches that static typing cannot. The tensor
 
 ### Callback-Based Access
 
-The callback methods `with_read()` and `with_write()` provide an alternative access pattern that makes lock scope explicit. The callback receives a `std::span` and can return a value:
+The callback methods `with_read()` and `with_write()` provide an alternative access pattern that makes view scope explicit. The callback receives a `std::span` and can return a value:
 
 ```cpp
 float sum = tensor.with_read<float>([](std::span<const float> data) {
@@ -498,17 +439,14 @@ float sum = tensor.with_read<float>([](std::span<const float> data) {
 });
 ```
 
-This pattern prevents accidentally holding locks longer than intended. The span cannot escape the callback's scope, guaranteeing that the lock is released when the callback returns.
+This pattern prevents accidentally extending view lifetime. The span cannot escape the callback's scope.
 
-### Unsafe Access (Advanced)
+### Direct Pointer Access
 
-The `unsafe_data<T>()` method returns a raw pointer with no locking. This method exists for integration with external libraries that require raw pointers and handle their own synchronization.
-
-Using `unsafe_data()` on a synchronized tensor without external synchronization is a data race. Use this method only when you have verified that external synchronization prevents concurrent access:
+The `data<T>()` method returns a raw pointer for integration with external libraries:
 
 ```cpp
-// Only safe if external_library handles synchronization
-float* raw = tensor.unsafe_data<float>();
+float* raw = tensor.data<float>();
 external_library_process(raw, tensor.num_elements());
 ```
 
@@ -518,7 +456,7 @@ external_library_process(raw, tensor.num_elements());
 
 ### The Fluent Builder Interface
 
-Graph operations are constructed using a fluent builder pattern. The builder holds an exclusive lock on the graph for its entire lifetime, preventing concurrent modification while an operation is being configured.
+Graph operations are constructed using a fluent builder pattern. The builder configures the operation through method chaining, then finalizes it with `Finish()`.
 
 ```mermaid
 sequenceDiagram
@@ -529,10 +467,9 @@ sequenceDiagram
     
     C->>G: NewOperation("MatMul", "mm")
     activate G
-    G->>G: Acquire exclusive lock
     G->>TF: TF_NewOperation()
     TF-->>G: TF_OperationDescription*
-    G-->>C: OperationBuilder (owns lock)
+    G-->>C: OperationBuilder
     deactivate G
     
     activate B
@@ -547,12 +484,11 @@ sequenceDiagram
     C->>B: .Finish()
     B->>TF: TF_FinishOperation()
     TF-->>B: TF_Operation*
-    B->>B: Release lock
     B-->>C: TF_Operation*
     deactivate B
 ```
 
-The `NewOperation()` method starts the builder chain. Each attribute setter returns the builder, allowing method chaining. The `Finish()` method completes the operation and releases the lock:
+The `NewOperation()` method starts the builder chain. Each attribute setter returns the builder, allowing method chaining. The `Finish()` method completes the operation:
 
 ```cpp
 auto op = graph.NewOperation("MatMul", "my_matmul")
@@ -560,14 +496,14 @@ auto op = graph.NewOperation("MatMul", "my_matmul")
     .AddInput(b_op, 0)
     .SetAttrBool("transpose_a", false)
     .SetAttrBool("transpose_b", false)
-    .Finish();  // Lock released here
+    .Finish();
 ```
 
 ### The Finish Requirement
 
 Every `OperationBuilder` must have `Finish()` called exactly once. The destructor contains a debug assertion that fires if the builder is destroyed without finishing. This catches a common bug: abandoning a partially-configured operation, which corrupts the graph.
 
-The assertion only fires in debug builds. In release builds, the destructor silently releases the lock, but the graph may be in an inconsistent state if `Finish()` was not called.
+The assertion only fires in debug builds. In release builds, the graph may be in an inconsistent state if `Finish()` was not called.
 
 ### Input and Control Dependencies
 
@@ -684,17 +620,20 @@ session.Run({feeds}, {}, {"assign_op", "update_op"});
 
 ### Feed Tensor Lifetime
 
-**Critical:** Feed tensors must remain valid and unmodified for the duration of `Run()`. The session does not copy feed data; it reads directly from the tensor's buffer. Modifying a feed tensor while `Run()` is executing is a data race.
+**Critical:** Feed tensors must remain valid and unmodified for the duration of `Run()`. The session does not copy feed data; it reads directly from the tensor's buffer. Modifying a feed tensor while `Run()` is executing causes undefined behavior.
 
-For synchronized tensors used as feeds, acquire a lock before calling `Run()` and hold it until `Run()` returns:
+For multi-threaded applications, ensure each thread uses its own input tensors:
 
 ```cpp
-auto guard = input_tensor.acquire_shared_lock();
-auto results = session.Run(
-    {tf_wrap::Feed{"input", 0, input_tensor.handle()}},
-    {tf_wrap::Fetch{"output", 0}}
-);
-// guard released here, after Run() completes
+void handle_request(const std::vector<float>& data) {
+    // Thread-local tensor - no sharing needed
+    auto input_tensor = tf_wrap::Tensor::FromVector<float>({1, 784}, data);
+    auto results = session.Run(
+        {tf_wrap::Feed{"input", 0, input_tensor.handle()}},
+        {tf_wrap::Fetch{"output", 0}}
+    );
+    // input_tensor valid throughout Run()
+}
 ```
 
 ### Error Handling in Run
@@ -721,10 +660,10 @@ The `LoadSavedModel()` static factory creates both a session and its associated 
 
 int main() {
     // Load model - returns both session and graph
-    auto [session, graph] = tf_wrap::FastSession::LoadSavedModel("/path/to/saved_model");
+    auto [session, graph] = tf_wrap::Session::LoadSavedModel("/path/to/saved_model");
     
     // Create input tensor
-    auto input = tf_wrap::FastTensor::FromVector<float>({1, 224, 224, 3}, image_data);
+    auto input = tf_wrap::Tensor::FromVector<float>({1, 224, 224, 3}, image_data);
     
     // Run inference
     auto results = session.Run(
@@ -748,10 +687,10 @@ SavedModels can contain multiple "metagraphs" distinguished by tags. The default
 
 ```cpp
 // Load with default "serve" tag (most common for inference)
-auto [session, graph] = tf_wrap::FastSession::LoadSavedModel("/path/to/model");
+auto [session, graph] = tf_wrap::Session::LoadSavedModel("/path/to/model");
 
 // Load with explicit tags
-auto [session, graph] = tf_wrap::FastSession::LoadSavedModel(
+auto [session, graph] = tf_wrap::Session::LoadSavedModel(
     "/path/to/model",
     {"serve", "gpu"}  // Multiple tags for specific configurations
 );
@@ -762,7 +701,7 @@ auto [session, graph] = tf_wrap::FastSession::LoadSavedModel(
 After loading a SavedModel, you may need to discover the input and output operation names. Use `Graph::GetAllOperations()` to inspect the graph:
 
 ```cpp
-auto [session, graph] = tf_wrap::FastSession::LoadSavedModel("/path/to/model");
+auto [session, graph] = tf_wrap::Session::LoadSavedModel("/path/to/model");
 
 for (TF_Operation* op : graph.GetAllOperations()) {
     tf_wrap::Operation wrapped(op);
@@ -783,9 +722,9 @@ Common patterns for SavedModel operation names:
 Before running inference, you may want to know what compute devices are available. The wrapper provides device enumeration through the session:
 
 ```cpp
-tf_wrap::FastGraph graph;
+tf_wrap::Graph graph;
 // ... build or import graph ...
-tf_wrap::FastSession session(graph);
+tf_wrap::Session session(graph);
 
 // List all devices
 auto devices = session.ListDevices();
@@ -875,10 +814,6 @@ The error codes follow Google's canonical error space, familiar from gRPC and ot
 ---
 
 ## Performance Rules of Thumb
-
-### Choose the Minimal Policy
-
-Use `FastTensor` (NoLock policy) for all tensors unless you have proven concurrent access exists. The policy choice has no effect on correctness in single-threaded code, but affects performance. NoLock has zero synchronization overhead; Mutex and SharedMutex have lock acquisition costs.
 
 ### Prefer Views Over Copies
 
@@ -981,7 +916,7 @@ TF_Tensor* t = TF_AllocateTensor(TF_FLOAT, dims, 4, batch * height * width * cha
 TF_DeleteTensor(t);
 
 // After:
-auto tensor = tf_wrap::FastTensor::Allocate<float>({batch, height, width, channels});
+auto tensor = tf_wrap::Tensor::Allocate<float>({batch, height, width, channels});
 // No manual deletion needed
 ```
 
@@ -1035,10 +970,6 @@ The operation name passed to `Run()` does not exist in the graph. Check spelling
 
 ### Performance Issues
 
-**Lock contention with SafeTensor/SharedTensor**
-
-If profiling shows time spent waiting for tensor locks, consider whether the tensors need synchronization. Tensors used only within a single thread should use `FastTensor`. Tensors that are read-heavy and write-rare should use `SharedTensor` instead of `SafeTensor`.
-
 **Excessive allocation in inference loops**
 
 If creating new tensors on every inference call, consider pre-allocating and reusing buffers. Use `Allocate` or `Zeros` to create reusable output tensors outside the loop.
@@ -1046,19 +977,6 @@ If creating new tensors on every inference call, consider pre-allocating and reu
 ---
 
 ## API Reference
-
-### Type Aliases
-
-| Alias | Expansion | Use Case |
-|-------|-----------|----------|
-| `FastTensor` | `Tensor<policy::NoLock>` | Single-threaded, zero overhead |
-| `SafeTensor` | `Tensor<policy::Mutex>` | Multi-threaded, exclusive access |
-| `SharedTensor` | `Tensor<policy::SharedMutex>` | Multi-threaded, reader-writer |
-| `FastGraph` | `Graph<policy::NoLock>` | Single-threaded graph building |
-| `SafeGraph` | `Graph<policy::Mutex>` | Multi-threaded graph building |
-| `SharedGraph` | `Graph<policy::SharedMutex>` | Multi-threaded with concurrent reads |
-| `FastSession` | `Session<policy::NoLock>` | Single-threaded inference |
-| `SafeSession` | `Session<policy::Mutex>` | Multi-threaded inference |
 
 ### Tensor Factories
 
@@ -1073,13 +991,13 @@ If creating new tensors on every inference call, consider pre-allocating and reu
 
 ### Tensor Access Methods
 
-| Method | Lock Type | Returns | Use Case |
-|--------|-----------|---------|----------|
-| `read<T>()` | Shared | `ReadView<T>` | Thread-safe reading |
-| `write<T>()` | Exclusive | `WriteView<T>` | Thread-safe writing |
-| `with_read<T>(fn)` | Shared | fn's return type | Scoped reading |
-| `with_write<T>(fn)` | Exclusive | fn's return type | Scoped writing |
-| `unsafe_data<T>()` | None | `T*` | External sync only |
+| Method | Returns | Use Case |
+|--------|---------|----------|
+| `read<T>()` | `ReadView<T>` | Read-only access |
+| `write<T>()` | `WriteView<T>` | Writable access |
+| `with_read<T>(fn)` | fn's return type | Scoped reading |
+| `with_write<T>(fn)` | fn's return type | Scoped writing |
+| `data<T>()` | `T*` | Direct pointer access |
 
 ### Tensor Queries
 
@@ -1098,18 +1016,19 @@ If creating new tensors on every inference call, consider pre-allocating and reu
 
 | Method | Returns | Notes |
 |--------|---------|-------|
-| `NewOperation(type, name)` | `OperationBuilder` | Starts builder, acquires lock |
-| `GetOperation(name)` | `optional<Operation>` | Lookup by name |
-| `GetOperationOrThrow(name)` | `Operation` | Throws if not found |
-| `Import(graphdef, prefix)` | void | Import from serialized graph |
+| `NewOperation(type, name)` | `OperationBuilder` | Starts builder |
+| `GetOperation(name)` | `optional<TF_Operation*>` | Lookup by name |
+| `GetOperationOrThrow(name)` | `TF_Operation*` | Throws if not found |
+| `ImportGraphDef(proto, len, prefix)` | void | Import from serialized graph |
 | `handle()` | `TF_Graph*` | Raw handle |
 
 ### Session Methods
 
 | Method | Returns | Notes |
 |--------|---------|-------|
-| `Run(feeds, fetches)` | `vector<Tensor<>>` | Basic inference |
-| `Run(feeds, fetches, targets)` | `vector<Tensor<>>` | With target ops |
+| `Run(feeds, fetches)` | `vector<Tensor>` | Basic inference |
+| `Run(feeds, fetches, targets)` | `vector<Tensor>` | With target ops |
+| `Run(op_name, index)` | `Tensor` | Fetch single output |
 | `ListDevices()` | `DeviceList` | Enumerate compute devices |
 | `HasGPU()` | `bool` | Quick GPU availability check |
 | `LoadSavedModel(path, tags, opts)` | `pair<Session, Graph>` | Static factory for SavedModel |
@@ -1141,7 +1060,7 @@ A: Yes, the C API is stable across TensorFlow versions. Models saved in TensorFl
 A: Use `Session::LoadSavedModel()`:
 
 ```cpp
-auto [session, graph] = tf_wrap::FastSession::LoadSavedModel("/path/to/model");
+auto [session, graph] = tf_wrap::Session::LoadSavedModel("/path/to/model");
 auto results = session.Run({tf_wrap::Feed{"input:0", tensor}}, {tf_wrap::Fetch{"output:0"}});
 ```
 
@@ -1162,13 +1081,13 @@ for (auto& dev : session.ListDevices().all()) {
 
 TensorFlow handles device placement automatically. For explicit placement, use `OperationBuilder::SetDevice()` when building graphs.
 
-**Q: Can I mix policies in one application?**
+**Q: Is TensorFlowWrap thread-safe?**
 
-A: Yes. Different tensors, graphs, and sessions can use different policies. A common pattern uses `FastTensor` for temporary computation buffers and `SharedTensor` for shared caches.
+A: TensorFlowWrap does not provide synchronization. However, `Session::Run()` is thread-safe (this is TensorFlow's guarantee). For multi-threaded inference, create per-thread input tensors and don't share mutable tensors across threads.
 
 **Q: What happens if I forget to call Finish() on an OperationBuilder?**
 
-A: In debug builds, the destructor fires an assertion. In release builds, the lock is released but the operation may not be properly registered in the graph. Always ensure `Finish()` is called.
+A: In debug builds, the destructor fires an assertion. In release builds, the operation may not be properly registered in the graph. Always ensure `Finish()` is called.
 
 ---
 
@@ -1184,13 +1103,7 @@ A: In debug builds, the destructor fires an assertion. In release builds, the lo
 
 **Fetch**: A requested output from `Session::Run()`. The session computes the operation and returns the result.
 
-**Guard**: A RAII lock holder. The lock is acquired on construction and released on destruction.
-
-**NoLock Policy**: A thread-safety policy with zero synchronization overhead. The guard type is empty and optimized away.
-
 **Operation**: A node in a TensorFlow computational graph. Has a type (like "MatMul"), a name (unique within the graph), inputs, outputs, and attributes.
-
-**Policy**: A template parameter controlling thread-safety behavior. The three policies are `NoLock`, `Mutex`, and `SharedMutex`.
 
 **Rank**: The number of dimensions in a tensor's shape. A scalar has rank 0, a vector has rank 1, a matrix has rank 2.
 
@@ -1202,10 +1115,12 @@ A: In debug builds, the destructor fires an assertion. In release builds, the lo
 
 **Target**: An operation to run in `Session::Run()` without fetching its output. Used for side-effecting operations.
 
-**View**: A non-owning reference to tensor data combined with a lock guard. Provides safe, temporary access to memory owned by the tensor.
+**TensorState**: Internal structure holding the raw `TF_Tensor*` and shape. Owned via `shared_ptr` so views can keep data alive.
+
+**View**: A `TensorView` providing access to tensor data. Holds a `shared_ptr` to `TensorState`, ensuring the data remains valid for the view's lifetime.
 
 ---
 
-*TensorFlow C++20 Wrapper — User Manual v1.1*
+*TensorFlow C++20 Wrapper — User Manual v5.0*
 
-*Last verified: 2025-01-21*
+*Last verified: 2026-01-24*

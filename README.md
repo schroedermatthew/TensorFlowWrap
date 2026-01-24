@@ -6,9 +6,9 @@ A modern C++20 header-only wrapper for the TensorFlow C API.
 
 - **Header-only** — Just include and use, no build step for the library
 - **RAII** — Automatic resource management for tensors, graphs, sessions
-- **Thread-safe** — Policy-based locking (NoLock, Mutex, SharedMutex)
 - **Type-safe** — Compile-time dtype checking with concepts
 - **Modern C++20** — Concepts, ranges, `std::span`, `std::format`
+- **Lifetime-safe views** — Tensor views keep underlying data alive
 
 ## Quick Start
 
@@ -17,11 +17,11 @@ A modern C++20 header-only wrapper for the TensorFlow C API.
 
 int main() {
     // Create tensors
-    tf_wrap::FastTensor a = tf_wrap::FastTensor::FromVector<float>({2}, {1.0f, 2.0f});
-    tf_wrap::FastTensor b = tf_wrap::FastTensor::FromVector<float>({2}, {10.0f, 20.0f});
+    tf_wrap::Tensor a = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
+    tf_wrap::Tensor b = tf_wrap::Tensor::FromVector<float>({2}, {10.0f, 20.0f});
     
     // Build graph
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     auto op_a = graph.NewOperation("Const", "A")
         .SetAttrTensor("value", a.handle())
@@ -39,7 +39,7 @@ int main() {
         .Finish();
     
     // Run
-    tf_wrap::FastSession session(graph);
+    tf_wrap::Session session(graph);
     auto results = session.Run({}, {{"Sum", 0}});
     
     // Extract result: [11.0, 22.0]
@@ -47,18 +47,14 @@ int main() {
 }
 ```
 
-## Thread Safety Policies
+## Threading
 
-```cpp
-// No locking (single-threaded, fastest)
-tf_wrap::FastTensor t1 = tf_wrap::FastTensor::FromScalar(1.0f);
+TensorFlowWrap does not provide synchronization. Follow TensorFlow's threading rules:
 
-// Mutex (exclusive access)
-tf_wrap::SafeTensor t2 = tf_wrap::SafeTensor::FromScalar(2.0f);
-
-// Shared mutex (multiple readers OR single writer)
-tf_wrap::SharedTensor t3 = tf_wrap::SharedTensor::FromScalar(3.0f);
-```
+- `Session::Run()` is thread-safe (TensorFlow's guarantee)
+- Do not share mutable tensors across threads
+- Create per-thread input tensors; treat outputs as thread-local
+- Graph is frozen after Session creation (wrapper policy)
 
 ## Requirements
 

@@ -109,14 +109,14 @@ static bool always_true() { return true; }
 // ============================================================================
 
 INFRA_TEST(gpu_device_list_contains_gpu, has_gpu) {
-    tf_wrap::FastGraph g;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph g;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g.NewOperation("Const", "X")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    tf_wrap::FastSession s(g);
+    tf_wrap::Session s(g);
     auto devices = s.ListDevices();
     
     bool found_gpu = false;
@@ -131,10 +131,10 @@ INFRA_TEST(gpu_device_list_contains_gpu, has_gpu) {
 }
 
 INFRA_TEST(gpu_explicit_device_placement, has_gpu) {
-    tf_wrap::FastGraph g;
+    tf_wrap::Graph g;
     
     // Create tensor on GPU
-    auto t = tf_wrap::FastTensor::FromVector<float>({1000}, std::vector<float>(1000, 1.0f));
+    auto t = tf_wrap::Tensor::FromVector<float>({1000}, std::vector<float>(1000, 1.0f));
     
     (void)g.NewOperation("Const", "X")
         .SetAttrTensor("value", t.handle())
@@ -150,7 +150,7 @@ INFRA_TEST(gpu_explicit_device_placement, has_gpu) {
         .SetDevice("/device:GPU:0")
         .Finish();
     
-    tf_wrap::FastSession s(g);
+    tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Y", 0}}, {});
     
     REQUIRE(results.size() == 1);
@@ -164,10 +164,10 @@ INFRA_TEST(gpu_large_tensor_computation, has_gpu) {
     // 100M floats = 400MB - should fit on most GPUs
     const size_t num_elements = 100'000'000;
     
-    tf_wrap::FastGraph g;
+    tf_wrap::Graph g;
     
     std::vector<float> data(num_elements, 2.0f);
-    auto t = tf_wrap::FastTensor::FromVector<float>(
+    auto t = tf_wrap::Tensor::FromVector<float>(
         {static_cast<int64_t>(num_elements)}, data);
     
     (void)g.NewOperation("Const", "X")
@@ -183,7 +183,7 @@ INFRA_TEST(gpu_large_tensor_computation, has_gpu) {
         .SetDevice("/device:GPU:0")
         .Finish();
     
-    tf_wrap::FastSession s(g);
+    tf_wrap::Session s(g);
     
     auto start = std::chrono::high_resolution_clock::now();
     auto results = s.Run({}, {{"Y", 0}}, {});
@@ -202,10 +202,10 @@ INFRA_TEST(gpu_large_tensor_computation, has_gpu) {
 }
 
 INFRA_TEST(gpu_cpu_data_transfer, has_gpu) {
-    tf_wrap::FastGraph g;
+    tf_wrap::Graph g;
     
     // Create on CPU
-    auto t = tf_wrap::FastTensor::FromVector<float>({1000}, std::vector<float>(1000, 3.0f));
+    auto t = tf_wrap::Tensor::FromVector<float>({1000}, std::vector<float>(1000, 3.0f));
     
     (void)g.NewOperation("Const", "CPU_Data")
         .SetAttrTensor("value", t.handle())
@@ -229,7 +229,7 @@ INFRA_TEST(gpu_cpu_data_transfer, has_gpu) {
         .SetDevice("/device:CPU:0")
         .Finish();
     
-    tf_wrap::FastSession s(g);
+    tf_wrap::Session s(g);
     auto results = s.Run({}, {{"CPU_Output", 0}}, {});
     
     auto v = results[0].ToVector<float>();
@@ -237,8 +237,8 @@ INFRA_TEST(gpu_cpu_data_transfer, has_gpu) {
 }
 
 INFRA_TEST(gpu_multi_gpu_placement, has_gpu) {
-    tf_wrap::FastGraph g;
-    tf_wrap::FastSession s_temp(g);
+    tf_wrap::Graph g;
+    tf_wrap::Session s_temp(g);
     auto devices = s_temp.ListDevices();
     
     int gpu_count = 0;
@@ -251,9 +251,9 @@ INFRA_TEST(gpu_multi_gpu_placement, has_gpu) {
         return;  // Not a failure, just can't test
     }
     
-    tf_wrap::FastGraph g2;
-    auto t1 = tf_wrap::FastTensor::FromScalar<float>(2.0f);
-    auto t2 = tf_wrap::FastTensor::FromScalar<float>(3.0f);
+    tf_wrap::Graph g2;
+    auto t1 = tf_wrap::Tensor::FromScalar<float>(2.0f);
+    auto t2 = tf_wrap::Tensor::FromScalar<float>(3.0f);
     
     (void)g2.NewOperation("Const", "A")
         .SetAttrTensor("value", t1.handle())
@@ -276,7 +276,7 @@ INFRA_TEST(gpu_multi_gpu_placement, has_gpu) {
         .AddInput(tf_wrap::Output(b, 0))
         .Finish();
     
-    tf_wrap::FastSession s(g2);
+    tf_wrap::Session s(g2);
     auto results = s.Run({}, {{"Sum", 0}}, {});
     
     REQUIRE(std::abs(results[0].ToScalar<float>() - 5.0f) < 0.001f);
@@ -290,8 +290,8 @@ INFRA_TEST(gpu_multi_gpu_placement, has_gpu) {
 INFRA_TEST(distributed_connect_to_cluster, has_distributed) {
     const char* target = std::getenv("TF_DISTRIBUTED_TARGET");
     
-    tf_wrap::FastGraph g;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(42.0f);
+    tf_wrap::Graph g;
+    auto t = tf_wrap::Tensor::FromScalar<float>(42.0f);
     (void)g.NewOperation("Const", "X")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -300,7 +300,7 @@ INFRA_TEST(distributed_connect_to_cluster, has_distributed) {
     tf_wrap::SessionOptions opts;
     opts.SetTarget(target);
     
-    tf_wrap::FastSession s(g, opts);
+    tf_wrap::Session s(g, opts);
     auto results = s.Run({}, {{"X", 0}}, {});
     
     REQUIRE(std::abs(results[0].ToScalar<float>() - 42.0f) < 0.001f);
@@ -310,8 +310,8 @@ INFRA_TEST(distributed_connect_to_cluster, has_distributed) {
 INFRA_TEST(distributed_remote_device_list, has_distributed) {
     const char* target = std::getenv("TF_DISTRIBUTED_TARGET");
     
-    tf_wrap::FastGraph g;
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph g;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g.NewOperation("Const", "X")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -320,7 +320,7 @@ INFRA_TEST(distributed_remote_device_list, has_distributed) {
     tf_wrap::SessionOptions opts;
     opts.SetTarget(target);
     
-    tf_wrap::FastSession s(g, opts);
+    tf_wrap::Session s(g, opts);
     auto devices = s.ListDevices();
     
     std::cout << "    Remote devices:\n";
@@ -335,9 +335,9 @@ INFRA_TEST(distributed_remote_device_list, has_distributed) {
 INFRA_TEST(distributed_cross_worker_computation, has_distributed) {
     const char* target = std::getenv("TF_DISTRIBUTED_TARGET");
     
-    tf_wrap::FastGraph g;
-    auto t1 = tf_wrap::FastTensor::FromScalar<float>(10.0f);
-    auto t2 = tf_wrap::FastTensor::FromScalar<float>(20.0f);
+    tf_wrap::Graph g;
+    auto t1 = tf_wrap::Tensor::FromScalar<float>(10.0f);
+    auto t2 = tf_wrap::Tensor::FromScalar<float>(20.0f);
     
     // Place operations on different workers (assumes job:worker/task:0 and task:1)
     (void)g.NewOperation("Const", "A")
@@ -363,7 +363,7 @@ INFRA_TEST(distributed_cross_worker_computation, has_distributed) {
     tf_wrap::SessionOptions opts;
     opts.SetTarget(target);
     
-    tf_wrap::FastSession s(g, opts);
+    tf_wrap::Session s(g, opts);
     auto results = s.Run({}, {{"Sum", 0}}, {});
     
     REQUIRE(std::abs(results[0].ToScalar<float>() - 30.0f) < 0.001f);
@@ -381,7 +381,7 @@ INFRA_TEST(oom_tensor_allocation_fails_gracefully, always_true) {
     
     bool threw = false;
     try {
-        auto tensor = tf_wrap::FastTensor::Allocate<float>(huge_shape);
+        auto tensor = tf_wrap::Tensor::Allocate<float>(huge_shape);
         // If we get here, allocation somehow succeeded (unlikely)
         std::cout << "    Warning: huge allocation succeeded?!\n";
     } catch (const std::exception& e) {
@@ -393,10 +393,10 @@ INFRA_TEST(oom_tensor_allocation_fails_gracefully, always_true) {
 }
 
 INFRA_TEST(oom_graph_continues_after_allocation_failure, always_true) {
-    tf_wrap::FastGraph g;
+    tf_wrap::Graph g;
     
     // First, do something that works
-    auto t1 = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto t1 = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g.NewOperation("Const", "Good")
         .SetAttrTensor("value", t1.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -406,7 +406,7 @@ INFRA_TEST(oom_graph_continues_after_allocation_failure, always_true) {
     bool allocation_failed = false;
     try {
         std::vector<int64_t> huge_shape = {1'000'000'000'000LL};
-        auto huge = tf_wrap::FastTensor::Allocate<float>(huge_shape);
+        auto huge = tf_wrap::Tensor::Allocate<float>(huge_shape);
     } catch (...) {
         allocation_failed = true;
     }
@@ -414,13 +414,13 @@ INFRA_TEST(oom_graph_continues_after_allocation_failure, always_true) {
     REQUIRE(allocation_failed);
     
     // Graph should still work
-    auto t2 = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    auto t2 = tf_wrap::Tensor::FromScalar<float>(2.0f);
     (void)g.NewOperation("Const", "StillGood")
         .SetAttrTensor("value", t2.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    tf_wrap::FastSession s(g);
+    tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Good", 0}, {"StillGood", 0}}, {});
     
     REQUIRE(results.size() == 2);
@@ -432,12 +432,12 @@ INFRA_TEST(oom_session_survives_large_intermediate, has_high_memory) {
     // This test requires a machine where we can actually allocate ~8GB
     // and test recovery
     
-    tf_wrap::FastGraph g;
+    tf_wrap::Graph g;
     
     // Create a large tensor (2GB)
     const size_t large_size = 500'000'000;  // 500M floats = 2GB
     std::vector<float> data(large_size, 1.0f);
-    auto t = tf_wrap::FastTensor::FromVector<float>(
+    auto t = tf_wrap::Tensor::FromVector<float>(
         {static_cast<int64_t>(large_size)}, data);
     
     (void)g.NewOperation("Const", "Large")
@@ -445,7 +445,7 @@ INFRA_TEST(oom_session_survives_large_intermediate, has_high_memory) {
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    tf_wrap::FastSession s(g);
+    tf_wrap::Session s(g);
     
     // This should work
     auto results = s.Run({}, {{"Large", 0}}, {});
@@ -477,7 +477,7 @@ INFRA_TEST(huge_tensor_1b_elements, has_high_memory) {
     std::cout << "    Allocating 4GB tensor...\n";
     auto start = std::chrono::high_resolution_clock::now();
     
-    auto tensor = tf_wrap::FastTensor::Allocate<float>(
+    auto tensor = tf_wrap::Tensor::Allocate<float>(
         {static_cast<int64_t>(num_elements)});
     
     auto alloc_end = std::chrono::high_resolution_clock::now();
@@ -517,7 +517,7 @@ INFRA_TEST(huge_tensor_2b_elements, has_high_memory) {
     
     std::cout << "    Allocating 8GB tensor...\n";
     
-    auto tensor = tf_wrap::FastTensor::Allocate<float>(
+    auto tensor = tf_wrap::Tensor::Allocate<float>(
         {static_cast<int64_t>(num_elements)});
     
     REQUIRE(tensor.valid());
@@ -528,7 +528,7 @@ INFRA_TEST(huge_tensor_2b_elements, has_high_memory) {
 
 INFRA_TEST(huge_tensor_multidimensional, has_high_memory) {
     // 1000 x 1000 x 1000 = 1 billion floats = 4GB
-    auto tensor = tf_wrap::FastTensor::Allocate<float>({1000, 1000, 1000});
+    auto tensor = tf_wrap::Tensor::Allocate<float>({1000, 1000, 1000});
     
     REQUIRE(tensor.valid());
     REQUIRE(tensor.shape().size() == 3);
@@ -541,7 +541,7 @@ INFRA_TEST(huge_tensor_multidimensional, has_high_memory) {
 INFRA_TEST(huge_tensor_session_run, has_high_memory) {
     const size_t num_elements = 500'000'000;  // 2GB - more reasonable
     
-    tf_wrap::FastGraph g;
+    tf_wrap::Graph g;
     
     (void)g.NewOperation("Placeholder", "X")
         .SetAttrType("dtype", TF_FLOAT)
@@ -554,10 +554,10 @@ INFRA_TEST(huge_tensor_session_run, has_high_memory) {
         .AddInput(tf_wrap::Output(x, 0))
         .Finish();
     
-    tf_wrap::FastSession s(g);
+    tf_wrap::Session s(g);
     
     // Create large input
-    auto input = tf_wrap::FastTensor::Allocate<float>(
+    auto input = tf_wrap::Tensor::Allocate<float>(
         {static_cast<int64_t>(num_elements)});
     {
         auto view = input.write<float>();
@@ -591,16 +591,16 @@ INFRA_TEST(high_thread_64_concurrent_sessions, has_many_cores) {
     const int num_threads = 64;
     const int runs_per_thread = 100;
     
-    tf_wrap::SafeGraph g;
-    auto t = tf_wrap::SafeTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph g;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g.NewOperation("Const", "X")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    std::vector<std::unique_ptr<tf_wrap::SafeSession>> sessions;
+    std::vector<std::unique_ptr<tf_wrap::Session>> sessions;
     for (int i = 0; i < num_threads; ++i) {
-        sessions.push_back(std::make_unique<tf_wrap::SafeSession>(g));
+        sessions.push_back(std::make_unique<tf_wrap::Session>(g));
     }
     
     std::atomic<int> success_count{0};
@@ -652,7 +652,7 @@ INFRA_TEST(high_thread_128_tensor_operations, has_many_cores) {
     auto worker = [&](int id) {
         try {
             for (int i = 0; i < ops_per_thread; ++i) {
-                auto t = tf_wrap::FastTensor::FromScalar<float>(
+                auto t = tf_wrap::Tensor::FromScalar<float>(
                     static_cast<float>(id * ops_per_thread + i));
                 auto v = t.ToScalar<float>();
                 if (static_cast<int>(v) == id * ops_per_thread + i) {
@@ -690,10 +690,10 @@ INFRA_TEST(high_thread_128_tensor_operations, has_many_cores) {
 INFRA_TEST(high_thread_shared_graph_stress, has_many_cores) {
     const int num_threads = 64;
     
-    tf_wrap::SharedGraph g;
+    tf_wrap::Graph g;
     
     // Build graph with multiple threads reading
-    auto t = tf_wrap::SharedTensor::FromScalar<float>(42.0f);
+    auto t = tf_wrap::Tensor::FromScalar<float>(42.0f);
     (void)g.NewOperation("Const", "X")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -737,14 +737,14 @@ INFRA_TEST(soak_1_hour_continuous_operations, run_soak_tests) {
     
     std::cout << "    Starting 1-hour soak test...\n";
     
-    tf_wrap::SafeGraph g;
-    auto t = tf_wrap::SafeTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph g;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g.NewOperation("Const", "X")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    tf_wrap::SafeSession s(g);
+    tf_wrap::Session s(g);
     
     auto start = std::chrono::high_resolution_clock::now();
     auto last_report = start;
@@ -794,7 +794,7 @@ INFRA_TEST(soak_memory_stability, run_soak_tests) {
     while (std::chrono::high_resolution_clock::now() - start < duration) {
         // Create and destroy tensors rapidly
         for (int i = 0; i < 1000; ++i) {
-            auto t = tf_wrap::FastTensor::FromVector<float>({100, 100}, 
+            auto t = tf_wrap::Tensor::FromVector<float>({100, 100}, 
                 std::vector<float>(10000, static_cast<float>(i)));
             auto v = t.ToVector<float>();
             (void)v;
@@ -802,8 +802,8 @@ INFRA_TEST(soak_memory_stability, run_soak_tests) {
         
         // Create and destroy graphs
         for (int i = 0; i < 100; ++i) {
-            tf_wrap::FastGraph g;
-            auto t = tf_wrap::FastTensor::FromScalar<float>(static_cast<float>(i));
+            tf_wrap::Graph g;
+            auto t = tf_wrap::Tensor::FromScalar<float>(static_cast<float>(i));
             (void)g.NewOperation("Const", "X")
                 .SetAttrTensor("value", t.handle())
                 .SetAttrType("dtype", TF_FLOAT)
@@ -827,8 +827,8 @@ INFRA_TEST(soak_thread_creation_destruction, run_soak_tests) {
     
     std::cout << "    Starting 15-minute thread stress test...\n";
     
-    tf_wrap::SafeGraph g;
-    auto t = tf_wrap::SafeTensor::FromScalar<float>(1.0f);
+    tf_wrap::Graph g;
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)g.NewOperation("Const", "X")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -843,7 +843,7 @@ INFRA_TEST(soak_thread_creation_destruction, run_soak_tests) {
         std::vector<std::thread> threads;
         for (int i = 0; i < 16; ++i) {
             threads.emplace_back([&g, &total_runs]() {
-                tf_wrap::SafeSession s(g);
+                tf_wrap::Session s(g);
                 for (int j = 0; j < 100; ++j) {
                     auto results = s.Run({}, {{"X", 0}}, {});
                     (void)results;

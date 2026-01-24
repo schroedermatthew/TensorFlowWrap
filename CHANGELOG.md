@@ -1,4 +1,39 @@
-# CHANGELOG - TensorFlowWrap Bug Fixes
+# CHANGELOG - TensorFlowWrap
+
+## v5.0 - API Simplification (2026-01-24)
+
+### BREAKING CHANGES
+
+**Removed policy-based threading system entirely.**
+
+The following have been removed:
+- `policy.hpp` - NoLock/Mutex/SharedMutex policies
+- `guarded_span.hpp` - Lock-holding span wrapper
+- Template parameters on `Tensor`, `Graph`, `Session`
+- Type aliases: `FastTensor`, `SafeTensor`, `SharedTensor`, `FastGraph`, `SafeGraph`, `SharedGraph`, `FastSession`, `SafeSession`
+- Lock acquisition methods: `acquire_shared_lock()`, `acquire_exclusive_lock()`
+
+**Migration:**
+- Replace `FastTensor` / `SafeTensor` / `SharedTensor` with `Tensor`
+- Replace `FastGraph` / `SafeGraph` / `SharedGraph` with `Graph`
+- Replace `FastSession` / `SafeSession` with `Session`
+- Replace `Tensor<>` / `Graph<>` / `Session<>` with `Tensor` / `Graph` / `Session`
+
+**Rationale:**
+The policy system solved a non-existent problem. Real TensorFlow usage patterns don't require mutex-protected tensor buffer access:
+- `Session::Run()` is already thread-safe (TensorFlow's guarantee)
+- Each thread creates its own input tensors
+- Output tensors are owned by the receiving thread
+- Graph is frozen after Session creation
+
+The complexity (templates everywhere, three type aliases per class, deadlock documentation) provided no practical benefit.
+
+**What's preserved:**
+- View lifetime safety - `TensorView` still holds `shared_ptr<TensorState>`, preventing dangling pointers
+- All tensor, graph, and session functionality
+- All 160 wrapped TensorFlow operations
+
+---
 
 ## v4.1 - Bug Fixes (2026-01-22)
 

@@ -128,37 +128,6 @@ inline void require_throws_as_impl(Fn&& fn, const char* expr, const char* ex_nam
 // Compile-time checks (replacement for Catch2 STATIC_REQUIRE)
 // ============================================================================
 
-static_assert(tf_wrap::policy::LockPolicy<tf_wrap::policy::NoLock>);
-static_assert(tf_wrap::policy::LockPolicy<tf_wrap::policy::Mutex>);
-static_assert(tf_wrap::policy::LockPolicy<tf_wrap::policy::SharedMutex>);
-
-static_assert(tf_wrap::policy::Guard<tf_wrap::policy::NoLock::guard>);
-static_assert(tf_wrap::policy::Guard<tf_wrap::policy::Mutex::guard_type>);
-static_assert(tf_wrap::policy::Guard<tf_wrap::policy::SharedMutex::exclusive_guard_type>);
-static_assert(tf_wrap::policy::Guard<tf_wrap::policy::SharedMutex::shared_guard_type>);
-
-static_assert(std::is_empty_v<tf_wrap::policy::NoLock>);
-static_assert(std::is_empty_v<tf_wrap::policy::NoLock::guard>);
-static_assert(std::is_trivially_copyable_v<tf_wrap::policy::NoLock::guard>);
-
-static_assert(std::is_move_constructible_v<tf_wrap::policy::Mutex>);
-static_assert(std::is_move_constructible_v<tf_wrap::policy::SharedMutex>);
-static_assert(std::is_copy_constructible_v<tf_wrap::policy::Mutex>);
-static_assert(std::is_copy_constructible_v<tf_wrap::policy::SharedMutex>);
-
-static_assert(!std::is_copy_constructible_v<tf_wrap::GuardedSpan<float, tf_wrap::policy::NoLock::guard>>);
-static_assert(std::is_move_constructible_v<tf_wrap::GuardedSpan<float, tf_wrap::policy::NoLock::guard>>);
-
-static_assert(std::is_same_v<tf_wrap::FastTensor, tf_wrap::Tensor<tf_wrap::policy::NoLock>>);
-static_assert(std::is_same_v<tf_wrap::SafeTensor, tf_wrap::Tensor<tf_wrap::policy::Mutex>>);
-static_assert(std::is_same_v<tf_wrap::SharedTensor, tf_wrap::Tensor<tf_wrap::policy::SharedMutex>>);
-
-static_assert(std::is_same_v<tf_wrap::FastGraph, tf_wrap::Graph<tf_wrap::policy::NoLock>>);
-static_assert(std::is_same_v<tf_wrap::SafeGraph, tf_wrap::Graph<tf_wrap::policy::Mutex>>);
-static_assert(std::is_same_v<tf_wrap::SharedGraph, tf_wrap::Graph<tf_wrap::policy::SharedMutex>>);
-
-static_assert(std::is_same_v<tf_wrap::FastSession, tf_wrap::Session<tf_wrap::policy::NoLock>>);
-static_assert(std::is_same_v<tf_wrap::SafeSession, tf_wrap::Session<tf_wrap::policy::Mutex>>);
 
 // ============================================================================
 // Runtime tests
@@ -218,7 +187,7 @@ TF_TEST_CASE("Tensor FromVector works") {
     std::vector<std::int64_t> shape = {2, 3};
     std::vector<float> data = {1, 2, 3, 4, 5, 6};
 
-    auto tensor = tf_wrap::FastTensor::FromVector<float>(shape, data);
+    auto tensor = tf_wrap::Tensor::FromVector<float>(shape, data);
 
     TF_REQUIRE(tensor.dtype() == TF_FLOAT);
     TF_REQUIRE(tensor.shape() == shape);
@@ -232,7 +201,7 @@ TF_TEST_CASE("Tensor FromVector<bool> works") {
     std::vector<std::int64_t> shape = {5};
     std::vector<bool> data = {true, false, true, false, true};
 
-    auto tensor = tf_wrap::FastTensor::FromVector<bool>(shape, data);
+    auto tensor = tf_wrap::Tensor::FromVector<bool>(shape, data);
 
     TF_REQUIRE(tensor.dtype() == TF_BOOL);
     TF_REQUIRE(tensor.shape() == shape);
@@ -247,7 +216,7 @@ TF_TEST_CASE("Tensor FromVector<bool> works") {
 }
 
 TF_TEST_CASE("Tensor FromScalar works") {
-    auto tensor = tf_wrap::FastTensor::FromScalar<double>(3.14);
+    auto tensor = tf_wrap::Tensor::FromScalar<double>(3.14);
 
     TF_REQUIRE(tensor.dtype() == TF_DOUBLE);
     TF_REQUIRE(tensor.num_elements() == 1);
@@ -257,11 +226,11 @@ TF_TEST_CASE("Tensor FromScalar works") {
 }
 
 TF_TEST_CASE("Tensor FromRaw rejects null") {
-    TF_REQUIRE_THROWS_AS(tf_wrap::FastTensor::FromRaw(nullptr), std::invalid_argument);
+    TF_REQUIRE_THROWS_AS(tf_wrap::Tensor::FromRaw(nullptr), std::invalid_argument);
 }
 
 TF_TEST_CASE("Tensor Zeros factory works") {
-    auto tensor = tf_wrap::FastTensor::Zeros<float>({10});
+    auto tensor = tf_wrap::Tensor::Zeros<float>({10});
 
     auto view = tensor.read<float>();
     for (float x : view) {
@@ -270,14 +239,14 @@ TF_TEST_CASE("Tensor Zeros factory works") {
 }
 
 TF_TEST_CASE("Tensor Allocate factory works") {
-    auto tensor = tf_wrap::FastTensor::Allocate<std::int32_t>({100});
+    auto tensor = tf_wrap::Tensor::Allocate<std::int32_t>({100});
 
     TF_REQUIRE(tensor.num_elements() == 100);
     TF_REQUIRE(tensor.byte_size() == 400);
 }
 
 TF_TEST_CASE("Tensor read/write views work") {
-    auto tensor = tf_wrap::FastTensor::FromVector<float>({4}, {1, 2, 3, 4});
+    auto tensor = tf_wrap::Tensor::FromVector<float>({4}, {1, 2, 3, 4});
 
     {
         auto view = tensor.read<float>();
@@ -300,7 +269,7 @@ TF_TEST_CASE("Tensor read/write views work") {
 }
 
 TF_TEST_CASE("Tensor with_read/with_write work") {
-    auto tensor = tf_wrap::FastTensor::FromVector<float>({5}, {1, 2, 3, 4, 5});
+    auto tensor = tf_wrap::Tensor::FromVector<float>({5}, {1, 2, 3, 4, 5});
 
     float sum = tensor.with_read<float>([](std::span<const float> s) {
         return std::accumulate(s.begin(), s.end(), 0.0f);
@@ -318,7 +287,7 @@ TF_TEST_CASE("Tensor with_read/with_write work") {
 }
 
 TF_TEST_CASE("Tensor dtype mismatch throws") {
-    auto tensor = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto tensor = tf_wrap::Tensor::FromScalar<float>(1.0f);
     TF_REQUIRE_THROWS_AS(tensor.read<double>(), std::runtime_error);
     TF_REQUIRE_THROWS_AS(tensor.write<int>(), std::runtime_error);
 }
@@ -327,7 +296,7 @@ TF_TEST_CASE("Tensor ToVector extracts data correctly") {
     std::vector<std::int64_t> shape = {2, 3};
     std::vector<float> data = {1, 2, 3, 4, 5, 6};
 
-    auto tensor = tf_wrap::FastTensor::FromVector<float>(shape, data);
+    auto tensor = tf_wrap::Tensor::FromVector<float>(shape, data);
     auto extracted = tensor.ToVector<float>();
 
     TF_REQUIRE_EQ(extracted.size(), 6u);
@@ -335,23 +304,23 @@ TF_TEST_CASE("Tensor ToVector extracts data correctly") {
 }
 
 TF_TEST_CASE("Tensor ToScalar extracts single value") {
-    auto tensor = tf_wrap::FastTensor::FromScalar<double>(3.14159);
+    auto tensor = tf_wrap::Tensor::FromScalar<double>(3.14159);
     double value = tensor.ToScalar<double>();
     TF_REQUIRE_APPROX(value, 3.14159);
 }
 
 TF_TEST_CASE("Tensor ToScalar throws for multi-element tensor") {
-    auto tensor = tf_wrap::FastTensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    auto tensor = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
     TF_REQUIRE_THROWS_AS(tensor.ToScalar<float>(), std::runtime_error);
 }
 
 TF_TEST_CASE("Tensor ToVector dtype mismatch throws") {
-    auto tensor = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto tensor = tf_wrap::Tensor::FromScalar<float>(1.0f);
     TF_REQUIRE_THROWS_AS(tensor.ToVector<double>(), std::runtime_error);
 }
 
 TF_TEST_CASE("Tensor Clone creates independent copy") {
-    auto original = tf_wrap::FastTensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
+    auto original = tf_wrap::Tensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f, 4.0f});
     auto cloned = original.Clone();
     
     // Verify same shape and dtype
@@ -378,7 +347,7 @@ TF_TEST_CASE("Tensor Clone creates independent copy") {
 }
 
 TF_TEST_CASE("Tensor Clone of empty returns empty") {
-    tf_wrap::FastTensor empty;
+    tf_wrap::Tensor empty;
     auto cloned = empty.Clone();
     
     TF_REQUIRE(cloned.empty());
@@ -386,7 +355,7 @@ TF_TEST_CASE("Tensor Clone of empty returns empty") {
 }
 
 TF_TEST_CASE("Tensor Clone of scalar works") {
-    auto original = tf_wrap::FastTensor::FromScalar<int>(42);
+    auto original = tf_wrap::Tensor::FromScalar<int>(42);
     auto cloned = original.Clone();
     
     TF_REQUIRE(cloned.rank() == 0);
@@ -396,7 +365,7 @@ TF_TEST_CASE("Tensor Clone of scalar works") {
 
 TF_TEST_CASE("Tensor dimension mismatch throws") {
     TF_REQUIRE_THROWS_AS(
-        tf_wrap::FastTensor::FromVector<float>({2, 3}, {1, 2, 3}),
+        tf_wrap::Tensor::FromVector<float>({2, 3}, {1, 2, 3}),
         std::invalid_argument);
 }
 
@@ -414,131 +383,6 @@ TF_TEST_CASE("All scalar types map to TF dtypes") {
     TF_REQUIRE(tf_wrap::tf_dtype_v<bool> == TF_BOOL);
 }
 
-TF_TEST_CASE("GuardedSpan at() throws on out of range") {
-    std::vector<int> data = {1, 2, 3};
-    tf_wrap::policy::NoLock::guard g;
-    tf_wrap::GuardedSpan<int, tf_wrap::policy::NoLock::guard> view(std::span{data}, std::move(g));
-
-    TF_REQUIRE(view.at(0) == 1);
-    TF_REQUIRE(view.at(2) == 3);
-    TF_REQUIRE_THROWS_AS(view.at(3), std::out_of_range);
-}
-
-TF_TEST_CASE("GuardedSpan iteration works") {
-    std::vector<int> data = {1, 2, 3, 4, 5};
-    tf_wrap::policy::NoLock::guard g;
-    tf_wrap::GuardedSpan<int, tf_wrap::policy::NoLock::guard> view(std::span{data}, std::move(g));
-
-    int sum = 0;
-    for (int x : view) {
-        sum += x;
-    }
-    TF_REQUIRE(sum == 15);
-}
-
-TF_TEST_CASE("Mutex provides exclusion") {
-    tf_wrap::policy::Mutex m;
-    std::atomic<int> counter{0};
-    std::atomic<int> max_concurrent{0};
-
-    auto worker = [&]() {
-        for (int i = 0; i < 100; ++i) {
-            auto guard = m.scoped_lock();
-            int current = ++counter;
-            max_concurrent = std::max(max_concurrent.load(), current);
-            std::this_thread::yield();
-            --counter;
-        }
-    };
-
-    std::thread t1(worker), t2(worker), t3(worker), t4(worker);
-    t1.join();
-    t2.join();
-    t3.join();
-    t4.join();
-
-    TF_REQUIRE(max_concurrent == 1);
-}
-
-TF_TEST_CASE("SharedMutex allows concurrent readers") {
-    tf_wrap::policy::SharedMutex m;
-    std::atomic<int> readers{0};
-    std::atomic<int> max_readers{0};
-    std::atomic<bool> start{false};
-
-    auto reader = [&]() {
-        // Wait for all threads to be ready
-        while (!start) std::this_thread::yield();
-        
-        for (int i = 0; i < 100; ++i) {
-            auto guard = m.scoped_shared();
-            int current = ++readers;
-            
-            // Update max - use compare_exchange to be safe
-            int expected = max_readers.load();
-            while (current > expected) {
-                if (max_readers.compare_exchange_weak(expected, current)) break;
-            }
-            
-            // Hold the lock long enough for other threads to also acquire it
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
-            --readers;
-        }
-    };
-
-    std::thread t1(reader), t2(reader), t3(reader), t4(reader);
-    
-    // Release all threads at once
-    start = true;
-    
-    t1.join();
-    t2.join();
-    t3.join();
-    t4.join();
-
-    // With 4 threads, 100 iterations, and 100us sleep, we expect concurrent readers
-    TF_REQUIRE(max_readers > 1);
-}
-
-TF_TEST_CASE("Tensor with Mutex is thread-safe") {
-    auto tensor = tf_wrap::Tensor<tf_wrap::policy::Mutex>::FromVector<float>(
-        std::vector<std::int64_t>{100},
-        std::vector<float>(100, 0.0f));
-
-    std::atomic<bool> writer_done{false};
-    std::atomic<bool> torn_read{false};
-
-    std::thread writer([&]() {
-        for (int round = 0; round < 50 && !torn_read; ++round) {
-            auto view = tensor.write<float>();
-            float value = static_cast<float>(round);
-            for (std::size_t i = 0; i < view.size(); ++i) {
-                view[i] = value;
-            }
-        }
-        writer_done = true;
-    });
-
-    auto reader = [&]() {
-        while (!writer_done && !torn_read) {
-            auto view = tensor.read<float>();
-            float first = view[0];
-            for (std::size_t i = 1; i < view.size(); ++i) {
-                if (view[i] != first) {
-                    torn_read = true;
-                    break;
-                }
-            }
-        }
-    };
-
-    std::thread r1(reader), r2(reader);
-    writer.join();
-    r1.join();
-    r2.join();
-
-    TF_REQUIRE_FALSE(torn_read);
-}
 
 TF_TEST_CASE("SessionOptions RAII works") {
     tf_wrap::SessionOptions opts;
@@ -550,9 +394,9 @@ TF_TEST_CASE("SessionOptions RAII works") {
 }
 
 TF_TEST_CASE("Graph creation and operation lookup") {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
 
-    auto tensor = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto tensor = tf_wrap::Tensor::FromScalar<float>(1.0f);
 
     auto op = graph.NewOperation("Const", "test_const")
         .SetAttrTensor("value", tensor.handle())
@@ -570,14 +414,14 @@ TF_TEST_CASE("Graph creation and operation lookup") {
 }
 
 TF_TEST_CASE("Graph GetOperationOrThrow throws when not found") {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     TF_REQUIRE_THROWS_AS(graph.GetOperationOrThrow("nonexistent"), std::runtime_error);
 }
 
 TF_TEST_CASE("tf_wrap::Output helper creates correct TF_Output") {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto tensor = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto tensor = tf_wrap::Tensor::FromScalar<float>(1.0f);
     auto op = graph.NewOperation("Const", "test_const")
         .SetAttrTensor("value", tensor.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -628,16 +472,16 @@ TF_TEST_CASE("Buffer RAII works correctly") {
 }
 
 TF_TEST_CASE("Graph ToGraphDef serializes graph") {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Add some operations
-    auto t1 = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto t1 = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)graph.NewOperation("Const", "A")
         .SetAttrTensor("value", t1.handle())
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
     
-    auto t2 = tf_wrap::FastTensor::FromScalar<float>(2.0f);
+    auto t2 = tf_wrap::Tensor::FromScalar<float>(2.0f);
     (void)graph.NewOperation("Const", "B")
         .SetAttrTensor("value", t2.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -659,10 +503,10 @@ TF_TEST_CASE("Graph ToGraphDef serializes graph") {
 }
 
 TF_TEST_CASE("Graph GetPlaceholders finds placeholder ops") {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
     // Add a Placeholder (note: in real TF you'd use Placeholder op type)
-    auto t = tf_wrap::FastTensor::FromScalar<float>(0.0f);
+    auto t = tf_wrap::Tensor::FromScalar<float>(0.0f);
     (void)graph.NewOperation("Placeholder", "input")
         .SetAttrType("dtype", TF_FLOAT)
         .Finish();
@@ -680,9 +524,9 @@ TF_TEST_CASE("Graph GetPlaceholders finds placeholder ops") {
 }
 
 TF_TEST_CASE("Graph GetOperationsByType filters correctly") {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)graph.NewOperation("Const", "A")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
@@ -708,9 +552,9 @@ TF_TEST_CASE("Graph GetOperationsByType filters correctly") {
 }
 
 TF_TEST_CASE("Graph DebugString produces readable output") {
-    tf_wrap::FastGraph graph;
+    tf_wrap::Graph graph;
     
-    auto t = tf_wrap::FastTensor::FromScalar<float>(1.0f);
+    auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
     (void)graph.NewOperation("Const", "MyConst")
         .SetAttrTensor("value", t.handle())
         .SetAttrType("dtype", TF_FLOAT)
