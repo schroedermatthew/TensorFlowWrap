@@ -388,54 +388,11 @@ TEST_CASE("Tensor read/write thread safety") {
     }
 }
 
-STRESS_TEST("Tensor concurrent access is serialized") {
-    std::vector<std::int64_t> shape = {100};
-    std::vector<float> init_data(100, 0.0f);
-    auto tensor = tf_wrap::Tensor::FromVector<float>(shape, init_data);
-    
-    std::atomic<bool> stop{false};
-    std::atomic<int> reads{0};
-    std::atomic<int> writes{0};
-    std::atomic<int> torn{0};
-    
-    // Writer
-    std::thread writer([&]() {
-        float v = 1.0f;
-        while (!stop) {
-            auto view = tensor.template write<float>();
-            std::fill(view.begin(), view.end(), v);
-            v += 1.0f;
-            ++writes;
-        }
-    });
-    
-    // Readers
-    std::vector<std::thread> readers;
-    for (int i = 0; i < 4; ++i) {
-        readers.emplace_back([&]() {
-            while (!stop) {
-                auto view = tensor.template read<float>();
-                float first = view[0];
-                for (std::size_t j = 1; j < view.size(); ++j) {
-                    if (view[j] != first) {
-                        ++torn;
-                        break;
-                    }
-                }
-                ++reads;
-            }
-        });
-    }
-    
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    stop = true;
-    
-    writer.join();
-    for (auto& t : readers) t.join();
-    
-    std::cout << "     Reads: " << reads << ", Writes: " << writes << ", Torn: " << torn << "\n";
-    REQUIRE(torn == 0);
-}
+// NOTE: "Tensor concurrent access is serialized" test removed.
+// This test verified that mutex locking prevented torn reads during concurrent access.
+// Since the policy-based locking system was removed in v5.0,
+// tensors are no longer thread-safe and this test is not applicable.
+// Users should not share mutable tensors across threads.
 
 STRESS_TEST("Tensor allows concurrent readers") {
     std::vector<std::int64_t> shape = {100};
