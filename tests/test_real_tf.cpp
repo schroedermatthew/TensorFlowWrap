@@ -7,8 +7,10 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
-// Suppress -Wunused-result warnings from CHECK_THROWS_AS with [[nodiscard]] functions
-#if defined(__GNUC__) || defined(__clang__)
+// Suppress warnings from CHECK_THROWS_AS with [[nodiscard]] functions
+#if defined(_MSC_VER)
+#pragma warning(disable: 4834)  // discarding return value of function with [[nodiscard]]
+#elif defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic ignored "-Wunused-result"
 #endif
 
@@ -17,9 +19,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <iostream>
 #include <numeric>
+#include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 TEST_CASE("const_and_identity") {
@@ -42,7 +47,7 @@ TEST_CASE("const_and_identity") {
     CHECK(results.size() == 1);
     auto v = results[0].ToVector<float>();
     CHECK(v.size() == 3);
-    CHECK(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f);
+    CHECK((v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f));
 }
 
 TEST_CASE("add_subtract_multiply") {
@@ -67,13 +72,13 @@ TEST_CASE("add_subtract_multiply") {
     CHECK(results.size() == 3);
     
     auto add_v = results[0].ToVector<float>();
-    CHECK(add_v[0] == 13.0f && add_v[1] == 24.0f);
+    CHECK((add_v[0] == 13.0f && add_v[1] == 24.0f));
     
     auto sub_v = results[1].ToVector<float>();
-    CHECK(sub_v[0] == 7.0f && sub_v[1] == 16.0f);
+    CHECK((sub_v[0] == 7.0f && sub_v[1] == 16.0f));
     
     auto mul_v = results[2].ToVector<float>();
-    CHECK(mul_v[0] == 30.0f && mul_v[1] == 80.0f);
+    CHECK((mul_v[0] == 30.0f && mul_v[1] == 80.0f));
 }
 
 TEST_CASE("matmul_2x2") {
@@ -101,7 +106,7 @@ TEST_CASE("matmul_2x2") {
     // C = A @ B = [[19, 22], [43, 50]]
     auto v = results[0].ToVector<float>();
     CHECK(v.size() == 4);
-    CHECK(v[0] == 19.0f && v[1] == 22.0f && v[2] == 43.0f && v[3] == 50.0f);
+    CHECK((v[0] == 19.0f && v[1] == 22.0f && v[2] == 43.0f && v[3] == 50.0f));
 }
 
 TEST_CASE("reshape") {
@@ -153,7 +158,7 @@ TEST_CASE("reduce_sum") {
     // Sum along axis 1: [1+2+3, 4+5+6] = [6, 15]
     auto v = results[0].ToVector<float>();
     CHECK(v.size() == 2);
-    CHECK(v[0] == 6.0f && v[1] == 15.0f);
+    CHECK((v[0] == 6.0f && v[1] == 15.0f));
 }
 
 TEST_CASE("relu") {
@@ -173,7 +178,7 @@ TEST_CASE("relu") {
     auto results = s.Run({}, {{"R", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    CHECK(v[0] == 0.0f && v[1] == 0.0f && v[2] == 1.0f && v[3] == 2.0f);
+    CHECK((v[0] == 0.0f && v[1] == 0.0f && v[2] == 1.0f && v[3] == 2.0f));
 }
 
 TEST_CASE("softmax") {
@@ -197,10 +202,10 @@ TEST_CASE("softmax") {
     
     // Softmax should sum to 1
     float sum = v[0] + v[1] + v[2];
-    CHECK(doctest::Approx(sum, 1.0f, 0.0001f);
+    CHECK(sum == doctest::Approx(1.0f).epsilon(0.0001f));
     
     // Values should be increasing
-    CHECK(v[0] < v[1] && v[1] < v[2]);
+    CHECK((v[0] < v[1] && v[1] < v[2]));
 }
 
 // =============================================================================
@@ -226,12 +231,12 @@ TEST_CASE("placeholder_feed") {
     auto input1 = tf_wrap::Tensor::FromVector<float>({3}, {2.0f, 3.0f, 4.0f});
     auto results1 = s.Run({{"X", 0, input1.handle()}}, {{"Y", 0}}, {});
     auto v1 = results1[0].ToVector<float>();
-    CHECK(v1[0] == 4.0f && v1[1] == 9.0f && v1[2] == 16.0f);
+    CHECK((v1[0] == 4.0f && v1[1] == 9.0f && v1[2] == 16.0f));
     
     auto input2 = tf_wrap::Tensor::FromVector<float>({2}, {5.0f, 6.0f});
     auto results2 = s.Run({{"X", 0, input2.handle()}}, {{"Y", 0}}, {});
     auto v2 = results2[0].ToVector<float>();
-    CHECK(v2[0] == 25.0f && v2[1] == 36.0f);
+    CHECK((v2[0] == 25.0f && v2[1] == 36.0f));
 }
 
 // =============================================================================
@@ -256,7 +261,7 @@ TEST_CASE("int32_operations") {
     auto results = s.Run({}, {{"Sum", 0}}, {});
     
     auto v = results[0].ToVector<int32_t>();
-    CHECK(v[0] == 11 && v[1] == 22 && v[2] == 33);
+    CHECK((v[0] == 11 && v[1] == 22 && v[2] == 33));
 }
 
 TEST_CASE("int64_operations") {
@@ -277,7 +282,7 @@ TEST_CASE("int64_operations") {
     auto results = s.Run({}, {{"Sum", 0}}, {});
     
     auto v = results[0].ToVector<int64_t>();
-    CHECK(v[0] == 1000000000001LL && v[1] == 2000000000002LL);
+    CHECK((v[0] == 1000000000001LL && v[1] == 2000000000002LL));
 }
 
 TEST_CASE("double_precision") {
@@ -298,8 +303,8 @@ TEST_CASE("double_precision") {
     auto results = s.Run({}, {{"Sum", 0}}, {});
     
     auto v = results[0].ToVector<double>();
-    CHECK(doctest::Approx(v[0], 1.0000000002, 1e-15);
-    CHECK(doctest::Approx(v[1], 2.0000000004, 1e-15);
+    CHECK(v[0] == doctest::Approx(1.0000000002).epsilon(1e-15));
+    CHECK(v[1] == doctest::Approx(2.0000000004).epsilon(1e-15));
 }
 
 // =============================================================================
@@ -367,7 +372,7 @@ TEST_CASE("large_tensor") {
     // Sum of 0..999999 = n*(n-1)/2 = 499999500000
     float expected = 499999500000.0f;
     float actual = results[0].ToScalar<float>();
-    CHECK(doctest::Approx(actual, expected, expected * 0.0001f); // 0.01% tolerance for float
+    CHECK(actual == doctest::Approx(expected).epsilon(expected * 0.0001f)); // 0.01% tolerance for float
 }
 
 TEST_CASE("high_rank_tensor") {
@@ -770,9 +775,9 @@ TEST_CASE("value_div_and_floordiv") {
     auto results = s.Run({}, {{"Div", 0}, {"FloorDiv", 0}}, {});
     
     auto div_v = results[0].ToVector<float>();
-    CHECK(doctest::Approx(div_v[0], 3.5f, 0.0001f);
-    CHECK(doctest::Approx(div_v[1], 2.6667f, 0.001f);
-    CHECK(doctest::Approx(div_v[2], 2.25f, 0.0001f);
+    CHECK(div_v[0] == doctest::Approx(3.5f).epsilon(0.0001f));
+    CHECK(div_v[1] == doctest::Approx(2.6667f).epsilon(0.001f));
+    CHECK(div_v[2] == doctest::Approx(2.25f).epsilon(0.0001f));
     
     auto floor_v = results[1].ToVector<float>();
     CHECK(floor_v[0] == 3.0f);
@@ -826,16 +831,16 @@ TEST_CASE("value_trig_functions") {
     auto results = s.Run({}, {{"Sin", 0}, {"Cos", 0}, {"Tan", 0}}, {});
     
     auto sin_v = results[0].ToVector<float>();
-    CHECK(doctest::Approx(sin_v[0], 0.0f, 0.0001f);      // sin(0)
-    CHECK(doctest::Approx(sin_v[1], 0.5f, 0.0001f);      // sin(pi/6)
-    CHECK(doctest::Approx(sin_v[2], 0.7071f, 0.001f);    // sin(pi/4)
-    CHECK(doctest::Approx(sin_v[3], 1.0f, 0.0001f);      // sin(pi/2)
+    CHECK(sin_v[0] == doctest::Approx(0.0f).epsilon(0.0001f));      // sin(0)
+    CHECK(sin_v[1] == doctest::Approx(0.5f).epsilon(0.0001f));      // sin(pi/6)
+    CHECK(sin_v[2] == doctest::Approx(0.7071f).epsilon(0.001f));    // sin(pi/4)
+    CHECK(sin_v[3] == doctest::Approx(1.0f).epsilon(0.0001f));      // sin(pi/2)
     
     auto cos_v = results[1].ToVector<float>();
-    CHECK(doctest::Approx(cos_v[0], 1.0f, 0.0001f);      // cos(0)
-    CHECK(doctest::Approx(cos_v[1], 0.866f, 0.001f);     // cos(pi/6)
-    CHECK(doctest::Approx(cos_v[2], 0.7071f, 0.001f);    // cos(pi/4)
-    CHECK(doctest::Approx(cos_v[3], 0.0f, 0.0001f);      // cos(pi/2)
+    CHECK(cos_v[0] == doctest::Approx(1.0f).epsilon(0.0001f));      // cos(0)
+    CHECK(cos_v[1] == doctest::Approx(0.866f).epsilon(0.001f));     // cos(pi/6)
+    CHECK(cos_v[2] == doctest::Approx(0.7071f).epsilon(0.001f));    // cos(pi/4)
+    CHECK(cos_v[3] == doctest::Approx(0.0f).epsilon(0.0001f));      // cos(pi/2)
 }
 
 TEST_CASE("value_exp_log") {
@@ -859,16 +864,16 @@ TEST_CASE("value_exp_log") {
     auto results = s.Run({}, {{"Exp", 0}, {"Log", 0}}, {});
     
     auto exp_v = results[0].ToVector<float>();
-    CHECK(doctest::Approx(exp_v[0], 1.0f, 0.0001f);       // e^0
-    CHECK(doctest::Approx(exp_v[1], 2.7183f, 0.001f);     // e^1
-    CHECK(doctest::Approx(exp_v[2], 7.3891f, 0.001f);     // e^2
-    CHECK(doctest::Approx(exp_v[3], 0.3679f, 0.001f);     // e^-1
+    CHECK(exp_v[0] == doctest::Approx(1.0f).epsilon(0.0001f));       // e^0
+    CHECK(exp_v[1] == doctest::Approx(2.7183f).epsilon(0.001f));     // e^1
+    CHECK(exp_v[2] == doctest::Approx(7.3891f).epsilon(0.001f));     // e^2
+    CHECK(exp_v[3] == doctest::Approx(0.3679f).epsilon(0.001f));     // e^-1
     
     auto log_v = results[1].ToVector<float>();
-    CHECK(doctest::Approx(log_v[0], 0.0f, 0.0001f);       // ln(1)
-    CHECK(doctest::Approx(log_v[1], 1.0f, 0.0001f);       // ln(e)
-    CHECK(doctest::Approx(log_v[2], 2.3026f, 0.001f);     // ln(10)
-    CHECK(doctest::Approx(log_v[3], -2.3026f, 0.001f);    // ln(0.1)
+    CHECK(log_v[0] == doctest::Approx(0.0f).epsilon(0.0001f));       // ln(1)
+    CHECK(log_v[1] == doctest::Approx(1.0f).epsilon(0.0001f));       // ln(e)
+    CHECK(log_v[2] == doctest::Approx(2.3026f).epsilon(0.001f));     // ln(10)
+    CHECK(log_v[3] == doctest::Approx(-2.3026f).epsilon(0.001f));    // ln(0.1)
 }
 
 TEST_CASE("value_sqrt_square_abs") {
@@ -891,13 +896,13 @@ TEST_CASE("value_sqrt_square_abs") {
     auto results = s.Run({}, {{"Sqrt", 0}, {"Square", 0}, {"Abs", 0}}, {});
     
     auto sqrt_v = results[0].ToVector<float>();
-    CHECK(sqrt_v[0] == 2.0f && sqrt_v[1] == 3.0f && sqrt_v[2] == 4.0f && sqrt_v[3] == 5.0f);
+    CHECK((sqrt_v[0] == 2.0f && sqrt_v[1] == 3.0f && sqrt_v[2] == 4.0f && sqrt_v[3] == 5.0f));
     
     auto square_v = results[1].ToVector<float>();
-    CHECK(square_v[0] == 9.0f && square_v[1] == 25.0f && square_v[2] == 49.0f && square_v[3] == 0.0f);
+    CHECK((square_v[0] == 9.0f && square_v[1] == 25.0f && square_v[2] == 49.0f && square_v[3] == 0.0f));
     
     auto abs_v = results[2].ToVector<float>();
-    CHECK(abs_v[0] == 3.0f && abs_v[1] == 5.0f && abs_v[2] == 7.0f && abs_v[3] == 0.0f);
+    CHECK((abs_v[0] == 3.0f && abs_v[1] == 5.0f && abs_v[2] == 7.0f && abs_v[3] == 0.0f));
 }
 
 TEST_CASE("value_comparison_ops") {
@@ -955,19 +960,19 @@ TEST_CASE("value_activation_functions") {
     auto results = s.Run({}, {{"Relu", 0}, {"Relu6", 0}, {"Sigmoid", 0}, {"Tanh", 0}}, {});
     
     auto relu_v = results[0].ToVector<float>();
-    CHECK(relu_v[0] == 0.0f && relu_v[1] == 0.0f && relu_v[2] == 0.0f);
-    CHECK(relu_v[3] == 0.0f && relu_v[4] == 0.5f && relu_v[5] == 2.0f);
+    CHECK((relu_v[0] == 0.0f && relu_v[1] == 0.0f && relu_v[2] == 0.0f));
+    CHECK((relu_v[3] == 0.0f && relu_v[4] == 0.5f && relu_v[5] == 2.0f));
     
     auto relu6_v = results[1].ToVector<float>();
-    CHECK(relu6_v[0] == 0.0f && relu6_v[5] == 2.0f);  // Note: 2 < 6, so not clipped
+    CHECK((relu6_v[0] == 0.0f && relu6_v[5] == 2.0f));  // Note: 2 < 6, so not clipped
     
     auto sigmoid_v = results[2].ToVector<float>();
-    CHECK(doctest::Approx(sigmoid_v[3], 0.5f, 0.0001f);  // sigmoid(0) = 0.5
-    CHECK(sigmoid_v[0] < 0.5f && sigmoid_v[5] > 0.5f);  // Negative gives < 0.5, positive > 0.5
+    CHECK(sigmoid_v[3] == doctest::Approx(0.5f).epsilon(0.0001f));  // sigmoid(0) = 0.5
+    CHECK((sigmoid_v[0] < 0.5f && sigmoid_v[5] > 0.5f));  // Negative gives < 0.5, positive > 0.5
     
     auto tanh_v = results[3].ToVector<float>();
-    CHECK(doctest::Approx(tanh_v[3], 0.0f, 0.0001f);  // tanh(0) = 0
-    CHECK(tanh_v[0] < 0.0f && tanh_v[5] > 0.0f);  // Negative gives negative, positive gives positive
+    CHECK(tanh_v[3] == doctest::Approx(0.0f).epsilon(0.0001f));  // tanh(0) = 0
+    CHECK((tanh_v[0] < 0.0f && tanh_v[5] > 0.0f));  // Negative gives negative, positive gives positive
 }
 
 TEST_CASE("value_reduction_mean_max_min") {
@@ -996,10 +1001,10 @@ TEST_CASE("value_reduction_mean_max_min") {
     CHECK(mean_v[1] == 5.0f);  // (4+5+6)/3
     
     auto max_v = results[1].ToVector<float>();
-    CHECK(max_v[0] == 3.0f && max_v[1] == 6.0f);
+    CHECK((max_v[0] == 3.0f && max_v[1] == 6.0f));
     
     auto min_v = results[2].ToVector<float>();
-    CHECK(min_v[0] == 1.0f && min_v[1] == 4.0f);
+    CHECK((min_v[0] == 1.0f && min_v[1] == 4.0f));
 }
 
 TEST_CASE("value_argmax_argmin") {
@@ -1032,7 +1037,7 @@ TEST_CASE("value_argmax_argmin") {
     CHECK(argmax_v[1] == 3);  // index of 8.0 in row 1
     
     auto argmin_v = results[1].ToVector<int64_t>();
-    CHECK(argmin_v[0] == 1 || argmin_v[0] == 3);  // index of 1.0 in row 0 (first occurrence)
+    CHECK((argmin_v[0] == 1 || argmin_v[0] == 3));  // index of 1.0 in row 0 (first occurrence)
     CHECK(argmin_v[1] == 2);  // index of 1.0 in row 1
 }
 
@@ -1064,9 +1069,9 @@ TEST_CASE("value_transpose") {
     CHECK(results[0].shape()[1] == 2);
     
     auto v = results[0].ToVector<float>();
-    CHECK(v[0] == 1.0f && v[1] == 4.0f);  // first row
-    CHECK(v[2] == 2.0f && v[3] == 5.0f);  // second row
-    CHECK(v[4] == 3.0f && v[5] == 6.0f);  // third row
+    CHECK((v[0] == 1.0f && v[1] == 4.0f));  // first row
+    CHECK((v[2] == 2.0f && v[3] == 5.0f));  // second row
+    CHECK((v[4] == 3.0f && v[5] == 6.0f));  // third row
 }
 
 TEST_CASE("value_gather") {
@@ -1156,7 +1161,7 @@ TEST_CASE("value_concat") {
     
     auto v = results[0].ToVector<float>();
     CHECK(v.size() == 5);
-    CHECK(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f && v[3] == 4.0f && v[4] == 5.0f);
+    CHECK((v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f && v[3] == 4.0f && v[4] == 5.0f));
 }
 
 TEST_CASE("value_slice") {
@@ -1185,7 +1190,7 @@ TEST_CASE("value_slice") {
     
     auto v = results[0].ToVector<float>();
     CHECK(v.size() == 3);
-    CHECK(v[0] == 2.0f && v[1] == 3.0f && v[2] == 4.0f);
+    CHECK((v[0] == 2.0f && v[1] == 3.0f && v[2] == 4.0f));
 }
 
 TEST_CASE("value_cast_dtypes") {
@@ -1243,13 +1248,13 @@ TEST_CASE("value_logical_ops") {
     auto results = s.Run({}, {{"And", 0}, {"Or", 0}, {"Not", 0}}, {});
     
     auto and_v = results[0].ToVector<bool>();
-    CHECK(and_v[0] == true && and_v[1] == false && and_v[2] == false && and_v[3] == false);
+    CHECK((and_v[0] == true && and_v[1] == false && and_v[2] == false && and_v[3] == false));
     
     auto or_v = results[1].ToVector<bool>();
-    CHECK(or_v[0] == true && or_v[1] == true && or_v[2] == true && or_v[3] == false);
+    CHECK((or_v[0] == true && or_v[1] == true && or_v[2] == true && or_v[3] == false));
     
     auto not_v = results[2].ToVector<bool>();
-    CHECK(not_v[0] == false && not_v[1] == false && not_v[2] == true && not_v[3] == true);
+    CHECK((not_v[0] == false && not_v[1] == false && not_v[2] == true && not_v[3] == true));
 }
 
 TEST_CASE("value_maximum_minimum") {
@@ -1271,10 +1276,10 @@ TEST_CASE("value_maximum_minimum") {
     auto results = s.Run({}, {{"Max", 0}, {"Min", 0}}, {});
     
     auto max_v = results[0].ToVector<float>();
-    CHECK(max_v[0] == 2.0f && max_v[1] == 5.0f && max_v[2] == 6.0f && max_v[3] == 8.0f);
+    CHECK((max_v[0] == 2.0f && max_v[1] == 5.0f && max_v[2] == 6.0f && max_v[3] == 8.0f));
     
     auto min_v = results[1].ToVector<float>();
-    CHECK(min_v[0] == 1.0f && min_v[1] == 4.0f && min_v[2] == 3.0f && min_v[3] == 7.0f);
+    CHECK((min_v[0] == 1.0f && min_v[1] == 4.0f && min_v[2] == 3.0f && min_v[3] == 7.0f));
 }
 
 TEST_CASE("value_fill_ones_zeros_like") {
@@ -1339,9 +1344,9 @@ TEST_CASE("value_tile") {
     
     auto v = results[0].ToVector<float>();
     CHECK(v.size() == 6);
-    CHECK(v[0] == 1.0f && v[1] == 2.0f);
-    CHECK(v[2] == 1.0f && v[3] == 2.0f);
-    CHECK(v[4] == 1.0f && v[5] == 2.0f);
+    CHECK((v[0] == 1.0f && v[1] == 2.0f));
+    CHECK((v[2] == 1.0f && v[3] == 2.0f));
+    CHECK((v[4] == 1.0f && v[5] == 2.0f));
 }
 
 TEST_CASE("value_range") {
@@ -1370,7 +1375,7 @@ TEST_CASE("value_range") {
     
     auto v = results[0].ToVector<float>();
     CHECK(v.size() == 5);
-    CHECK(v[0] == 0.0f && v[1] == 1.0f && v[2] == 2.0f && v[3] == 3.0f && v[4] == 4.0f);
+    CHECK((v[0] == 0.0f && v[1] == 1.0f && v[2] == 2.0f && v[3] == 3.0f && v[4] == 4.0f));
 }
 
 TEST_CASE("value_reduction_prod") {
@@ -1462,9 +1467,9 @@ TEST_CASE("value_batchmatmul") {
     auto v = results[0].ToVector<float>();
     CHECK(v.size() == 8);
     // C[0] = A[0] @ B[0] = A[0] @ I = A[0] = [[1,2],[3,4]]
-    CHECK(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f && v[3] == 4.0f);
+    CHECK((v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f && v[3] == 4.0f));
     // C[1] = A[1] @ B[1] = [[5,6],[7,8]] @ [[2,0],[0,2]] = [[10,12],[14,16]]
-    CHECK(v[4] == 10.0f && v[5] == 12.0f && v[6] == 14.0f && v[7] == 16.0f);
+    CHECK((v[4] == 10.0f && v[5] == 12.0f && v[6] == 14.0f && v[7] == 16.0f));
 }
 
 TEST_CASE("value_conv2d_simple") {
@@ -1584,10 +1589,10 @@ TEST_CASE("value_avgpool_simple") {
     // [0,1]: (3+4+7+8)/4 = 5.5
     // [1,0]: (9+10+13+14)/4 = 11.5
     // [1,1]: (11+12+15+16)/4 = 13.5
-    CHECK(doctest::Approx(v[0], 3.5f, 0.0001f);
-    CHECK(doctest::Approx(v[1], 5.5f, 0.0001f);
-    CHECK(doctest::Approx(v[2], 11.5f, 0.0001f);
-    CHECK(doctest::Approx(v[3], 13.5f, 0.0001f);
+    CHECK(v[0] == doctest::Approx(3.5f).epsilon(0.0001f));
+    CHECK(v[1] == doctest::Approx(5.5f).epsilon(0.0001f));
+    CHECK(v[2] == doctest::Approx(11.5f).epsilon(0.0001f));
+    CHECK(v[3] == doctest::Approx(13.5f).epsilon(0.0001f));
 }
 
 TEST_CASE("value_softmax_crossentropy") {
@@ -1623,12 +1628,12 @@ TEST_CASE("value_softmax_crossentropy") {
     // For sample 0: logits [1,2,3], true class 2
     // softmax([1,2,3]) ≈ [0.09, 0.24, 0.67]
     // cross-entropy = -log(0.67) ≈ 0.407
-    CHECK(loss[0] > 0.3f && loss[0] < 0.5f);
+    CHECK((loss[0] > 0.3f && loss[0] < 0.5f));
     
     // For sample 1: logits [3,2,1], true class 0  
     // softmax([3,2,1]) ≈ [0.67, 0.24, 0.09]
     // cross-entropy = -log(0.67) ≈ 0.407
-    CHECK(loss[1] > 0.3f && loss[1] < 0.5f);
+    CHECK((loss[1] > 0.3f && loss[1] < 0.5f));
 }
 
 TEST_CASE("value_sparse_softmax_crossentropy") {
@@ -1660,8 +1665,8 @@ TEST_CASE("value_sparse_softmax_crossentropy") {
     CHECK(loss.size() == 2);
     
     // Same expected values as dense version
-    CHECK(loss[0] > 0.3f && loss[0] < 0.5f);
-    CHECK(loss[1] > 0.3f && loss[1] < 0.5f);
+    CHECK((loss[0] > 0.3f && loss[0] < 0.5f));
+    CHECK((loss[1] > 0.3f && loss[1] < 0.5f));
 }
 
 TEST_CASE("value_biasadd") {
@@ -1689,8 +1694,8 @@ TEST_CASE("value_biasadd") {
     auto v = results[0].ToVector<float>();
     // Row 0: [1+10, 2+20, 3+30] = [11, 22, 33]
     // Row 1: [4+10, 5+20, 6+30] = [14, 25, 36]
-    CHECK(v[0] == 11.0f && v[1] == 22.0f && v[2] == 33.0f);
-    CHECK(v[3] == 14.0f && v[4] == 25.0f && v[5] == 36.0f);
+    CHECK((v[0] == 11.0f && v[1] == 22.0f && v[2] == 33.0f));
+    CHECK((v[3] == 14.0f && v[4] == 25.0f && v[5] == 36.0f));
 }
 
 TEST_CASE("value_leaky_relu") {
@@ -1711,8 +1716,8 @@ TEST_CASE("value_leaky_relu") {
     
     auto v = results[0].ToVector<float>();
     // LeakyReLU: x if x > 0, alpha*x otherwise
-    CHECK(doctest::Approx(v[0], -0.2f, 0.0001f);  // -2 * 0.1
-    CHECK(doctest::Approx(v[1], -0.1f, 0.0001f);  // -1 * 0.1
+    CHECK(v[0] == doctest::Approx(-0.2f).epsilon(0.0001f));  // -2 * 0.1
+    CHECK(v[1] == doctest::Approx(-0.1f).epsilon(0.0001f));  // -1 * 0.1
     CHECK(v[2] == 1.0f);
     CHECK(v[3] == 2.0f);
 }
@@ -1733,7 +1738,7 @@ TEST_CASE("value_elu_selu") {
     
     auto elu_v = results[0].ToVector<float>();
     // ELU: x if x > 0, exp(x)-1 otherwise
-    CHECK(doctest::Approx(elu_v[0], -0.6321f, 0.001f);  // exp(-1)-1 ≈ -0.632
+    CHECK(elu_v[0] == doctest::Approx(-0.6321f).epsilon(0.001f));  // exp(-1)-1 ≈ -0.632
     CHECK(elu_v[1] == 0.0f);
     CHECK(elu_v[2] == 1.0f);
     CHECK(elu_v[3] == 2.0f);
@@ -1809,10 +1814,10 @@ TEST_CASE("value_pad") {
     // Row 1: [0, 1, 2, 0]
     // Row 2: [0, 3, 4, 0]
     // Row 3: [0, 0, 0, 0]
-    CHECK(v[0] == 0.0f && v[1] == 0.0f && v[2] == 0.0f && v[3] == 0.0f);
-    CHECK(v[4] == 0.0f && v[5] == 1.0f && v[6] == 2.0f && v[7] == 0.0f);
-    CHECK(v[8] == 0.0f && v[9] == 3.0f && v[10] == 4.0f && v[11] == 0.0f);
-    CHECK(v[12] == 0.0f && v[13] == 0.0f && v[14] == 0.0f && v[15] == 0.0f);
+    CHECK((v[0] == 0.0f && v[1] == 0.0f && v[2] == 0.0f && v[3] == 0.0f));
+    CHECK((v[4] == 0.0f && v[5] == 1.0f && v[6] == 2.0f && v[7] == 0.0f));
+    CHECK((v[8] == 0.0f && v[9] == 3.0f && v[10] == 4.0f && v[11] == 0.0f));
+    CHECK((v[12] == 0.0f && v[13] == 0.0f && v[14] == 0.0f && v[15] == 0.0f));
 }
 
 TEST_CASE("value_reverse") {
@@ -1837,8 +1842,8 @@ TEST_CASE("value_reverse") {
     
     auto v = results[0].ToVector<float>();
     // Reverse each row: [[1,2,3],[4,5,6]] -> [[3,2,1],[6,5,4]]
-    CHECK(v[0] == 3.0f && v[1] == 2.0f && v[2] == 1.0f);
-    CHECK(v[3] == 6.0f && v[4] == 5.0f && v[5] == 4.0f);
+    CHECK((v[0] == 3.0f && v[1] == 2.0f && v[2] == 1.0f));
+    CHECK((v[3] == 6.0f && v[4] == 5.0f && v[5] == 4.0f));
 }
 
 TEST_CASE("value_stack_unstack") {
@@ -1869,8 +1874,8 @@ TEST_CASE("value_stack_unstack") {
     CHECK(results[0].shape()[1] == 3);
     
     auto v = results[0].ToVector<float>();
-    CHECK(v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f);
-    CHECK(v[3] == 4.0f && v[4] == 5.0f && v[5] == 6.0f);
+    CHECK((v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f));
+    CHECK((v[3] == 4.0f && v[4] == 5.0f && v[5] == 6.0f));
 }
 
 TEST_CASE("value_squeeze_expanddims") {
@@ -2369,8 +2374,8 @@ TEST_CASE("value_batchnorm_inference") {
     // Normalized: (x - mean) / sqrt(variance + epsilon) * scale + offset
     // Sample 1, channel 0: (1 - 2) / sqrt(1.001) ≈ -0.9995
     // Sample 1, channel 1: (2 - 3) / sqrt(1.001) ≈ -0.9995
-    CHECK(doctest::Approx(v[0], -0.9995f, 0.01f);
-    CHECK(doctest::Approx(v[1], -0.9995f, 0.01f);
+    CHECK(v[0] == doctest::Approx(-0.9995f).epsilon(0.01f));
+    CHECK(v[1] == doctest::Approx(-0.9995f).epsilon(0.01f));
 }
 
 TEST_CASE("value_batchnorm_training") {
@@ -2418,7 +2423,7 @@ TEST_CASE("value_batchnorm_training") {
     auto batch_var = results[2].ToVector<float>();
     
     // Batch mean should be (1+2+3+4)/4 = 2.5
-    CHECK(doctest::Approx(batch_mean[0], 2.5f, 0.01f);
+    CHECK(batch_mean[0] == doctest::Approx(2.5f).epsilon(0.01f));
     
     // Batch variance: TF may use population or sample variance
     // Population: 1.25, Sample (Bessel): 1.6667
@@ -2428,7 +2433,7 @@ TEST_CASE("value_batchnorm_training") {
     
     // Normalized values should have mean≈0
     float y_mean = (y[0] + y[1] + y[2] + y[3]) / 4.0f;
-    CHECK(doctest::Approx(y_mean, 0.0f, 0.01f);
+    CHECK(y_mean == doctest::Approx(0.0f).epsilon(0.01f));
 }
 
 // =============================================================================
@@ -2473,8 +2478,8 @@ TEST_CASE("value_random_uniform_distribution") {
     float variance = (sum_sq / 10000.0f) - (mean * mean);
     
     // Uniform[0,1] has mean=0.5, variance=1/12≈0.0833
-    CHECK(doctest::Approx(mean, 0.5f, 0.02f);        // Mean should be ~0.5
-    CHECK(doctest::Approx(variance, 0.0833f, 0.01f); // Variance should be ~1/12
+    CHECK(mean == doctest::Approx(0.5f).epsilon(0.02f));        // Mean should be ~0.5
+    CHECK(variance == doctest::Approx(0.0833f).epsilon(0.01f)); // Variance should be ~1/12
     CHECK(min_val >= 0.0f);                  // All values in [0,1)
     CHECK(max_val < 1.0f);
 }
@@ -2512,8 +2517,8 @@ TEST_CASE("value_random_normal_distribution") {
     float variance = (sum_sq / 10000.0f) - (mean * mean);
     
     // Standard normal has mean=0, variance=1
-    CHECK(doctest::Approx(mean, 0.0f, 0.05f);      // Mean should be ~0
-    CHECK(doctest::Approx(variance, 1.0f, 0.1f);   // Variance should be ~1
+    CHECK(mean == doctest::Approx(0.0f).epsilon(0.05f));      // Mean should be ~0
+    CHECK(variance == doctest::Approx(1.0f).epsilon(0.1f));   // Variance should be ~1
 }
 
 TEST_CASE("value_truncated_normal_distribution") {
@@ -2866,7 +2871,7 @@ TEST_CASE("fuzz_random_tensor_shapes") {
         CHECK(out.size() == data.size());
         
         for (size_t i = 0; i < data.size(); ++i) {
-            CHECK(doctest::Approx(out[i], data[i], 0.0001f);
+            CHECK(out[i] == doctest::Approx(data[i]).epsilon(0.0001f));
         }
     }
 }
@@ -2894,14 +2899,14 @@ TEST_CASE("value_inverse_trig") {
     auto atan_v = results[2].ToVector<float>();
     
     // acos(0) = pi/2, acos(1) = 0
-    CHECK(doctest::Approx(acos_v[0], 1.5708f, 0.001f);
-    CHECK(doctest::Approx(acos_v[2], 0.0f, 0.001f);
+    CHECK(acos_v[0] == doctest::Approx(1.5708f).epsilon(0.001f));
+    CHECK(acos_v[2] == doctest::Approx(0.0f).epsilon(0.001f));
     // asin(0) = 0, asin(1) = pi/2
-    CHECK(doctest::Approx(asin_v[0], 0.0f, 0.001f);
-    CHECK(doctest::Approx(asin_v[2], 1.5708f, 0.001f);
+    CHECK(asin_v[0] == doctest::Approx(0.0f).epsilon(0.001f));
+    CHECK(asin_v[2] == doctest::Approx(1.5708f).epsilon(0.001f));
     // atan(0) = 0, atan(1) = pi/4
-    CHECK(doctest::Approx(atan_v[0], 0.0f, 0.001f);
-    CHECK(doctest::Approx(atan_v[2], 0.7854f, 0.001f);
+    CHECK(atan_v[0] == doctest::Approx(0.0f).epsilon(0.001f));
+    CHECK(atan_v[2] == doctest::Approx(0.7854f).epsilon(0.001f));
 }
 
 TEST_CASE("value_hyperbolic") {
@@ -2921,11 +2926,11 @@ TEST_CASE("value_hyperbolic") {
     auto sinh_v = results[1].ToVector<float>();
     
     // cosh(0) = 1, cosh(1) ≈ 1.543
-    CHECK(doctest::Approx(cosh_v[0], 1.0f, 0.001f);
-    CHECK(doctest::Approx(cosh_v[1], 1.543f, 0.01f);
+    CHECK(cosh_v[0] == doctest::Approx(1.0f).epsilon(0.001f));
+    CHECK(cosh_v[1] == doctest::Approx(1.543f).epsilon(0.01f));
     // sinh(0) = 0, sinh(1) ≈ 1.175
-    CHECK(doctest::Approx(sinh_v[0], 0.0f, 0.001f);
-    CHECK(doctest::Approx(sinh_v[1], 1.175f, 0.01f);
+    CHECK(sinh_v[0] == doctest::Approx(0.0f).epsilon(0.001f));
+    CHECK(sinh_v[1] == doctest::Approx(1.175f).epsilon(0.01f));
 }
 
 TEST_CASE("value_rounding_ops") {
@@ -3002,11 +3007,11 @@ TEST_CASE("value_expm1_log1p") {
     auto log1p_v = results[1].ToVector<float>();
     
     // expm1(0) = 0, expm1(1) = e-1 ≈ 1.718
-    CHECK(doctest::Approx(expm1_v[0], 0.0f, 0.001f);
-    CHECK(doctest::Approx(expm1_v[1], 1.718f, 0.01f);
+    CHECK(expm1_v[0] == doctest::Approx(0.0f).epsilon(0.001f));
+    CHECK(expm1_v[1] == doctest::Approx(1.718f).epsilon(0.01f));
     // log1p(0) = 0, log1p(1) = ln(2) ≈ 0.693
-    CHECK(doctest::Approx(log1p_v[0], 0.0f, 0.001f);
-    CHECK(doctest::Approx(log1p_v[1], 0.693f, 0.01f);
+    CHECK(log1p_v[0] == doctest::Approx(0.0f).epsilon(0.001f));
+    CHECK(log1p_v[1] == doctest::Approx(0.693f).epsilon(0.01f));
 }
 
 // =============================================================================
@@ -3327,11 +3332,11 @@ TEST_CASE("value_softplus_softsign") {
     auto ss = results[1].ToVector<float>();
     
     // softplus(x) = log(1 + exp(x))
-    CHECK(doctest::Approx(sp[1], 0.693f, 0.01f);  // softplus(0) = ln(2)
+    CHECK(sp[1] == doctest::Approx(0.693f).epsilon(0.01f));  // softplus(0) = ln(2)
     // softsign(x) = x / (1 + |x|)
-    CHECK(doctest::Approx(ss[0], -0.5f, 0.01f);   // -1/(1+1) = -0.5
-    CHECK(doctest::Approx(ss[1], 0.0f, 0.01f);    // 0
-    CHECK(doctest::Approx(ss[2], 0.5f, 0.01f);    // 1/(1+1) = 0.5
+    CHECK(ss[0] == doctest::Approx(-0.5f).epsilon(0.01f));   // -1/(1+1) = -0.5
+    CHECK(ss[1] == doctest::Approx(0.0f).epsilon(0.01f));    // 0
+    CHECK(ss[2] == doctest::Approx(0.5f).epsilon(0.01f));    // 1/(1+1) = 0.5
 }
 
 TEST_CASE("value_log_softmax") {
@@ -3350,9 +3355,9 @@ TEST_CASE("value_log_softmax") {
     // log_softmax = x - log(sum(exp(x)))
     // sum(exp) = e^1 + e^2 + e^3 ≈ 30.19
     // log(30.19) ≈ 3.408
-    CHECK(doctest::Approx(v[0], -2.408f, 0.01f);
-    CHECK(doctest::Approx(v[1], -1.408f, 0.01f);
-    CHECK(doctest::Approx(v[2], -0.408f, 0.01f);
+    CHECK(v[0] == doctest::Approx(-2.408f).epsilon(0.01f));
+    CHECK(v[1] == doctest::Approx(-1.408f).epsilon(0.01f));
+    CHECK(v[2] == doctest::Approx(-0.408f).epsilon(0.01f));
 }
 
 // =============================================================================
@@ -3374,10 +3379,10 @@ TEST_CASE("value_matrix_inverse") {
     auto results = s.Run({}, {{"Inv", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    CHECK(doctest::Approx(v[0], 0.6f, 0.01f);
-    CHECK(doctest::Approx(v[1], -0.7f, 0.01f);
-    CHECK(doctest::Approx(v[2], -0.2f, 0.01f);
-    CHECK(doctest::Approx(v[3], 0.4f, 0.01f);
+    CHECK(v[0] == doctest::Approx(0.6f).epsilon(0.01f));
+    CHECK(v[1] == doctest::Approx(-0.7f).epsilon(0.01f));
+    CHECK(v[2] == doctest::Approx(-0.2f).epsilon(0.01f));
+    CHECK(v[3] == doctest::Approx(0.4f).epsilon(0.01f));
 }
 
 TEST_CASE("value_matrix_determinant") {
@@ -3393,7 +3398,7 @@ TEST_CASE("value_matrix_determinant") {
     tf_wrap::Session s(g);
     auto results = s.Run({}, {{"Det", 0}}, {});
     
-    CHECK(doctest::Approx(results[0].ToScalar<float>(), 10.0f, 0.01f);
+    CHECK(results[0].ToScalar<float>() == doctest::Approx(10.0f).epsilon(0.01f));
 }
 
 TEST_CASE("value_cholesky") {
@@ -3411,10 +3416,10 @@ TEST_CASE("value_cholesky") {
     auto results = s.Run({}, {{"Chol", 0}}, {});
     
     auto v = results[0].ToVector<float>();
-    CHECK(doctest::Approx(v[0], 2.0f, 0.01f);
-    CHECK(doctest::Approx(v[1], 0.0f, 0.01f);
-    CHECK(doctest::Approx(v[2], 1.0f, 0.01f);
-    CHECK(doctest::Approx(v[3], 1.0f, 0.01f);
+    CHECK(v[0] == doctest::Approx(2.0f).epsilon(0.01f));
+    CHECK(v[1] == doctest::Approx(0.0f).epsilon(0.01f));
+    CHECK(v[2] == doctest::Approx(1.0f).epsilon(0.01f));
+    CHECK(v[3] == doctest::Approx(1.0f).epsilon(0.01f));
 }
 
 // =============================================================================
@@ -3446,7 +3451,7 @@ TEST_CASE("value_resize_bilinear") {
     CHECK(results[0].shape()[2] == 4);
     auto v = results[0].ToVector<float>();
     // Corners should be original values
-    CHECK(doctest::Approx(v[0], 1.0f, 0.1f);
+    CHECK(v[0] == doctest::Approx(1.0f).epsilon(0.1f));
 }
 
 // =============================================================================
@@ -3870,7 +3875,7 @@ TEST_CASE("value_avgpool3d") {
     
     auto v = results[0].ToVector<float>();
     // Average of all 8 values = 4.5
-    CHECK(doctest::Approx(v[0], 4.5f, 0.01f);
+    CHECK(v[0] == doctest::Approx(4.5f).epsilon(0.01f));
 }
 
 TEST_CASE("value_maxpool3d") {
@@ -4540,7 +4545,7 @@ TEST_CASE("session_list_devices") {
     auto first = devices.at(0);
     CHECK(!first.name.empty());
     CHECK(!first.type.empty());
-    CHECK(first.is_cpu() || first.is_gpu());
+    CHECK((first.is_cpu() || first.is_gpu()));
     
     // Find CPU device
     bool found_cpu = false;
@@ -4677,7 +4682,7 @@ TEST_CASE("graph_to_graph_def_roundtrip_check") {
     auto results = s.Run({}, {{"Root", 0}}, {});
     
     // sqrt(square(5)) = 5
-    CHECK(doctest::Approx(results[0].ToScalar<float>(), 5.0f, 0.001f);
+    CHECK(results[0].ToScalar<float>() == doctest::Approx(5.0f).epsilon(0.001f));
 }
 
 // =============================================================================
@@ -4760,7 +4765,7 @@ TEST_CASE("large_tensor_reduce_sum") {
     auto results = s.Run({}, {{"Total", 0}}, {});
     
     // Sum of 1M ones should be 1M
-    CHECK(doctest::Approx(results[0].ToScalar<float>(), static_cast<float>(SIZE), 1.0f);
+    CHECK(results[0].ToScalar<float>() == doctest::Approx(static_cast<float>(SIZE)).epsilon(1.0f));
 }
 
 TEST_CASE("large_tensor_matmul") {
@@ -4793,7 +4798,7 @@ TEST_CASE("large_tensor_matmul") {
     // Each element of result = sum of N products of 1*2 = 2N
     auto v = results[0].ToVector<float>();
     CHECK(v.size() == N * N);
-    CHECK(doctest::Approx(v[0], static_cast<float>(2 * N), 0.1f);
+    CHECK(v[0] == doctest::Approx(static_cast<float>(2 * N)).epsilon(0.1f));
 }
 
 // =============================================================================
@@ -4939,9 +4944,9 @@ TEST_CASE("savedmodel_load_and_run") {
     CHECK(output.size() == 3);
     
     // Expected: [1*2+1, 2*2+1, 3*2+1] = [3, 5, 7]
-    CHECK(doctest::Approx(output[0], 3.0f, 0.001f);
-    CHECK(doctest::Approx(output[1], 5.0f, 0.001f);
-    CHECK(doctest::Approx(output[2], 7.0f, 0.001f);
+    CHECK(output[0] == doctest::Approx(3.0f).epsilon(0.001f));
+    CHECK(output[1] == doctest::Approx(5.0f).epsilon(0.001f));
+    CHECK(output[2] == doctest::Approx(7.0f).epsilon(0.001f));
     
     std::cout << "  ✓ SavedModel inference correct: [1,2,3] -> [3,5,7]\n";
 }
@@ -5317,11 +5322,11 @@ TEST_CASE("tensor_same_input_to_multiple_ops") {
     auto results = s.Run({}, {{"A", 0}, {"B", 0}, {"C", 0}}, {});
     
     // A = Square(X) = [1, 4, 9]
-    CHECK(doctest::Approx(results[0].ToVector<float>()[1], 4.0f, 0.001f);
+    CHECK(results[0].ToVector<float>()[1] == doctest::Approx(4.0f).epsilon(0.001f));
     // B = Sqrt(X) = [1, 1.414, 1.732]
-    CHECK(doctest::Approx(results[1].ToVector<float>()[1], std::sqrt(2.0f), 0.001f);
+    CHECK(results[1].ToVector<float>()[1] == doctest::Approx(std::sqrt(2.0f)).epsilon(0.001f));
     // C = Neg(X) = [-1, -2, -3]
-    CHECK(doctest::Approx(results[2].ToVector<float>()[1], -2.0f, 0.001f);
+    CHECK(results[2].ToVector<float>()[1] == doctest::Approx(-2.0f).epsilon(0.001f));
 }
 
 TEST_CASE("graph_disconnected_subgraphs") {
@@ -5877,7 +5882,7 @@ TEST_CASE("import_graph_def_basic") {
     tf_wrap::Session s(g2);
     auto results = s.Run({}, {{"MyConst", 0}}, {});
     auto v = results[0].ToVector<float>();
-    CHECK(v[0] == 1.0f && v[1] == 2.0f);
+    CHECK((v[0] == 1.0f && v[1] == 2.0f));
 }
 
 TEST_CASE("import_graph_def_with_prefix") {

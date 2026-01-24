@@ -7,8 +7,10 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 
-// Suppress -Wunused-result warnings from CHECK_THROWS_AS with [[nodiscard]] functions
-#if defined(__GNUC__) || defined(__clang__)
+// Suppress warnings from CHECK_THROWS_AS with [[nodiscard]] functions
+#if defined(_MSC_VER)
+#pragma warning(disable: 4834)  // discarding return value of function with [[nodiscard]]
+#elif defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic ignored "-Wunused-result"
 #endif
 
