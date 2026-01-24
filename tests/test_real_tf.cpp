@@ -6755,8 +6755,8 @@ TEST(import_graph_def_duplicate_avoided_with_prefix) {
     g2.ImportGraphDef(graphdef1.data(), graphdef1.size(), "imported/");
     
     // Should have both X and imported/X
-    REQUIRE(g2.GetOperation("X") != nullptr);
-    REQUIRE(g2.GetOperation("imported/X") != nullptr);
+    REQUIRE(g2.GetOperation("X").has_value());
+    REQUIRE(g2.GetOperation("imported/X").has_value());
     REQUIRE(g2.num_operations() == 2);
     
     // Verify they have different values
@@ -6786,9 +6786,9 @@ TEST(import_graph_def_multiple_imports_unique_prefixes) {
     g.ImportGraphDef(graphdef.data(), graphdef.size(), "copy3/");
     
     REQUIRE(g.num_operations() == 3);
-    REQUIRE(g.GetOperation("copy1/Value") != nullptr);
-    REQUIRE(g.GetOperation("copy2/Value") != nullptr);
-    REQUIRE(g.GetOperation("copy3/Value") != nullptr);
+    REQUIRE(g.GetOperation("copy1/Value").has_value());
+    REQUIRE(g.GetOperation("copy2/Value").has_value());
+    REQUIRE(g.GetOperation("copy3/Value").has_value());
 }
 
 TEST(import_graph_def_nested_prefix) {
@@ -6804,8 +6804,7 @@ TEST(import_graph_def_nested_prefix) {
     tf_wrap::FastGraph g;
     g.ImportGraphDef(graphdef.data(), graphdef.size(), "level1/level2/level3/");
     
-    auto* op = g.GetOperation("level1/level2/level3/Data");
-    REQUIRE(op != nullptr);
+    REQUIRE(g.GetOperation("level1/level2/level3/Data").has_value());
     
     tf_wrap::FastSession s(g);
     auto results = s.Run({}, {{"level1/level2/level3/Data", 0}}, {});
