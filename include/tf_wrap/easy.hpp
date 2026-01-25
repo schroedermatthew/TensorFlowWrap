@@ -420,6 +420,25 @@ public:
             .fetch(Endpoint(output_name))
             .run_one();
     }
+
+
+    /// Convenience: batch run with single input/output.
+    [[nodiscard]] std::vector<Tensor> BatchRun(
+        const std::string& input_name,
+        const std::vector<Tensor>& inputs,
+        const std::string& output_name) const
+    {
+        return session().BatchRun(input_name, inputs, output_name);
+    }
+
+    /// Convenience: batch run with single input/output (span overload).
+    [[nodiscard]] std::vector<Tensor> BatchRun(
+        const std::string& input_name,
+        std::span<const Tensor> inputs,
+        const std::string& output_name) const
+    {
+        return session().BatchRun(input_name, inputs, output_name);
+    }
     
     /// Check if model is loaded
     [[nodiscard]] bool valid() const noexcept {
