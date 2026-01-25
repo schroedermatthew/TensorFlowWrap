@@ -10,6 +10,7 @@
 
 #include <cctype>
 #include <string>
+#include <random>
 #include <algorithm>
 
 // ============================================================================
@@ -303,5 +304,36 @@ TEST_CASE("Scalar const preserves dtype") {
             .SetAttrType("dtype", TF_BOOL)
             .Finish();
         CHECK(TF_OperationOutputType({op, 0}) == TF_BOOL);
+    }
+}
+
+
+
+TEST_CASE("TensorName::parse fuzz does not crash")
+{
+    // This is a robustness test: we don't require acceptance, only that parsing is stable.
+    std::mt19937 rng(12345);
+    std::uniform_int_distribution<int> len_dist(0, 64);
+    std::uniform_int_distribution<int> byte_dist(0, 255);
+
+    for (int iter = 0; iter < 5000; ++iter)
+    {
+        const int len = len_dist(rng);
+        std::string s;
+        s.resize(static_cast<std::size_t>(len));
+        for (int i = 0; i < len; ++i)
+        {
+            s[static_cast<std::size_t>(i)] = static_cast<char>(byte_dist(rng));
+        }
+
+        // Ensure no exceptions escape except the documented ones.
+        try
+        {
+            (void)tf_wrap::easy::TensorName::parse(s);
+        }
+        catch (const std::exception&)
+        {
+            // parse() is allowed to reject invalid inputs.
+        }
     }
 }

@@ -180,6 +180,22 @@ struct Fetch {
     std::string op_name;
     int index{0};
 
+
+struct Target {
+    std::string op_name;
+
+    TF_Operation* oper{nullptr};
+    bool has_oper{false};
+
+    Target(std::string name) : op_name(std::move(name)) {}
+
+    Target(TF_Operation* op) : oper(op), has_oper(true) {}
+
+    Target(TF_Operation* op, std::string debug_name)
+        : op_name(std::move(debug_name)), oper(op), has_oper(true) {}
+};
+
+
     // Optional pre-resolved output handle (avoids string lookup in Session::Run).
     TF_Output output{nullptr, 0};
     bool has_output{false};
@@ -437,10 +453,27 @@ public:
     // TF_SessionRun is thread-safe (TensorFlow's guarantee)
     // ─────────────────────────────────────────────────────────────────
     
-    [[nodiscard]] std::vector<Tensor> Run(
+    [[nodiscard]] 
+std::vector<Tensor> Run(
+    const std::vector<Feed>& feeds,
+    const std::vector<Fetch>& fetches,
+    const std::vector<std::string>& targets,
+    TF_Buffer* run_options,
+    TF_Buffer* run_metadata,
+    std::source_location loc = std::source_location::current()) const
+{
+    std::vector<Target> t;
+    t.reserve(targets.size());
+    for (const auto& name : targets) {
+        t.emplace_back(name);
+    }
+    return Run(feeds, fetches, t, run_options, run_metadata, loc);
+}
+
+std::vector<Tensor> Run(
         const std::vector<Feed>& feeds,
         const std::vector<Fetch>& fetches,
-        const std::vector<std::string>& targets,
+        const std::vector<Target>& targets,
         TF_Buffer* run_options,
         TF_Buffer* run_metadata,
         std::source_location loc = std::source_location::current()) const
@@ -476,15 +509,17 @@ public:
         target_ops.reserve(targets.size());
         
         for (const auto& t : targets) {
-            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, t.c_str());
-            if (!op) {
-                throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
-                    "Session::Run",
-                    "target operation not found",
-                    t, -1, loc);
-            }
-            target_ops.push_back(op);
-        }
+    TF_Operation* op = t.has_oper ? t.oper
+        : TF_GraphOperationByName(graph_state_->graph, t.op_name.c_str());
+
+    if (!op) {
+        throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
+            "Session::Run",
+            "target operation not found",
+            t.op_name, -1, loc);
+    }
+    target_ops.push_back(op);
+}
         
         std::vector<TF_Tensor*> output_vals(fetches.size(), nullptr);
 
@@ -556,7 +591,7 @@ public:
     [[nodiscard]] std::vector<Tensor> Run(
         const std::vector<Feed>& feeds,
         const std::vector<Fetch>& fetches,
-        const std::vector<std::string>& targets) const
+        const std::vector<Target>& targets) const
     {
         return Run(feeds, fetches, targets, nullptr, nullptr);
     }
@@ -776,10 +811,25 @@ public:
     // Partial runs
     // ─────────────────────────────────────────────────────────────────
     
-    [[nodiscard]] PartialRunHandle PartialRunSetup(
+    
+[[nodiscard]] PartialRunHandle PartialRunSetup(
+    const std::vector<Fetch>& inputs,
+    const std::vector<Fetch>& outputs,
+    const std::vector<std::string>& targets,
+    std::source_location loc = std::source_location::current()) const
+{
+    std::vector<Target> t;
+    t.reserve(targets.size());
+    for (const auto& name : targets) {
+        t.emplace_back(name);
+    }
+    return PartialRunSetup(inputs, outputs, t, loc);
+}
+
+[[nodiscard]] PartialRunHandle PartialRunSetup(
         const std::vector<Fetch>& inputs,
         const std::vector<Fetch>& outputs,
-        const std::vector<std::string>& targets = {},
+        const std::vector<Target>& targets = {},
         std::source_location loc = std::source_location::current()) const
     {
         if (!session_) {
@@ -807,12 +857,13 @@ public:
         std::vector<TF_Operation*> target_ops;
         target_ops.reserve(targets.size());
         for (const auto& t : targets) {
-            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, t.c_str());
+            TF_Operation* op = t.has_oper ? t.oper
+                : TF_GraphOperationByName(graph_state_->graph, t.op_name.c_str());
             if (!op) {
                 throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
                     "Session::PartialRunSetup",
                     "target operation not found",
-                    t, -1, loc);
+                    t.op_name, -1, loc);
             }
             target_ops.push_back(op);
         }
@@ -832,11 +883,27 @@ public:
         return PartialRunHandle(handle);
     }
     
-    [[nodiscard]] std::vector<Tensor> PartialRun(
+    [[nodiscard]] 
+std::vector<Tensor> PartialRun(
+    const PartialRunHandle& handle,
+    const std::vector<Feed>& feeds,
+    const std::vector<Fetch>& fetches,
+    const std::vector<std::string>& targets,
+    std::source_location loc = std::source_location::current()) const
+{
+    std::vector<Target> t;
+    t.reserve(targets.size());
+    for (const auto& name : targets) {
+        t.emplace_back(name);
+    }
+    return PartialRun(handle, feeds, fetches, t, loc);
+}
+
+std::vector<Tensor> PartialRun(
         const PartialRunHandle& handle,
         const std::vector<Feed>& feeds,
         const std::vector<Fetch>& fetches,
-        const std::vector<std::string>& targets = {},
+        const std::vector<Target>& targets = {},
         std::source_location loc = std::source_location::current()) const
     {
         if (!session_) {
@@ -871,12 +938,13 @@ public:
         std::vector<TF_Operation*> target_ops;
         target_ops.reserve(targets.size());
         for (const auto& t : targets) {
-            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, t.c_str());
+            TF_Operation* op = t.has_oper ? t.oper
+                : TF_GraphOperationByName(graph_state_->graph, t.op_name.c_str());
             if (!op) {
                 throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
                     "Session::PartialRun",
                     "target operation not found",
-                    t, -1, loc);
+                    t.op_name, -1, loc);
             }
             target_ops.push_back(op);
         }

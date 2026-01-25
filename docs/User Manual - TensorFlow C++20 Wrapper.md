@@ -1133,3 +1133,9 @@ A: In debug builds, the destructor fires an assertion. In release builds, the op
 *TensorFlow C++20 Wrapper — User Manual v5.0*
 
 *Last verified: 2026-01-24*
+
+
+## Device placement
+
+You can place an operation on a specific device using `OperationBuilder::SetDevice()` (e.g., `"/CPU:0"`, `"/GPU:0"`). Device strings are passed through to TensorFlow.
+
