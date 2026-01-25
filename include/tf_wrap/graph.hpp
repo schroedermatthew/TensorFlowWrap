@@ -29,6 +29,7 @@ extern "C" {
 
 #include "tf_wrap/format.hpp"
 #include "tf_wrap/operation.hpp"
+#include "tf_wrap/scope_guard.hpp"
 #include "tf_wrap/status.hpp"
 #include "tf_wrap/tensor.hpp"
 
@@ -342,12 +343,13 @@ public:
         if (!buf) {
             throw std::runtime_error("ImportGraphDef: TF_NewBufferFromString failed");
         }
+        TF_SCOPE_EXIT { TF_DeleteBuffer(buf); };
         
         TF_ImportGraphDefOptions* opts = TF_NewImportGraphDefOptions();
         if (!opts) {
-            TF_DeleteBuffer(buf);
             throw std::runtime_error("ImportGraphDef: TF_NewImportGraphDefOptions failed");
         }
+        TF_SCOPE_EXIT { TF_DeleteImportGraphDefOptions(opts); };
         
         if (prefix && prefix[0] != '\0') {
             TF_ImportGraphDefOptionsSetPrefix(opts, prefix);
@@ -355,10 +357,6 @@ public:
         
         Status st;
         TF_GraphImportGraphDef(state_->graph, buf, opts, st.get());
-        
-        TF_DeleteImportGraphDefOptions(opts);
-        TF_DeleteBuffer(buf);
-        
         st.throw_if_error("TF_GraphImportGraphDef");
     }
     
@@ -438,21 +436,15 @@ public:
         if (!buf) {
             throw std::runtime_error("ToGraphDef: TF_NewBuffer failed");
         }
+        TF_SCOPE_EXIT { TF_DeleteBuffer(buf); };
         
         Status st;
         TF_GraphToGraphDef(state_->graph, buf, st.get());
+        st.throw_if_error("TF_GraphToGraphDef");
         
-        if (!st.ok()) {
-            TF_DeleteBuffer(buf);
-            st.throw_if_error("TF_GraphToGraphDef");
-        }
-        
-        std::vector<std::uint8_t> result(
+        return std::vector<std::uint8_t>(
             static_cast<const std::uint8_t*>(buf->data),
             static_cast<const std::uint8_t*>(buf->data) + buf->length);
-        
-        TF_DeleteBuffer(buf);
-        return result;
     }
     
     [[nodiscard]] std::vector<TF_Operation*> GetOperationsByType(const std::string& op_type) const {

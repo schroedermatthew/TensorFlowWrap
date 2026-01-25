@@ -27,6 +27,7 @@ extern "C" {
 
 #include "tf_wrap/format.hpp"
 #include "tf_wrap/graph.hpp"
+#include "tf_wrap/scope_guard.hpp"
 #include "tf_wrap/status.hpp"
 #include "tf_wrap/tensor.hpp"
 
@@ -706,9 +707,9 @@ private:
         
         TF_Status* st = TF_NewStatus();
         if (st) {
+            TF_SCOPE_EXIT { TF_DeleteStatus(st); };
             TF_CloseSession(session_, st);
             TF_DeleteSession(session_, st);
-            TF_DeleteStatus(st);
         }
         
         session_ = nullptr;

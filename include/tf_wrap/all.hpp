@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "tf_wrap/scope_guard.hpp"   // RAII scope-exit cleanup (used internally)
+#include "tf_wrap/small_vector.hpp"  // Stack-optimized vector (available for users)
 #include "tf_wrap/status.hpp"
 #include "tf_wrap/tensor.hpp"
 #include "tf_wrap/operation.hpp"
@@ -25,6 +27,13 @@
 //   tf_wrap::Operation      - Non-owning handle to TF_Operation
 //   tf_wrap::Status         - RAII wrapper for TF_Status
 //   tf_wrap::SessionOptions - RAII wrapper for TF_SessionOptions
+//
+// UTILITY CLASSES (used internally, available for users):
+// ─────────────────────────────────────────────────────────────────────────────
+//   tf_wrap::ScopeGuard       - RAII cleanup on scope exit (like Go's defer)
+//   tf_wrap::ScopeGuardOnFail - Cleanup only on exception (for rollback)
+//   tf_wrap::ScopeGuardOnSuccess - Cleanup only on normal exit (for commit)
+//   tf_wrap::SmallVector<T,N> - Stack-optimized vector for small collections
 //
 // ERGONOMIC LAYER (easy.hpp):
 // ─────────────────────────────────────────────────────────────────────────────
