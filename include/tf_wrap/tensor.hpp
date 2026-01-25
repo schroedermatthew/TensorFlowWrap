@@ -205,8 +205,8 @@ public:
     TensorView(std::shared_ptr<TensorState> state, std::span<T> data) noexcept
         : state_(std::move(state)), span_(data) {}
 
-    TensorView(const TensorView&) = delete;
-    TensorView& operator=(const TensorView&) = delete;
+    TensorView(const TensorView&) noexcept = default;
+    TensorView& operator=(const TensorView&) noexcept = default;
     TensorView(TensorView&&) noexcept = default;
     TensorView& operator=(TensorView&&) noexcept = default;
     ~TensorView() = default;
@@ -222,7 +222,8 @@ public:
     [[nodiscard]] constexpr reference back() const noexcept { return span_.back(); }
     [[nodiscard]] constexpr pointer data() const noexcept { return span_.data(); }
     [[nodiscard]] constexpr std::span<T> span() const noexcept { return span_; }
-    [[nodiscard]] constexpr operator std::span<T>() const noexcept { return span_; }
+    // NOTE: No implicit conversion to std::span to avoid accidental dangling spans.
+    // Use .span() explicitly when you really want a span that does NOT keep the tensor alive.
 
     [[nodiscard]] constexpr iterator begin() const noexcept { return span_.data(); }
     [[nodiscard]] constexpr iterator end() const noexcept { return span_.data() + span_.size(); }
@@ -346,7 +347,7 @@ public:
                     for (std::size_t i = 0; i < n; ++i) {
                         TF_TString_Init(&out[i]);
                         const char* p = TF_TString_GetDataPointer(&src[i]);
-                        const std::size_t sz = TF_TString_GetSize(&src[i]);
+                        const std::size_t sz = p ? TF_TString_GetSize(&src[i]) : 0;
                         TF_TString_Copy(&out[i], p ? p : "", sz);
                     }
                 });
@@ -399,6 +400,14 @@ public:
     // WARNING: The returned pointer is only valid while this Tensor exists.
     // Prefer read<T>()/write<T>() which return views that keep the tensor alive.
     // Use these only when interfacing with C APIs that require raw pointers.
+
+    // Alias for unsafe_data<T>() to match common container conventions.
+    // WARNING: The returned pointer is only valid while this Tensor exists.
+    template<TensorScalar T>
+    [[nodiscard]] T* data() { return unsafe_data<T>(); }
+
+    template<TensorScalar T>
+    [[nodiscard]] const T* data() const { return unsafe_data<T>(); }
 
     template<TensorScalar T>
     [[nodiscard]] T* unsafe_data() {
