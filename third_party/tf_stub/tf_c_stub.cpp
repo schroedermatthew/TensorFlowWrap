@@ -30,40 +30,6 @@ struct TF_Status {
     std::string message;
 };
 
-// -----------------------------------------------------------------------------
-// Stub error injection (tests only)
-// -----------------------------------------------------------------------------
-namespace {
-struct TF_StubNextError {
-    std::string api;
-    TF_Code code{TF_OK};
-    std::string message;
-    bool is_set{false};
-};
-
-static TF_StubNextError g_next_error;
-
-static bool tf_stub_consume_next_error(const char* api, TF_Status* status) {
-    if (!api || !status) return false;
-    if (!g_next_error.is_set) return false;
-    if (g_next_error.api != api) return false;
-
-    status->code = g_next_error.code;
-    status->message = g_next_error.message;
-
-    g_next_error = TF_StubNextError{};
-    return true;
-}
-} // namespace
-
-extern "C" void TF_StubSetNextError(const char* api, TF_Code code, const char* message) {
-    g_next_error.api = api ? api : "";
-    g_next_error.code = code;
-    g_next_error.message = message ? message : "";
-    g_next_error.is_set = true;
-}
-
-
 struct TF_Tensor {
     TF_DataType dtype{TF_FLOAT};
     std::vector<int64_t> dims;
@@ -839,8 +805,6 @@ void TF_ImportGraphDefOptionsSetPrefix(TF_ImportGraphDefOptions* o, const char* 
 
 void TF_GraphImportGraphDef(TF_Graph*, const TF_Buffer*, const TF_ImportGraphDefOptions*, TF_Status* status)
 {
-    if (tf_stub_consume_next_error("TF_GraphImportGraphDef", status)) { return; }
-
     set_status(status, TF_UNIMPLEMENTED, "TF_GraphImportGraphDef: stub");
 }
 
@@ -883,8 +847,6 @@ void TF_SetConfig(TF_SessionOptions* o, const void* proto, size_t proto_len, TF_
 
 TF_Session* TF_NewSession(TF_Graph* g, const TF_SessionOptions*, TF_Status* status)
 {
-    if (tf_stub_consume_next_error("TF_NewSession", status)) { return nullptr; }
-
     if (!g)
     {
         set_status(status, TF_INVALID_ARGUMENT, "TF_NewSession: null graph");
@@ -936,8 +898,6 @@ void TF_SessionRun(
     TF_Buffer*,
     TF_Status* status)
 {
-    if (tf_stub_consume_next_error("TF_SessionRun", status)) { return; }
-
     if (!session)
     {
         set_status(status, TF_INVALID_ARGUMENT, "TF_SessionRun: null session");
@@ -1000,71 +960,6 @@ void TF_SessionRun(
             cache.emplace(op, clone_tensor(input));
             return cache[op].get();
         }
-
-
-// Reshape: input tensor + shape tensor -> tensor with same storage but new dims
-if (op->op_type == "Reshape")
-{
-    if (op->inputs.size() < 2)
-    {
-        return nullptr;
-    }
-
-    TF_Tensor* input = self(self, op->inputs[0].oper, cache);
-    TF_Tensor* shape = self(self, op->inputs[1].oper, cache);
-    if (!input || !shape)
-    {
-        return nullptr;
-    }
-
-    if (!(shape->dtype == TF_INT32 || shape->dtype == TF_INT64))
-    {
-        return nullptr;
-    }
-    if (shape->dims.size() != 1)
-    {
-        return nullptr;
-    }
-
-    const std::size_t n = static_cast<std::size_t>(shape->dims[0]);
-    std::vector<int64_t> new_dims;
-    new_dims.reserve(n);
-
-    if (shape->dtype == TF_INT32)
-    {
-        const auto* p = static_cast<const std::int32_t*>(TF_TensorData(shape));
-        if (!p) return nullptr;
-        for (std::size_t i = 0; i < n; ++i) new_dims.push_back(static_cast<std::int64_t>(p[i]));
-    }
-    else
-    {
-        const auto* p = static_cast<const std::int64_t*>(TF_TensorData(shape));
-        if (!p) return nullptr;
-        for (std::size_t i = 0; i < n; ++i) new_dims.push_back(p[i]);
-    }
-
-    // Validate element count (simple: compute product, allow 0-size tensors)
-    auto prod = [](const std::vector<std::int64_t>& d) -> std::size_t {
-        std::size_t r = 1;
-        for (auto v : d)
-        {
-            if (v < 0) return static_cast<std::size_t>(-1);
-            r *= static_cast<std::size_t>(v);
-        }
-        return r;
-    };
-
-    const std::size_t in_elems  = prod(input->dims);
-    const std::size_t out_elems = prod(new_dims);
-    if (in_elems != out_elems)
-    {
-        return nullptr;
-    }
-
-    cache.emplace(op, clone_tensor(input));
-    cache[op]->dims = std::move(new_dims);
-    return cache[op].get();
-}
 
         // Placeholder looks up value from feeds
         if (op->op_type == "Placeholder")
@@ -1482,8 +1377,6 @@ TF_Session* TF_LoadSessionFromSavedModel(
     TF_Buffer*,
     TF_Status* status)
 {
-    if (tf_stub_consume_next_error("TF_LoadSessionFromSavedModel", status)) { return nullptr; }
-
     // In stub mode, we can't actually load a SavedModel
     std::string msg = "TF_LoadSessionFromSavedModel: stub cannot load '";
     msg += export_dir ? export_dir : "(null)";

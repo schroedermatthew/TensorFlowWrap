@@ -167,9 +167,6 @@ inline constexpr TF_DataType tf_dtype_v = tf_dtype_of<T>();
 struct TensorState {
     TF_Tensor* tensor{nullptr};
     std::vector<std::int64_t> shape;
-    // Optional keepalive state for zero-copy tensor views (e.g. reshape).
-    // When set, this state is kept alive for the lifetime of this TensorState.
-    std::shared_ptr<TensorState> keepalive;
     
     TensorState() = default;
     
@@ -208,8 +205,8 @@ public:
     TensorView(std::shared_ptr<TensorState> state, std::span<T> data) noexcept
         : state_(std::move(state)), span_(data) {}
 
-    TensorView(const TensorView&) noexcept = default;
-    TensorView& operator=(const TensorView&) noexcept = default;
+    TensorView(const TensorView&) = delete;
+    TensorView& operator=(const TensorView&) = delete;
     TensorView(TensorView&&) noexcept = default;
     TensorView& operator=(TensorView&&) noexcept = default;
     ~TensorView() = default;
@@ -225,8 +222,6 @@ public:
     [[nodiscard]] constexpr reference back() const noexcept { return span_.back(); }
     [[nodiscard]] constexpr pointer data() const noexcept { return span_.data(); }
     [[nodiscard]] constexpr std::span<T> span() const noexcept { return span_; }
-    // NOTE: No implicit conversion to std::span to avoid accidental dangling spans.
-    // Use .span() explicitly when you really want a span that does NOT keep the tensor alive.
 
     [[nodiscard]] constexpr iterator begin() const noexcept { return span_.data(); }
     [[nodiscard]] constexpr iterator end() const noexcept { return span_.data() + span_.size(); }
@@ -309,76 +304,6 @@ public:
     [[nodiscard]] bool valid() const noexcept { return state_->tensor != nullptr; }
     [[nodiscard]] explicit operator bool() const noexcept { return state_->tensor != nullptr; }
     [[nodiscard]] TF_Tensor* handle() const noexcept { return state_->tensor; }
-
-
-    // ─────────────────────────────────────────────────────────────────
-    // Shape helpers
-    // ─────────────────────────────────────────────────────────────────
-
-    /// Returns true if this tensor's shape exactly matches `dims`.
-    [[nodiscard]] bool matches_shape(std::span<const std::int64_t> dims) const noexcept {
-        if (state_->shape.size() != dims.size()) return false;
-        for (std::size_t i = 0; i < dims.size(); ++i) {
-            if (state_->shape[i] != dims[i]) return false;
-        }
-        return true;
-    }
-
-    [[nodiscard]] bool matches_shape(std::initializer_list<std::int64_t> dims) const noexcept {
-        return matches_shape(std::span<const std::int64_t>(dims.begin(), dims.size()));
-    }
-
-    /// Zero-copy reshape (shares the underlying buffer).
-    ///
-    /// Notes:
-    /// - This does NOT copy data.
-    /// - The returned Tensor keeps the original tensor alive, so the data remains valid.
-    /// - Mutating either tensor mutates the shared buffer (as expected for a view).
-    ///
-    /// Throws std::invalid_argument if the element count differs.
-    [[nodiscard]] Tensor reshape(
-        std::span<const std::int64_t> new_dims,
-        std::source_location loc = std::source_location::current()) const
-    {
-        ensure_tensor_("reshape");
-
-        const std::size_t old_elems = num_elements();
-        const std::size_t new_elems = detail::checked_product(new_dims, "Tensor::reshape");
-        if (new_elems != old_elems) {
-            throw std::invalid_argument(tf_wrap::detail::format(
-                "Tensor::reshape at {}:{}: element count mismatch (old {} vs new {})",
-                loc.file_name(), loc.line(), old_elems, new_elems));
-        }
-
-        Tensor t;
-        std::vector<std::int64_t> shape_vec(new_dims.begin(), new_dims.end());
-        const int64_t* dims_ptr = shape_vec.empty() ? nullptr : shape_vec.data();
-        const int num_dims = detail::checked_int(shape_vec.size(), "Tensor::reshape num_dims");
-
-        void* data_ptr = TF_TensorData(state_->tensor);
-        const std::size_t byte_len = TF_TensorByteSize(state_->tensor);
-        if (!data_ptr && byte_len > 0) {
-            throw std::runtime_error("Tensor::reshape: tensor data pointer is null");
-        }
-
-        TF_Tensor* view = TF_NewTensor(dtype(), dims_ptr, num_dims, data_ptr, byte_len,
-                                       &noop_deallocator_, nullptr);
-        if (!view) {
-            throw std::runtime_error("Tensor::reshape: TF_NewTensor failed");
-        }
-
-        t.state_->tensor = view;
-        t.state_->shape = std::move(shape_vec);
-        t.state_->keepalive = state_;
-        return t;
-    }
-
-    [[nodiscard]] Tensor reshape(
-        std::initializer_list<std::int64_t> new_dims,
-        std::source_location loc = std::source_location::current()) const
-    {
-        return reshape(std::vector<std::int64_t>(new_dims), loc);
-    }
 
     // ─────────────────────────────────────────────────────────────────
     // Data extraction
@@ -473,14 +398,6 @@ public:
     // WARNING: The returned pointer is only valid while this Tensor exists.
     // Prefer read<T>()/write<T>() which return views that keep the tensor alive.
     // Use these only when interfacing with C APIs that require raw pointers.
-
-    // Alias for unsafe_data<T>() to match common container conventions.
-    // WARNING: The returned pointer is only valid while this Tensor exists.
-    template<TensorScalar T>
-    [[nodiscard]] T* data() { return unsafe_data<T>(); }
-
-    template<TensorScalar T>
-    [[nodiscard]] const T* data() const { return unsafe_data<T>(); }
 
     template<TensorScalar T>
     [[nodiscard]] T* unsafe_data() {
@@ -791,8 +708,6 @@ private:
                 fn, tf_wrap::dtype_name(expected), tf_wrap::dtype_name(actual)));
         }
     }
-
-    static void noop_deallocator_(void*, std::size_t, void*) noexcept {}
 
     static void default_deallocator(void* data, std::size_t, void*) noexcept {
         std::free(data);
