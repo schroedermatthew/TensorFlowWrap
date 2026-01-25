@@ -59,12 +59,12 @@ vcpkg-root
 
 # Other common files/folders
 # CMake build artifacts (if using CMake with vcpkg)
-CMake/
-CMakeLists.txt.user
-CMakeSettings.json
-out/
-build/
-.cmake/
+#CMake/
+#CMakeLists.txt.user
+#CMakeSettings.json
+#out/
+#build/
+#.cmake/
 
 # Misc
 *.sdf
