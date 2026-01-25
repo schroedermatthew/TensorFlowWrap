@@ -298,9 +298,9 @@ public:
         TF_SessionRun(
             session_->handle(),
             nullptr,  // run_options
-            input_ops.data(), input_vals.data(), static_cast<int>(feeds_.size()),
-            fetches_.data(), output_vals.data(), static_cast<int>(fetches_.size()),
-            targets_.data(), static_cast<int>(targets_.size()),
+            input_ops.data(), input_vals.data(), detail::checked_int(feeds_.size(), "Runner::run feeds"),
+            fetches_.data(), output_vals.data(), detail::checked_int(fetches_.size(), "Runner::run fetches"),
+            targets_.data(), detail::checked_int(targets_.size(), "Runner::run targets"),
             nullptr,  // run_metadata
             st.get());
         
@@ -474,6 +474,15 @@ template<TensorScalar T>
     const Tensor& tensor)
 {
     return ops::Const(graph, name, tensor.handle(), tf_dtype_v<T>);
+}
+
+/// Create a constant from an existing Tensor (dtype inferred at runtime)
+[[nodiscard]] inline ops::OpResult Const(
+    Graph& graph,
+    std::string_view name,
+    const Tensor& tensor)
+{
+    return ops::Const(graph, name, tensor.handle(), tensor.dtype());
 }
 
 /// Create a placeholder
