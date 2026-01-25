@@ -14,10 +14,13 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <span>
+#include <source_location>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -87,19 +90,43 @@ private:
 struct Feed {
     std::string op_name;
     int index{0};
-    TF_Tensor* tensor;
-    
+    TF_Tensor* tensor{nullptr};
+
+    // Optional pre-resolved output handle (avoids string lookup in Session::Run).
+    TF_Output output{nullptr, 0};
+    bool has_output{false};
+
+    // Name-based feeds (backward compatible)
     Feed(std::string name, int idx, TF_Tensor* t)
         : op_name(std::move(name)), index(idx), tensor(t) {}
-    
+
     Feed(std::string name, TF_Tensor* t)
         : op_name(std::move(name)), index(0), tensor(t) {}
-    
+
     Feed(std::string name, int idx, const Tensor& t)
         : op_name(std::move(name)), index(idx), tensor(t.handle()) {}
-    
+
     Feed(std::string name, const Tensor& t)
         : op_name(std::move(name)), index(0), tensor(t.handle()) {}
+
+    // Handle-based feeds (preferred for hot paths)
+    Feed(TF_Output out, TF_Tensor* t)
+        : op_name(), index(out.index), tensor(t), output(out), has_output(true) {}
+
+    Feed(TF_Output out, const Tensor& t)
+        : Feed(out, t.handle()) {}
+
+    Feed(TF_Operation* op, int idx, TF_Tensor* t)
+        : Feed(TF_Output{op, idx}, t) {}
+
+    Feed(TF_Operation* op, int idx, const Tensor& t)
+        : Feed(TF_Output{op, idx}, t.handle()) {}
+
+    Feed(TF_Operation* op, TF_Tensor* t)
+        : Feed(TF_Output{op, 0}, t) {}
+
+    Feed(TF_Operation* op, const Tensor& t)
+        : Feed(TF_Output{op, 0}, t.handle()) {}
 };
 
 // ============================================================================
@@ -153,10 +180,40 @@ private:
 struct Fetch {
     std::string op_name;
     int index{0};
-    
+
+
+
+
+    // Optional pre-resolved output handle (avoids string lookup in Session::Run).
+    TF_Output output{nullptr, 0};
+    bool has_output{false};
+
+    // Name-based fetches (backward compatible)
     Fetch(std::string name, int idx = 0)
         : op_name(std::move(name)), index(idx) {}
+
+    // Handle-based fetches
+    Fetch(TF_Output out)
+        : op_name(), index(out.index), output(out), has_output(true) {}
+
+    Fetch(TF_Operation* op, int idx = 0)
+        : Fetch(TF_Output{op, idx}) {}
 };
+
+struct Target {
+    std::string op_name;
+
+    TF_Operation* oper{nullptr};
+    bool has_oper{false};
+
+    Target(std::string name) : op_name(std::move(name)) {}
+
+    Target(TF_Operation* op) : oper(op), has_oper(true) {}
+
+    Target(TF_Operation* op, std::string debug_name)
+        : op_name(std::move(debug_name)), oper(op), has_oper(true) {}
+};
+
 
 // ============================================================================
 // Device - Information about a compute device
@@ -333,39 +390,137 @@ public:
     // ─────────────────────────────────────────────────────────────────
     
     /// Resolve an operation name and index to TF_Output with bounds checking
-    [[nodiscard]] TF_Output resolve_output(const std::string& op_name, int index = 0) const {
+    [[nodiscard]] TF_Output resolve_output(
+        const std::string& op_name,
+        int index = 0,
+        std::source_location loc = std::source_location::current()) const
+    {
         if (!graph_state_ || !graph_state_->graph) {
-            throw std::runtime_error("Session::resolve_output: session has no graph");
+            throw tf_wrap::Error::Wrapper(TF_FAILED_PRECONDITION,
+                "Session::resolve_output",
+                "session has no graph",
+                op_name, index, loc);
         }
         
         TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, op_name.c_str());
         if (!op) {
-            throw std::runtime_error(tf_wrap::detail::format(
-                "Session::resolve_output: operation '{}' not found in graph", op_name));
+            throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
+                "Session::resolve_output",
+                "operation not found in graph",
+                op_name, index, loc);
         }
         
         const int num_outputs = TF_OperationNumOutputs(op);
         if (index < 0 || index >= num_outputs) {
-            throw std::runtime_error(tf_wrap::detail::format(
-                "Session::resolve_output: output index {} out of range for operation '{}' "
-                "(has {} outputs, valid indices are 0-{})",
-                index, op_name, num_outputs, num_outputs > 0 ? num_outputs - 1 : 0));
+            throw tf_wrap::Error::Wrapper(TF_OUT_OF_RANGE,
+                "Session::resolve_output",
+                tf_wrap::detail::format(
+                    "output index {} out of range (has {} outputs, valid indices are 0-{})",
+                    index, num_outputs, num_outputs > 0 ? num_outputs - 1 : 0),
+                op_name, index, loc);
         }
         
         return TF_Output{op, index};
     }
     
-    // ─────────────────────────────────────────────────────────────────
+    
+    [[nodiscard]] TF_Output validate_output_(
+        TF_Output out,
+        std::string_view context,
+        std::source_location loc) const
+    {
+        if (out.oper == nullptr) {
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                context,
+                "TF_Output has null operation",
+                {}, out.index, loc);
+        }
+
+        const int num_outputs = TF_OperationNumOutputs(out.oper);
+        if (out.index < 0 || out.index >= num_outputs) {
+            const char* name = TF_OperationName(out.oper);
+            const std::string opn = name ? name : "";
+            throw tf_wrap::Error::Wrapper(TF_OUT_OF_RANGE,
+                context,
+                tf_wrap::detail::format(
+                    "output index {} out of range (has {} outputs, valid indices are 0-{})",
+                    out.index, num_outputs, num_outputs > 0 ? num_outputs - 1 : 0),
+                opn, out.index, loc);
+        }
+
+        return out;
+    }
+
+    [[nodiscard]] static Tensor allocate_by_dtype_(
+        TF_DataType dtype,
+        std::span<const std::int64_t> dims,
+        std::source_location loc)
+    {
+        switch (dtype) {
+        case TF_FLOAT:   return Tensor::Allocate<float>(dims);
+        case TF_DOUBLE:  return Tensor::Allocate<double>(dims);
+        case TF_INT32:   return Tensor::Allocate<std::int32_t>(dims);
+        case TF_INT64:   return Tensor::Allocate<std::int64_t>(dims);
+        case TF_UINT8:   return Tensor::Allocate<std::uint8_t>(dims);
+        case TF_BOOL:    return Tensor::Allocate<bool>(dims);
+        case TF_INT16:   return Tensor::Allocate<std::int16_t>(dims);
+        case TF_INT8:    return Tensor::Allocate<std::int8_t>(dims);
+        case TF_UINT16:  return Tensor::Allocate<std::uint16_t>(dims);
+        case TF_UINT32:  return Tensor::Allocate<std::uint32_t>(dims);
+        case TF_UINT64:  return Tensor::Allocate<std::uint64_t>(dims);
+        case TF_HALF:    return Tensor::Allocate<std::uint16_t>(dims); // raw half bits
+        default:
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                "Session::BatchRunStacked",
+                tf_wrap::detail::format("unsupported dtype {} for stacked batching", static_cast<int>(dtype)),
+                {}, -1, loc);
+        }
+    }
+
+// ─────────────────────────────────────────────────────────────────
     // Run - Execute the graph
     // TF_SessionRun is thread-safe (TensorFlow's guarantee)
     // ─────────────────────────────────────────────────────────────────
     
-    [[nodiscard]] std::vector<Tensor> Run(
+    [[nodiscard]] 
+std::vector<Tensor> Run(
+    const std::vector<Feed>& feeds,
+    const std::vector<Fetch>& fetches,
+    const std::vector<std::string>& targets,
+    TF_Buffer* run_options = nullptr,
+    TF_Buffer* run_metadata = nullptr,
+    std::source_location loc = std::source_location::current()) const
+{
+    std::vector<Target> t;
+    t.reserve(targets.size());
+    for (const auto& name : targets) {
+        t.emplace_back(name);
+    }
+    return Run(feeds, fetches, std::span<const Target>(t), run_options, run_metadata, loc);
+}
+
+
+[[nodiscard]]
+std::vector<Tensor> Run(
+    const std::vector<Feed>& feeds,
+    const std::vector<Fetch>& fetches,
+    std::initializer_list<Target> targets,
+    TF_Buffer* run_options = nullptr,
+    TF_Buffer* run_metadata = nullptr,
+    std::source_location loc = std::source_location::current()) const
+{
+    return Run(feeds, fetches,
+               std::span<const Target>(targets.begin(), targets.size()),
+               run_options, run_metadata, loc);
+}
+
+std::vector<Tensor> Run(
         const std::vector<Feed>& feeds,
         const std::vector<Fetch>& fetches,
-        const std::vector<std::string>& targets,
-        TF_Buffer* run_options,
-        TF_Buffer* run_metadata) const
+        std::span<const Target> targets,
+        TF_Buffer* run_options = nullptr,
+        TF_Buffer* run_metadata = nullptr,
+        std::source_location loc = std::source_location::current()) const
     {
         if (!session_) {
             throw std::runtime_error("Session::Run(): session is null (moved-from?)");
@@ -377,8 +532,9 @@ public:
         input_vals.reserve(feeds.size());
         
         for (const auto& f : feeds) {
-            // Use resolve_output for bounds checking
-            TF_Output output = resolve_output(f.op_name, f.index);
+            TF_Output output = f.has_output
+                ? validate_output_(f.output, "Session::Run feed", loc)
+                : resolve_output(f.op_name, f.index, loc);
             input_ops.push_back(output);
             input_vals.push_back(f.tensor);
         }
@@ -387,8 +543,9 @@ public:
         output_ops.reserve(fetches.size());
         
         for (const auto& f : fetches) {
-            // Use resolve_output for bounds checking
-            TF_Output output = resolve_output(f.op_name, f.index);
+            TF_Output output = f.has_output
+                ? validate_output_(f.output, "Session::Run fetch", loc)
+                : resolve_output(f.op_name, f.index, loc);
             output_ops.push_back(output);
         }
         
@@ -396,13 +553,17 @@ public:
         target_ops.reserve(targets.size());
         
         for (const auto& t : targets) {
-            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, t.c_str());
-            if (!op) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "Target operation '{}' not found", t));
-            }
-            target_ops.push_back(op);
-        }
+    TF_Operation* op = t.has_oper ? t.oper
+        : TF_GraphOperationByName(graph_state_->graph, t.op_name.c_str());
+
+    if (!op) {
+        throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
+            "Session::Run",
+            "target operation not found",
+            t.op_name, -1, loc);
+    }
+    target_ops.push_back(op);
+}
         
         std::vector<TF_Tensor*> output_vals(fetches.size(), nullptr);
 
@@ -433,13 +594,18 @@ public:
             owned.emplace_back(t);
         }
 
-        st.throw_if_error("TF_SessionRun");
+        st.throw_if_error("TF_SessionRun", loc);
 
         for (std::size_t i = 0; i < owned.size(); ++i) {
             if (!owned[i]) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "TF_SessionRun: fetch '{}' returned null tensor",
-                    fetches[i].op_name));
+                const std::string name = fetches[i].has_output && fetches[i].output.oper
+                    ? (TF_OperationName(fetches[i].output.oper) ? TF_OperationName(fetches[i].output.oper) : "")
+                    : fetches[i].op_name;
+                const int idx = fetches[i].has_output ? fetches[i].output.index : fetches[i].index;
+                throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                    "TF_SessionRun",
+                    "fetch returned null tensor",
+                    name, idx, loc);
             }
         }
 
@@ -456,35 +622,412 @@ public:
         const std::vector<Feed>& feeds,
         const std::vector<Fetch>& fetches) const
     {
-        return Run(feeds, fetches, {}, nullptr, nullptr);
+        return Run(feeds, fetches, std::span<const Target>{}, nullptr, nullptr);
     }
     
     [[nodiscard]] std::vector<Tensor> Run(
         const std::vector<Fetch>& fetches) const
     {
-        return Run({}, fetches, {}, nullptr, nullptr);
+        return Run(std::vector<Feed>{}, fetches, std::span<const Target>{}, nullptr, nullptr);
     }
     
     /// Convenience: Run with targets but no fetch outputs
     [[nodiscard]] std::vector<Tensor> Run(
         const std::vector<Feed>& feeds,
         const std::vector<Fetch>& fetches,
-        const std::vector<std::string>& targets) const
+        const std::vector<Target>& targets) const
     {
-        return Run(feeds, fetches, targets, nullptr, nullptr);
+        return Run(feeds, fetches, std::span<const Target>(targets.data(), targets.size()));
     }
     
     /// Convenience: Fetch single output by name and index
-    [[nodiscard]] Tensor Run(const std::string& op_name, int index = 0) const {
-        auto results = Run({}, {Fetch{op_name, index}});
+    [[nodiscard]] Tensor Run(const std::string& op_name, int index = 0,
+        std::source_location loc = std::source_location::current()) const {
+        auto results = Run(std::vector<Feed>{}, std::vector<Fetch>{Fetch{op_name, index}}, std::span<const Target>{}, nullptr, nullptr, loc);
         return std::move(results[0]);
     }
     
     /// Convenience: Fetch single output by name (string literal version)
-    [[nodiscard]] Tensor Run(const char* op_name, int index = 0) const {
-        return Run(std::string(op_name), index);
+    [[nodiscard]] Tensor Run(const char* op_name, int index = 0,
+        std::source_location loc = std::source_location::current()) const {
+        return Run(std::string(op_name), index, loc);
+    }
+
+
+    // ─────────────────────────────────────────────────────────────────
+    // BatchRun - Convenience helper for running many single-input inferences
+    // ─────────────────────────────────────────────────────────────────
+
+    /// Run the same (input -> output) mapping for many inputs.
+    ///
+    /// This is a convenience wrapper that:
+    /// - resolves the input/output TF_Output once (with bounds checking),
+    /// - then calls TF_SessionRun repeatedly (one per input).
+    ///
+    /// The returned vector has the same length as `inputs`.
+    [[nodiscard]] std::vector<Tensor> BatchRun(
+        const std::string& input_op,
+        const std::vector<Tensor>& inputs,
+        const std::string& output_op,
+        int input_index = 0,
+        int output_index = 0,
+        std::source_location loc = std::source_location::current()) const
+    {
+        return BatchRun(input_op, std::span<const Tensor>(inputs.data(), inputs.size()),
+                        output_op, input_index, output_index, loc);
+    }
+
+    [[nodiscard]] std::vector<Tensor> BatchRun(
+        const std::string& input_op,
+        std::span<const Tensor> inputs,
+        const std::string& output_op,
+        int input_index = 0,
+        int output_index = 0,
+        std::source_location loc = std::source_location::current()) const
+    {
+        if (!session_) {
+            throw std::runtime_error("Session::BatchRun(): session is null (moved-from?)");
+        }
+
+        TF_Output in = resolve_output(input_op, input_index, loc);
+        TF_Output out = resolve_output(output_op, output_index, loc);
+
+        std::vector<Tensor> results;
+        results.reserve(inputs.size());
+
+        struct TensorDeleter {
+            void operator()(TF_Tensor* t) const noexcept {
+                if (t) TF_DeleteTensor(t);
+            }
+        };
+        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+
+        Status st;
+        TF_Output input_ops[1] = {in};
+        TF_Output output_ops[1] = {out};
+
+        for (const Tensor& t : inputs) {
+            if (!t.handle()) {
+                throw std::invalid_argument("Session::BatchRun: input tensor is null");
+            }
+
+            TF_Tensor* input_vals[1] = {t.handle()};
+            TF_Tensor* output_vals[1] = {nullptr};
+
+            st.reset();
+            TF_SessionRun(
+                session_,
+                nullptr,  // run_options
+                input_ops, input_vals, 1,
+                output_ops, output_vals, 1,
+                nullptr, 0,  // targets
+                nullptr,      // run_metadata
+                st.get());
+
+            RawTensorPtr owned(output_vals[0]);
+
+            st.throw_if_error("TF_SessionRun (BatchRun)", loc);
+
+            if (!owned) {
+                throw std::runtime_error(tf_wrap::detail::format(
+                    "TF_SessionRun (BatchRun): fetch '{}' returned null tensor",
+                    output_op));
+            }
+
+            results.push_back(Tensor::FromRaw(owned.release()));
+        }
+
+        return results;
     }
     
+
+    // ─────────────────────────────────────────────────────────────────
+    // BatchRun (handle-based overloads)
+    // ─────────────────────────────────────────────────────────────────
+
+    [[nodiscard]] std::vector<Tensor> BatchRun(
+        TF_Output input,
+        const std::vector<Tensor>& inputs,
+        TF_Output output,
+        std::source_location loc = std::source_location::current()) const
+    {
+        return BatchRun(input,
+                        std::span<const Tensor>(inputs.data(), inputs.size()),
+                        output,
+                        loc);
+    }
+
+    [[nodiscard]] std::vector<Tensor> BatchRun(
+        TF_Output input,
+        std::span<const Tensor> inputs,
+        TF_Output output,
+        std::source_location loc = std::source_location::current()) const
+    {
+        if (!session_) {
+            throw tf_wrap::Error::Wrapper(TF_FAILED_PRECONDITION,
+                "Session::BatchRun",
+                "session is null (moved-from?)",
+                {}, -1, loc);
+        }
+
+        TF_Output in = validate_output_(input, "Session::BatchRun input", loc);
+        TF_Output out = validate_output_(output, "Session::BatchRun output", loc);
+
+        std::vector<Tensor> results;
+        results.reserve(inputs.size());
+
+        struct TensorDeleter {
+            void operator()(TF_Tensor* t) const noexcept {
+                if (t) TF_DeleteTensor(t);
+            }
+        };
+        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+
+        Status st;
+        TF_Output input_ops[1] = {in};
+        TF_Output output_ops[1] = {out};
+
+        for (const Tensor& t : inputs) {
+            if (!t.handle()) {
+                throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                    "Session::BatchRun",
+                    "input tensor is null",
+                    {}, -1, loc);
+            }
+
+            TF_Tensor* input_vals[1] = {t.handle()};
+            TF_Tensor* output_vals[1] = {nullptr};
+
+            st.reset();
+            TF_SessionRun(
+                session_,
+                nullptr,  // run_options
+                input_ops, input_vals, 1,
+                output_ops, output_vals, 1,
+                nullptr, 0,  // targets
+                nullptr,      // run_metadata
+                st.get());
+
+            RawTensorPtr owned(output_vals[0]);
+
+            st.throw_if_error("TF_SessionRun (BatchRun)", loc);
+
+            if (!owned) {
+                const char* out_name = TF_OperationName(out.oper);
+                throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                    "TF_SessionRun (BatchRun)",
+                    "fetch returned null tensor",
+                    out_name ? out_name : "", out.index, loc);
+            }
+
+            results.push_back(Tensor::FromRaw(owned.release()));
+        }
+
+        return results;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // BatchRunStacked - True batching (single TF_SessionRun)
+    // ─────────────────────────────────────────────────────────────────
+
+    /// True batching helper: stack inputs into a single batch tensor (N, ...),
+    /// run one TF_SessionRun, then split outputs back into N tensors.
+    ///
+    /// Constraints:
+    /// - inputs must be non-empty
+    /// - all inputs must have the same dtype and shape
+    /// - variable-length dtypes (e.g. TF_STRING) are not supported
+    [[nodiscard]] std::vector<Tensor> BatchRunStacked(
+        const std::string& input_op,
+        const std::vector<Tensor>& inputs,
+        const std::string& output_op,
+        int input_index = 0,
+        int output_index = 0,
+        std::source_location loc = std::source_location::current()) const
+    {
+        TF_Output in = resolve_output(input_op, input_index, loc);
+        TF_Output out = resolve_output(output_op, output_index, loc);
+        return BatchRunStacked(in,
+                               std::span<const Tensor>(inputs.data(), inputs.size()),
+                               out,
+                               loc);
+    }
+
+    [[nodiscard]] std::vector<Tensor> BatchRunStacked(
+        TF_Output input,
+        std::span<const Tensor> inputs,
+        TF_Output output,
+        std::source_location loc = std::source_location::current()) const
+    {
+        if (!session_) {
+            throw tf_wrap::Error::Wrapper(TF_FAILED_PRECONDITION,
+                "Session::BatchRunStacked",
+                "session is null (moved-from?)",
+                {}, -1, loc);
+        }
+        if (inputs.empty()) {
+            return {};
+        }
+
+        TF_Output in = validate_output_(input, "Session::BatchRunStacked input", loc);
+        TF_Output out = validate_output_(output, "Session::BatchRunStacked output", loc);
+
+        const Tensor& first = inputs.front();
+        if (!first.handle()) {
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                "Session::BatchRunStacked",
+                "first input tensor is null",
+                {}, -1, loc);
+        }
+        const TF_DataType dtype = first.dtype();
+        const std::size_t elem_size = TF_DataTypeSize(dtype);
+        if (elem_size == 0) {
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                "Session::BatchRunStacked",
+                "variable-length dtype not supported for stacked batching",
+                {}, -1, loc);
+        }
+
+        const auto base_shape = first.shape();
+        std::vector<std::int64_t> base_dims(base_shape.begin(), base_shape.end());
+
+        const std::size_t per_item_elems = detail::checked_product(base_dims, "Session::BatchRunStacked per_item");
+        const std::size_t per_item_bytes = detail::checked_mul(per_item_elems, elem_size, "Session::BatchRunStacked per_item_bytes");
+
+        for (std::size_t i = 0; i < inputs.size(); ++i) {
+            const Tensor& t = inputs[i];
+            if (!t.handle()) {
+                throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                    "Session::BatchRunStacked",
+                    tf_wrap::detail::format("input tensor {} is null", i),
+                    {}, static_cast<int>(i), loc);
+            }
+            if (t.dtype() != dtype) {
+                throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                    "Session::BatchRunStacked",
+                    "all inputs must have same dtype",
+                    {}, static_cast<int>(i), loc);
+            }
+            const auto sh = t.shape();
+            if (!std::equal(sh.begin(), sh.end(), base_dims.begin(), base_dims.end())) {
+                throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                    "Session::BatchRunStacked",
+                    "all inputs must have same shape",
+                    {}, static_cast<int>(i), loc);
+            }
+        }
+
+        std::vector<std::int64_t> batched_dims;
+        batched_dims.reserve(base_dims.size() + 1);
+        batched_dims.push_back(static_cast<std::int64_t>(inputs.size()));
+        batched_dims.insert(batched_dims.end(), base_dims.begin(), base_dims.end());
+
+        Tensor batched = allocate_by_dtype_(dtype, batched_dims, loc);
+        void* dst = TF_TensorData(batched.handle());
+        if (!dst && per_item_bytes != 0) {
+            throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                "Session::BatchRunStacked",
+                "TF_TensorData returned null for batched tensor",
+                {}, -1, loc);
+        }
+
+        for (std::size_t i = 0; i < inputs.size(); ++i) {
+            const void* src = TF_TensorData(inputs[i].handle());
+            if (!src && per_item_bytes != 0) {
+                throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                    "Session::BatchRunStacked",
+                    "TF_TensorData returned null for input tensor",
+                    {}, static_cast<int>(i), loc);
+            }
+            std::memcpy(static_cast<std::byte*>(dst) + i * per_item_bytes, src, per_item_bytes);
+        }
+
+        TF_Output input_ops[1] = {in};
+        TF_Tensor* input_vals[1] = {batched.handle()};
+        TF_Output output_ops[1] = {out};
+        TF_Tensor* output_vals[1] = {nullptr};
+
+        Status st;
+        TF_SessionRun(
+            session_,
+            nullptr,
+            input_ops, input_vals, 1,
+            output_ops, output_vals, 1,
+            nullptr, 0,
+            nullptr,
+            st.get());
+
+        struct TensorDeleter {
+            void operator()(TF_Tensor* t) const noexcept {
+                if (t) TF_DeleteTensor(t);
+            }
+        };
+        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+        RawTensorPtr owned(output_vals[0]);
+
+        st.throw_if_error("TF_SessionRun (BatchRunStacked)", loc);
+        if (!owned) {
+            throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                "TF_SessionRun (BatchRunStacked)",
+                "returned null output tensor",
+                {}, -1, loc);
+        }
+
+        Tensor out_batched = Tensor::FromRaw(owned.release());
+        if (out_batched.dtype() != dtype) {
+            // still allow, but splitting uses element size from returned dtype
+        }
+
+        const TF_DataType out_dtype = out_batched.dtype();
+        const std::size_t out_elem_size = TF_DataTypeSize(out_dtype);
+        if (out_elem_size == 0) {
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                "Session::BatchRunStacked",
+                "variable-length output dtype not supported for splitting",
+                {}, -1, loc);
+        }
+
+        const auto out_shape = out_batched.shape();
+        if (out_shape.size() < 1 || out_shape[0] != static_cast<std::int64_t>(inputs.size())) {
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                "Session::BatchRunStacked",
+                "batched output first dimension does not match batch size",
+                {}, -1, loc);
+        }
+
+        std::vector<std::int64_t> out_item_dims(out_shape.begin() + 1, out_shape.end());
+        const std::size_t out_item_elems = detail::checked_product(out_item_dims, "Session::BatchRunStacked out_item");
+        const std::size_t out_item_bytes = detail::checked_mul(out_item_elems, out_elem_size, "Session::BatchRunStacked out_item_bytes");
+
+        const void* out_src = TF_TensorData(out_batched.handle());
+        if (!out_src && out_item_bytes != 0) {
+            throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                "Session::BatchRunStacked",
+                "TF_TensorData returned null for output tensor",
+                {}, -1, loc);
+        }
+
+        std::vector<Tensor> split;
+        split.reserve(inputs.size());
+        for (std::size_t i = 0; i < inputs.size(); ++i) {
+            Tensor item = allocate_by_dtype_(out_dtype, out_item_dims, loc);
+            void* item_dst = TF_TensorData(item.handle());
+            if (!item_dst && out_item_bytes != 0) {
+                throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                    "Session::BatchRunStacked",
+                    "TF_TensorData returned null for split tensor",
+                    {}, static_cast<int>(i), loc);
+            }
+            std::memcpy(item_dst,
+                        static_cast<const std::byte*>(out_src) + i * out_item_bytes,
+                        out_item_bytes);
+            split.push_back(std::move(item));
+        }
+
+        return split;
+    }
+
+
     // ─────────────────────────────────────────────────────────────────
     // Device enumeration
     // ─────────────────────────────────────────────────────────────────
@@ -513,10 +1056,26 @@ public:
     // Partial runs
     // ─────────────────────────────────────────────────────────────────
     
-    [[nodiscard]] PartialRunHandle PartialRunSetup(
+    
+[[nodiscard]] PartialRunHandle PartialRunSetup(
+    const std::vector<Fetch>& inputs,
+    const std::vector<Fetch>& outputs,
+    const std::vector<std::string>& targets,
+    std::source_location loc = std::source_location::current()) const
+{
+    std::vector<Target> t;
+    t.reserve(targets.size());
+    for (const auto& name : targets) {
+        t.emplace_back(name);
+    }
+    return PartialRunSetup(inputs, outputs, t, loc);
+}
+
+[[nodiscard]] PartialRunHandle PartialRunSetup(
         const std::vector<Fetch>& inputs,
         const std::vector<Fetch>& outputs,
-        const std::vector<std::string>& targets = {}) const
+        const std::vector<Target>& targets = {},
+        std::source_location loc = std::source_location::current()) const
     {
         if (!session_) {
             throw std::runtime_error("Session::PartialRunSetup(): session is null");
@@ -525,22 +1084,31 @@ public:
         std::vector<TF_Output> input_ops;
         input_ops.reserve(inputs.size());
         for (const auto& f : inputs) {
-            input_ops.push_back(resolve_output(f.op_name, f.index));
+            TF_Output out = f.has_output
+                ? validate_output_(f.output, "Session::PartialRunSetup input", loc)
+                : resolve_output(f.op_name, f.index, loc);
+            input_ops.push_back(out);
         }
         
         std::vector<TF_Output> output_ops;
         output_ops.reserve(outputs.size());
         for (const auto& f : outputs) {
-            output_ops.push_back(resolve_output(f.op_name, f.index));
+            TF_Output out = f.has_output
+                ? validate_output_(f.output, "Session::PartialRunSetup output", loc)
+                : resolve_output(f.op_name, f.index, loc);
+            output_ops.push_back(out);
         }
         
         std::vector<TF_Operation*> target_ops;
         target_ops.reserve(targets.size());
         for (const auto& t : targets) {
-            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, t.c_str());
+            TF_Operation* op = t.has_oper ? t.oper
+                : TF_GraphOperationByName(graph_state_->graph, t.op_name.c_str());
             if (!op) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "PartialRunSetup: target '{}' not found", t));
+                throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
+                    "Session::PartialRunSetup",
+                    "target operation not found",
+                    t.op_name, -1, loc);
             }
             target_ops.push_back(op);
         }
@@ -556,15 +1124,32 @@ public:
             &handle,
             st.get());
         
-        st.throw_if_error("TF_SessionPRunSetup");
+        st.throw_if_error("TF_SessionPRunSetup", loc);
         return PartialRunHandle(handle);
     }
     
-    [[nodiscard]] std::vector<Tensor> PartialRun(
+    [[nodiscard]] 
+std::vector<Tensor> PartialRun(
+    const PartialRunHandle& handle,
+    const std::vector<Feed>& feeds,
+    const std::vector<Fetch>& fetches,
+    const std::vector<std::string>& targets,
+    std::source_location loc = std::source_location::current()) const
+{
+    std::vector<Target> t;
+    t.reserve(targets.size());
+    for (const auto& name : targets) {
+        t.emplace_back(name);
+    }
+    return PartialRun(handle, feeds, fetches, t, loc);
+}
+
+std::vector<Tensor> PartialRun(
         const PartialRunHandle& handle,
         const std::vector<Feed>& feeds,
         const std::vector<Fetch>& fetches,
-        const std::vector<std::string>& targets = {}) const
+        const std::vector<Target>& targets = {},
+        std::source_location loc = std::source_location::current()) const
     {
         if (!session_) {
             throw std::runtime_error("Session::PartialRun(): session is null");
@@ -579,23 +1164,32 @@ public:
         input_vals.reserve(feeds.size());
         
         for (const auto& f : feeds) {
-            input_ops.push_back(resolve_output(f.op_name, f.index));
+            TF_Output out = f.has_output
+                ? validate_output_(f.output, "Session::PartialRun feed", loc)
+                : resolve_output(f.op_name, f.index, loc);
+            input_ops.push_back(out);
             input_vals.push_back(f.tensor);
         }
         
         std::vector<TF_Output> output_ops;
         output_ops.reserve(fetches.size());
         for (const auto& f : fetches) {
-            output_ops.push_back(resolve_output(f.op_name, f.index));
+            TF_Output out = f.has_output
+                ? validate_output_(f.output, "Session::PartialRun fetch", loc)
+                : resolve_output(f.op_name, f.index, loc);
+            output_ops.push_back(out);
         }
         
         std::vector<TF_Operation*> target_ops;
         target_ops.reserve(targets.size());
         for (const auto& t : targets) {
-            TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, t.c_str());
+            TF_Operation* op = t.has_oper ? t.oper
+                : TF_GraphOperationByName(graph_state_->graph, t.op_name.c_str());
             if (!op) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "PartialRun: target '{}' not found", t));
+                throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
+                    "Session::PartialRun",
+                    "target operation not found",
+                    t.op_name, -1, loc);
             }
             target_ops.push_back(op);
         }
@@ -628,13 +1222,18 @@ public:
             owned.emplace_back(t);
         }
 
-        st.throw_if_error("TF_SessionPRun");
+        st.throw_if_error("TF_SessionPRun", loc);
 
         for (std::size_t i = 0; i < owned.size(); ++i) {
             if (!owned[i]) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "TF_SessionPRun: fetch '{}' returned null tensor",
-                    fetches[i].op_name));
+                const std::string name = fetches[i].has_output && fetches[i].output.oper
+                    ? (TF_OperationName(fetches[i].output.oper) ? TF_OperationName(fetches[i].output.oper) : "")
+                    : fetches[i].op_name;
+                const int idx = fetches[i].has_output ? fetches[i].output.index : fetches[i].index;
+                throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                    "TF_SessionPRun",
+                    "fetch returned null tensor",
+                    name, idx, loc);
             }
         }
 
