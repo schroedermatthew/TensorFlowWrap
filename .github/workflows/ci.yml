@@ -22,6 +22,7 @@
 #   - sanitizer-ubsan: UndefinedBehaviorSanitizer
 #   - sanitizer-tsan: ThreadSanitizer
 #   - header-check: Verify headers compile standalone
+#   - cmake-integration-test: Verify the library can be consumed via find_package
 #   - stress-test: Run stress/fuzz tests
 #   - strict-warnings: Extra warning flags
 #   - utility-tests: SmallVector and ScopeGuard tests (GCC/Clang/macOS)
@@ -1003,6 +1004,22 @@ jobs:
           
           ./test_improvements
 
+
+  # ===========================================================================
+  # CMake integration test (install + find_package consumer)
+  # ===========================================================================
+  cmake-integration-test:
+    name: CMake Integration Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run CMake integration script
+        run: |
+          chmod +x tests/cmake_integration_test/run_test.sh
+          bash tests/cmake_integration_test/run_test.sh
+
   # ===========================================================================
   # CI Success Gate
   # ===========================================================================
@@ -1018,6 +1035,7 @@ jobs:
       - sanitizer-ubsan
       - sanitizer-tsan
       - header-check
+      - cmake-integration-test
       - stress-test
       - strict-warnings
       - utility-tests
@@ -1037,6 +1055,7 @@ jobs:
           echo "  sanitizer-ubsan:        ${{ needs.sanitizer-ubsan.result }}"
           echo "  sanitizer-tsan:         ${{ needs.sanitizer-tsan.result }}"
           echo "  header-check:           ${{ needs.header-check.result }}"
+          echo "  cmake-integration-test: ${{ needs.cmake-integration-test.result }}"
           echo "  stress-test:            ${{ needs.stress-test.result }}"
           echo "  strict-warnings:        ${{ needs.strict-warnings.result }}"
           echo "  utility-tests:          ${{ needs.utility-tests.result }}"
@@ -1051,6 +1070,7 @@ jobs:
              [ "${{ needs.sanitizer-ubsan.result }}" != "success" ] || \
              [ "${{ needs.sanitizer-tsan.result }}" != "success" ] || \
              [ "${{ needs.header-check.result }}" != "success" ] || \
+             [ "${{ needs.cmake-integration-test.result }}" != "success" ] || \
              [ "${{ needs.stress-test.result }}" != "success" ] || \
              [ "${{ needs.strict-warnings.result }}" != "success" ] || \
              [ "${{ needs.utility-tests.result }}" != "success" ] || \

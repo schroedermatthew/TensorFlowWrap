@@ -40,7 +40,14 @@ int main() {
     
     // Run
     tf_wrap::Session session(graph);
+
+    // Simple: name-based fetch
     auto results = session.Run({}, {{"Sum", 0}});
+
+    // Faster for hot paths: resolve once, then use TF_Output-based fetch
+    TF_Output sum_out = session.resolve_output("Sum", 0);
+    auto results2 = session.Run({}, {tf_wrap::Fetch{sum_out}});
+    (void)results2;
     
     // Extract result: [11.0, 22.0]
     auto output = results[0].ToVector<float>();
@@ -55,6 +62,18 @@ TensorFlowWrap does not provide synchronization. Follow TensorFlow's threading r
 - Do not share mutable tensors across threads
 - Create per-thread input tensors; treat outputs as thread-local
 - Graph is frozen after Session creation (wrapper policy)
+
+## Errors
+
+TensorFlow API failures throw `tf_wrap::Error` (derives from `std::runtime_error`) which carries the TensorFlow `TF_Code` plus optional operation name/index context.
+
+```cpp
+try {
+    // ...
+} catch (const tf_wrap::Error& e) {
+    std::cerr << "TF error: " << e.code_name() << " (" << e.code() << "): " << e.what() << "\n";
+}
+```
 
 ## Requirements
 

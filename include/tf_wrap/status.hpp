@@ -20,6 +20,7 @@ extern "C" {
 }
 
 #include "tf_wrap/format.hpp"
+#include "tf_wrap/error.hpp"
 
 namespace tf_wrap {
 
@@ -105,16 +106,10 @@ public:
     {
         if (ok()) return;
 
-        std::string msg;
-        if (context.empty()) {
-            msg = tf_wrap::detail::format("[TF_{}] at {}:{} in {}: {}",
-                code_name(), loc.file_name(), loc.line(),
-                loc.function_name(), message());
-        } else {
-            msg = tf_wrap::detail::format("[TF_{}] {} at {}:{}: {}",
-                code_name(), context, loc.file_name(), loc.line(), message());
-        }
-        throw std::runtime_error(std::move(msg));
+        throw tf_wrap::Error::TensorFlow(code(),
+            context,
+            message(),
+            loc);
     }
 
     void ThrowIfNotOK(
@@ -178,10 +173,10 @@ inline void consume_status(
     const char* msg = TF_Message(st);
     
     if (!is_ok) {
-        std::string error = tf_wrap::detail::format("{} at {}:{}: {}",
-            context, loc.file_name(), loc.line(), msg);
+        const TF_Code code = TF_GetCode(st);
+        std::string message = msg ? msg : "";
         TF_DeleteStatus(st);
-        throw std::runtime_error(std::move(error));
+        throw tf_wrap::Error::TensorFlow(code, context, message, loc);
     }
     
     TF_DeleteStatus(st);

@@ -7,6 +7,7 @@
 
 #include "tf_wrap/scope_guard.hpp"   // RAII scope-exit cleanup (used internally)
 #include "tf_wrap/small_vector.hpp"  // Stack-optimized vector (available for users)
+#include "tf_wrap/error.hpp"         // Structured exception type (tf_wrap::Error)
 #include "tf_wrap/status.hpp"
 #include "tf_wrap/tensor.hpp"
 #include "tf_wrap/operation.hpp"

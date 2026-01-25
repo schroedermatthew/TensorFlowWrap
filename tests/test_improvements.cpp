@@ -591,3 +591,104 @@ TEST_CASE("Session::BatchRun runs many inputs") {
 }
 
 } // TEST_SUITE
+
+
+// ============================================================================
+// P1: Structured errors + handle-based feeds/fetches
+// ============================================================================
+
+TEST_SUITE("P1: Structured errors + handle-based feeds/fetches") {
+
+TEST_CASE("Status throws tf_wrap::Error with code/context") {
+    Status st;
+    st.set(TF_INVALID_ARGUMENT, "bad arg");
+
+    try {
+        st.throw_if_error("unit_test");
+        FAIL("Expected throw");
+    } catch (const tf_wrap::Error& e) {
+        CHECK(e.source() == ErrorSource::TensorFlow);
+        CHECK(e.code() == TF_INVALID_ARGUMENT);
+        CHECK(std::string(e.context()) == "unit_test");
+        CHECK(std::string(e.code_name()) == "INVALID_ARGUMENT");
+        CHECK(std::string(e.what()).find("bad arg") != std::string::npos);
+    }
+}
+
+TEST_CASE("Session::resolve_output throws structured wrapper error") {
+    Graph graph;
+    // Create an empty session/graph; resolve_output should fail cleanly
+    Session session(graph);
+
+    try {
+        (void)session.resolve_output("does_not_exist", 0);
+        FAIL("Expected throw");
+    } catch (const tf_wrap::Error& e) {
+        CHECK(e.source() == ErrorSource::Wrapper);
+        CHECK(e.code() == TF_NOT_FOUND);
+        CHECK(std::string(e.op_name()) == "does_not_exist");
+        CHECK(e.index() == 0);
+    }
+}
+
+TEST_CASE("Session::Run accepts TF_Output-based feeds/fetches") {
+    Graph graph;
+
+    std::vector<std::int64_t> shape{2};
+    auto x = Placeholder(graph, "X", TF_FLOAT, shape);
+    auto y = Placeholder(graph, "Y", TF_FLOAT, shape);
+    auto sum = Add(graph, "Sum", x.output(0), y.output(0), TF_FLOAT);
+    (void)sum;
+
+    Session session(graph);
+
+    auto tx = Tensor::FromVector<float>({2}, std::vector<float>{1.0f, 2.0f});
+    auto ty = Tensor::FromVector<float>({2}, std::vector<float>{3.0f, 4.0f});
+
+    TF_Output x_out = session.resolve_output("X", 0);
+    TF_Output y_out = session.resolve_output("Y", 0);
+    TF_Output sum_out = session.resolve_output("Sum", 0);
+
+    auto results = session.Run(
+        {Feed{x_out, tx}, Feed{y_out, ty}},
+        {Fetch{sum_out}},
+        {} // targets
+    );
+
+    REQUIRE(results.size() == 1);
+
+    auto v = results[0].ToVector<float>();
+    REQUIRE(v.size() == 2);
+    CHECK(v[0] == doctest::Approx(4.0f));
+    CHECK(v[1] == doctest::Approx(6.0f));
+}
+
+TEST_CASE("Handle-based fetch bounds checking throws") {
+    Graph graph;
+
+    std::vector<std::int64_t> shape{1};
+    auto x = Placeholder(graph, "X", TF_FLOAT, shape);
+    auto id = Identity(graph, "Id", x.output(0), TF_FLOAT);
+    (void)id;
+
+    Session session(graph);
+
+    TF_Output id0 = session.resolve_output("Id", 0);
+    TF_Output bad = TF_Output{id0.oper, 1}; // invalid index
+
+    try {
+        (void)session.Run(
+            {Feed{"X", Tensor::FromVector<float>({1}, std::vector<float>{1.0f})}},
+            {Fetch{bad}},
+            {}
+        );
+        FAIL("Expected throw");
+    } catch (const tf_wrap::Error& e) {
+        CHECK(e.source() == ErrorSource::Wrapper);
+        CHECK(e.code() == TF_OUT_OF_RANGE);
+        CHECK(e.index() == 1);
+    }
+}
+
+} // TEST_SUITE
+

@@ -16,8 +16,10 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <source_location>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -87,19 +89,43 @@ private:
 struct Feed {
     std::string op_name;
     int index{0};
-    TF_Tensor* tensor;
-    
+    TF_Tensor* tensor{nullptr};
+
+    // Optional pre-resolved output handle (avoids string lookup in Session::Run).
+    TF_Output output{nullptr, 0};
+    bool has_output{false};
+
+    // Name-based feeds (backward compatible)
     Feed(std::string name, int idx, TF_Tensor* t)
         : op_name(std::move(name)), index(idx), tensor(t) {}
-    
+
     Feed(std::string name, TF_Tensor* t)
         : op_name(std::move(name)), index(0), tensor(t) {}
-    
+
     Feed(std::string name, int idx, const Tensor& t)
         : op_name(std::move(name)), index(idx), tensor(t.handle()) {}
-    
+
     Feed(std::string name, const Tensor& t)
         : op_name(std::move(name)), index(0), tensor(t.handle()) {}
+
+    // Handle-based feeds (preferred for hot paths)
+    Feed(TF_Output out, TF_Tensor* t)
+        : op_name(), index(out.index), tensor(t), output(out), has_output(true) {}
+
+    Feed(TF_Output out, const Tensor& t)
+        : Feed(out, t.handle()) {}
+
+    Feed(TF_Operation* op, int idx, TF_Tensor* t)
+        : Feed(TF_Output{op, idx}, t) {}
+
+    Feed(TF_Operation* op, int idx, const Tensor& t)
+        : Feed(TF_Output{op, idx}, t.handle()) {}
+
+    Feed(TF_Operation* op, TF_Tensor* t)
+        : Feed(TF_Output{op, 0}, t) {}
+
+    Feed(TF_Operation* op, const Tensor& t)
+        : Feed(TF_Output{op, 0}, t.handle()) {}
 };
 
 // ============================================================================
@@ -153,9 +179,21 @@ private:
 struct Fetch {
     std::string op_name;
     int index{0};
-    
+
+    // Optional pre-resolved output handle (avoids string lookup in Session::Run).
+    TF_Output output{nullptr, 0};
+    bool has_output{false};
+
+    // Name-based fetches (backward compatible)
     Fetch(std::string name, int idx = 0)
         : op_name(std::move(name)), index(idx) {}
+
+    // Handle-based fetches
+    Fetch(TF_Output out)
+        : op_name(), index(out.index), output(out), has_output(true) {}
+
+    Fetch(TF_Operation* op, int idx = 0)
+        : Fetch(TF_Output{op, idx}) {}
 };
 
 // ============================================================================
@@ -333,29 +371,68 @@ public:
     // ─────────────────────────────────────────────────────────────────
     
     /// Resolve an operation name and index to TF_Output with bounds checking
-    [[nodiscard]] TF_Output resolve_output(const std::string& op_name, int index = 0) const {
+    [[nodiscard]] TF_Output resolve_output(
+        const std::string& op_name,
+        int index = 0,
+        std::source_location loc = std::source_location::current()) const
+    {
         if (!graph_state_ || !graph_state_->graph) {
-            throw std::runtime_error("Session::resolve_output: session has no graph");
+            throw tf_wrap::Error::Wrapper(TF_FAILED_PRECONDITION,
+                "Session::resolve_output",
+                "session has no graph",
+                op_name, index, loc);
         }
         
         TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, op_name.c_str());
         if (!op) {
-            throw std::runtime_error(tf_wrap::detail::format(
-                "Session::resolve_output: operation '{}' not found in graph", op_name));
+            throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
+                "Session::resolve_output",
+                "operation not found in graph",
+                op_name, index, loc);
         }
         
         const int num_outputs = TF_OperationNumOutputs(op);
         if (index < 0 || index >= num_outputs) {
-            throw std::runtime_error(tf_wrap::detail::format(
-                "Session::resolve_output: output index {} out of range for operation '{}' "
-                "(has {} outputs, valid indices are 0-{})",
-                index, op_name, num_outputs, num_outputs > 0 ? num_outputs - 1 : 0));
+            throw tf_wrap::Error::Wrapper(TF_OUT_OF_RANGE,
+                "Session::resolve_output",
+                tf_wrap::detail::format(
+                    "output index {} out of range (has {} outputs, valid indices are 0-{})",
+                    index, num_outputs, num_outputs > 0 ? num_outputs - 1 : 0),
+                op_name, index, loc);
         }
         
         return TF_Output{op, index};
     }
     
-    // ─────────────────────────────────────────────────────────────────
+    
+    [[nodiscard]] TF_Output validate_output_(
+        TF_Output out,
+        std::string_view context,
+        std::source_location loc) const
+    {
+        if (out.oper == nullptr) {
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                context,
+                "TF_Output has null operation",
+                {}, out.index, loc);
+        }
+
+        const int num_outputs = TF_OperationNumOutputs(out.oper);
+        if (out.index < 0 || out.index >= num_outputs) {
+            const char* name = TF_OperationName(out.oper);
+            const std::string opn = name ? name : "";
+            throw tf_wrap::Error::Wrapper(TF_OUT_OF_RANGE,
+                context,
+                tf_wrap::detail::format(
+                    "output index {} out of range (has {} outputs, valid indices are 0-{})",
+                    out.index, num_outputs, num_outputs > 0 ? num_outputs - 1 : 0),
+                opn, out.index, loc);
+        }
+
+        return out;
+    }
+
+// ─────────────────────────────────────────────────────────────────
     // Run - Execute the graph
     // TF_SessionRun is thread-safe (TensorFlow's guarantee)
     // ─────────────────────────────────────────────────────────────────
@@ -365,7 +442,8 @@ public:
         const std::vector<Fetch>& fetches,
         const std::vector<std::string>& targets,
         TF_Buffer* run_options,
-        TF_Buffer* run_metadata) const
+        TF_Buffer* run_metadata,
+        std::source_location loc = std::source_location::current()) const
     {
         if (!session_) {
             throw std::runtime_error("Session::Run(): session is null (moved-from?)");
@@ -377,8 +455,9 @@ public:
         input_vals.reserve(feeds.size());
         
         for (const auto& f : feeds) {
-            // Use resolve_output for bounds checking
-            TF_Output output = resolve_output(f.op_name, f.index);
+            TF_Output output = f.has_output
+                ? validate_output_(f.output, "Session::Run feed", loc)
+                : resolve_output(f.op_name, f.index, loc);
             input_ops.push_back(output);
             input_vals.push_back(f.tensor);
         }
@@ -387,8 +466,9 @@ public:
         output_ops.reserve(fetches.size());
         
         for (const auto& f : fetches) {
-            // Use resolve_output for bounds checking
-            TF_Output output = resolve_output(f.op_name, f.index);
+            TF_Output output = f.has_output
+                ? validate_output_(f.output, "Session::Run fetch", loc)
+                : resolve_output(f.op_name, f.index, loc);
             output_ops.push_back(output);
         }
         
@@ -398,8 +478,10 @@ public:
         for (const auto& t : targets) {
             TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, t.c_str());
             if (!op) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "Target operation '{}' not found", t));
+                throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
+                    "Session::Run",
+                    "target operation not found",
+                    t, -1, loc);
             }
             target_ops.push_back(op);
         }
@@ -433,13 +515,18 @@ public:
             owned.emplace_back(t);
         }
 
-        st.throw_if_error("TF_SessionRun");
+        st.throw_if_error("TF_SessionRun", loc);
 
         for (std::size_t i = 0; i < owned.size(); ++i) {
             if (!owned[i]) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "TF_SessionRun: fetch '{}' returned null tensor",
-                    fetches[i].op_name));
+                const std::string name = fetches[i].has_output && fetches[i].output.oper
+                    ? (TF_OperationName(fetches[i].output.oper) ? TF_OperationName(fetches[i].output.oper) : "")
+                    : fetches[i].op_name;
+                const int idx = fetches[i].has_output ? fetches[i].output.index : fetches[i].index;
+                throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                    "TF_SessionRun",
+                    "fetch returned null tensor",
+                    name, idx, loc);
             }
         }
 
@@ -475,14 +562,16 @@ public:
     }
     
     /// Convenience: Fetch single output by name and index
-    [[nodiscard]] Tensor Run(const std::string& op_name, int index = 0) const {
-        auto results = Run({}, {Fetch{op_name, index}});
+    [[nodiscard]] Tensor Run(const std::string& op_name, int index = 0,
+        std::source_location loc = std::source_location::current()) const {
+        auto results = Run({}, {Fetch{op_name, index}}, {}, nullptr, nullptr, loc);
         return std::move(results[0]);
     }
     
     /// Convenience: Fetch single output by name (string literal version)
-    [[nodiscard]] Tensor Run(const char* op_name, int index = 0) const {
-        return Run(std::string(op_name), index);
+    [[nodiscard]] Tensor Run(const char* op_name, int index = 0,
+        std::source_location loc = std::source_location::current()) const {
+        return Run(std::string(op_name), index, loc);
     }
 
 
@@ -502,10 +591,11 @@ public:
         const std::vector<Tensor>& inputs,
         const std::string& output_op,
         int input_index = 0,
-        int output_index = 0) const
+        int output_index = 0,
+        std::source_location loc = std::source_location::current()) const
     {
         return BatchRun(input_op, std::span<const Tensor>(inputs.data(), inputs.size()),
-                        output_op, input_index, output_index);
+                        output_op, input_index, output_index, loc);
     }
 
     [[nodiscard]] std::vector<Tensor> BatchRun(
@@ -513,14 +603,15 @@ public:
         std::span<const Tensor> inputs,
         const std::string& output_op,
         int input_index = 0,
-        int output_index = 0) const
+        int output_index = 0,
+        std::source_location loc = std::source_location::current()) const
     {
         if (!session_) {
             throw std::runtime_error("Session::BatchRun(): session is null (moved-from?)");
         }
 
-        TF_Output in = resolve_output(input_op, input_index);
-        TF_Output out = resolve_output(output_op, output_index);
+        TF_Output in = resolve_output(input_op, input_index, loc);
+        TF_Output out = resolve_output(output_op, output_index, loc);
 
         std::vector<Tensor> results;
         results.reserve(inputs.size());
@@ -556,7 +647,7 @@ public:
 
             RawTensorPtr owned(output_vals[0]);
 
-            st.throw_if_error("TF_SessionRun (BatchRun)");
+            st.throw_if_error("TF_SessionRun (BatchRun)", loc);
 
             if (!owned) {
                 throw std::runtime_error(tf_wrap::detail::format(
@@ -570,6 +661,93 @@ public:
         return results;
     }
     
+
+    // ─────────────────────────────────────────────────────────────────
+    // BatchRun (handle-based overloads)
+    // ─────────────────────────────────────────────────────────────────
+
+    [[nodiscard]] std::vector<Tensor> BatchRun(
+        TF_Output input,
+        const std::vector<Tensor>& inputs,
+        TF_Output output,
+        std::source_location loc = std::source_location::current()) const
+    {
+        return BatchRun(input,
+                        std::span<const Tensor>(inputs.data(), inputs.size()),
+                        output,
+                        loc);
+    }
+
+    [[nodiscard]] std::vector<Tensor> BatchRun(
+        TF_Output input,
+        std::span<const Tensor> inputs,
+        TF_Output output,
+        std::source_location loc = std::source_location::current()) const
+    {
+        if (!session_) {
+            throw tf_wrap::Error::Wrapper(TF_FAILED_PRECONDITION,
+                "Session::BatchRun",
+                "session is null (moved-from?)",
+                {}, -1, loc);
+        }
+
+        TF_Output in = validate_output_(input, "Session::BatchRun input", loc);
+        TF_Output out = validate_output_(output, "Session::BatchRun output", loc);
+
+        std::vector<Tensor> results;
+        results.reserve(inputs.size());
+
+        struct TensorDeleter {
+            void operator()(TF_Tensor* t) const noexcept {
+                if (t) TF_DeleteTensor(t);
+            }
+        };
+        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+
+        Status st;
+        TF_Output input_ops[1] = {in};
+        TF_Output output_ops[1] = {out};
+
+        for (const Tensor& t : inputs) {
+            if (!t.handle()) {
+                throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                    "Session::BatchRun",
+                    "input tensor is null",
+                    {}, -1, loc);
+            }
+
+            TF_Tensor* input_vals[1] = {t.handle()};
+            TF_Tensor* output_vals[1] = {nullptr};
+
+            st.reset();
+            TF_SessionRun(
+                session_,
+                nullptr,  // run_options
+                input_ops, input_vals, 1,
+                output_ops, output_vals, 1,
+                nullptr, 0,  // targets
+                nullptr,      // run_metadata
+                st.get());
+
+            RawTensorPtr owned(output_vals[0]);
+
+            st.throw_if_error("TF_SessionRun (BatchRun)", loc);
+
+            if (!owned) {
+                const char* out_name = TF_OperationName(out.oper);
+                throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                    "TF_SessionRun (BatchRun)",
+                    "fetch returned null tensor",
+                    out_name ? out_name : "", out.index, loc);
+            }
+
+            results.push_back(Tensor::FromRaw(owned.release()));
+        }
+
+        return results;
+    }
+
+
     // ─────────────────────────────────────────────────────────────────
     // Device enumeration
     // ─────────────────────────────────────────────────────────────────
@@ -601,7 +779,8 @@ public:
     [[nodiscard]] PartialRunHandle PartialRunSetup(
         const std::vector<Fetch>& inputs,
         const std::vector<Fetch>& outputs,
-        const std::vector<std::string>& targets = {}) const
+        const std::vector<std::string>& targets = {},
+        std::source_location loc = std::source_location::current()) const
     {
         if (!session_) {
             throw std::runtime_error("Session::PartialRunSetup(): session is null");
@@ -610,13 +789,19 @@ public:
         std::vector<TF_Output> input_ops;
         input_ops.reserve(inputs.size());
         for (const auto& f : inputs) {
-            input_ops.push_back(resolve_output(f.op_name, f.index));
+            TF_Output out = f.has_output
+                ? validate_output_(f.output, "Session::PartialRunSetup input", loc)
+                : resolve_output(f.op_name, f.index, loc);
+            input_ops.push_back(out);
         }
         
         std::vector<TF_Output> output_ops;
         output_ops.reserve(outputs.size());
         for (const auto& f : outputs) {
-            output_ops.push_back(resolve_output(f.op_name, f.index));
+            TF_Output out = f.has_output
+                ? validate_output_(f.output, "Session::PartialRunSetup output", loc)
+                : resolve_output(f.op_name, f.index, loc);
+            output_ops.push_back(out);
         }
         
         std::vector<TF_Operation*> target_ops;
@@ -624,8 +809,10 @@ public:
         for (const auto& t : targets) {
             TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, t.c_str());
             if (!op) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "PartialRunSetup: target '{}' not found", t));
+                throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
+                    "Session::PartialRunSetup",
+                    "target operation not found",
+                    t, -1, loc);
             }
             target_ops.push_back(op);
         }
@@ -641,7 +828,7 @@ public:
             &handle,
             st.get());
         
-        st.throw_if_error("TF_SessionPRunSetup");
+        st.throw_if_error("TF_SessionPRunSetup", loc);
         return PartialRunHandle(handle);
     }
     
@@ -649,7 +836,8 @@ public:
         const PartialRunHandle& handle,
         const std::vector<Feed>& feeds,
         const std::vector<Fetch>& fetches,
-        const std::vector<std::string>& targets = {}) const
+        const std::vector<std::string>& targets = {},
+        std::source_location loc = std::source_location::current()) const
     {
         if (!session_) {
             throw std::runtime_error("Session::PartialRun(): session is null");
@@ -664,14 +852,20 @@ public:
         input_vals.reserve(feeds.size());
         
         for (const auto& f : feeds) {
-            input_ops.push_back(resolve_output(f.op_name, f.index));
+            TF_Output out = f.has_output
+                ? validate_output_(f.output, "Session::PartialRun feed", loc)
+                : resolve_output(f.op_name, f.index, loc);
+            input_ops.push_back(out);
             input_vals.push_back(f.tensor);
         }
         
         std::vector<TF_Output> output_ops;
         output_ops.reserve(fetches.size());
         for (const auto& f : fetches) {
-            output_ops.push_back(resolve_output(f.op_name, f.index));
+            TF_Output out = f.has_output
+                ? validate_output_(f.output, "Session::PartialRun fetch", loc)
+                : resolve_output(f.op_name, f.index, loc);
+            output_ops.push_back(out);
         }
         
         std::vector<TF_Operation*> target_ops;
@@ -679,8 +873,10 @@ public:
         for (const auto& t : targets) {
             TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, t.c_str());
             if (!op) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "PartialRun: target '{}' not found", t));
+                throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
+                    "Session::PartialRun",
+                    "target operation not found",
+                    t, -1, loc);
             }
             target_ops.push_back(op);
         }
@@ -713,13 +909,18 @@ public:
             owned.emplace_back(t);
         }
 
-        st.throw_if_error("TF_SessionPRun");
+        st.throw_if_error("TF_SessionPRun", loc);
 
         for (std::size_t i = 0; i < owned.size(); ++i) {
             if (!owned[i]) {
-                throw std::runtime_error(tf_wrap::detail::format(
-                    "TF_SessionPRun: fetch '{}' returned null tensor",
-                    fetches[i].op_name));
+                const std::string name = fetches[i].has_output && fetches[i].output.oper
+                    ? (TF_OperationName(fetches[i].output.oper) ? TF_OperationName(fetches[i].output.oper) : "")
+                    : fetches[i].op_name;
+                const int idx = fetches[i].has_output ? fetches[i].output.index : fetches[i].index;
+                throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                    "TF_SessionPRun",
+                    "fetch returned null tensor",
+                    name, idx, loc);
             }
         }
 
