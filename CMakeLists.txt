@@ -118,10 +118,22 @@ install(EXPORT TensorFlowWrapTargets
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/TensorFlowWrap
 )
 
+# Package config template (support both historical and conventional filenames)
+set(_tfwrap_config_in "${CMAKE_CURRENT_SOURCE_DIR}/cmake/TensorFlowWrap-config.cmake.in")
+if(NOT EXISTS "${_tfwrap_config_in}")
+    set(_tfwrap_config_in "${CMAKE_CURRENT_SOURCE_DIR}/cmake/TensorFlowWrapConfig.cmake.in")
+endif()
+if(NOT EXISTS "${_tfwrap_config_in}")
+    message(FATAL_ERROR
+        "TensorFlowWrap package config template not found. Expected one of:\n"
+        "  - cmake/TensorFlowWrap-config.cmake.in\n"
+        "  - cmake/TensorFlowWrapConfig.cmake.in")
+endif()
+
 configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/TensorFlowWrap-config.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/TensorFlowWrapConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/TensorFlowWrap
+    "${_tfwrap_config_in}"
+    "${CMAKE_CURRENT_BINARY_DIR}/TensorFlowWrapConfig.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/TensorFlowWrap"
 )
 
 write_basic_package_version_file(
