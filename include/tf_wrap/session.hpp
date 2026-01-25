@@ -448,6 +448,32 @@ public:
         return out;
     }
 
+    [[nodiscard]] static Tensor allocate_by_dtype_(
+        TF_DataType dtype,
+        std::span<const std::int64_t> dims,
+        std::source_location loc)
+    {
+        switch (dtype) {
+        case TF_FLOAT:   return Tensor::Allocate<float>(dims);
+        case TF_DOUBLE:  return Tensor::Allocate<double>(dims);
+        case TF_INT32:   return Tensor::Allocate<std::int32_t>(dims);
+        case TF_INT64:   return Tensor::Allocate<std::int64_t>(dims);
+        case TF_UINT8:   return Tensor::Allocate<std::uint8_t>(dims);
+        case TF_BOOL:    return Tensor::Allocate<bool>(dims);
+        case TF_INT16:   return Tensor::Allocate<std::int16_t>(dims);
+        case TF_INT8:    return Tensor::Allocate<std::int8_t>(dims);
+        case TF_UINT16:  return Tensor::Allocate<std::uint16_t>(dims);
+        case TF_UINT32:  return Tensor::Allocate<std::uint32_t>(dims);
+        case TF_UINT64:  return Tensor::Allocate<std::uint64_t>(dims);
+        case TF_HALF:    return Tensor::Allocate<std::uint16_t>(dims); // raw half bits
+        default:
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                "Session::BatchRunStacked",
+                tf_wrap::detail::format("unsupported dtype {} for stacked batching", static_cast<int>(dtype)),
+                {}, -1, loc);
+        }
+    }
+
 // ─────────────────────────────────────────────────────────────────
     // Run - Execute the graph
     // TF_SessionRun is thread-safe (TensorFlow's guarantee)
@@ -780,6 +806,207 @@ std::vector<Tensor> Run(
         }
 
         return results;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // BatchRunStacked - True batching (single TF_SessionRun)
+    // ─────────────────────────────────────────────────────────────────
+
+    /// True batching helper: stack inputs into a single batch tensor (N, ...),
+    /// run one TF_SessionRun, then split outputs back into N tensors.
+    ///
+    /// Constraints:
+    /// - inputs must be non-empty
+    /// - all inputs must have the same dtype and shape
+    /// - variable-length dtypes (e.g. TF_STRING) are not supported
+    [[nodiscard]] std::vector<Tensor> BatchRunStacked(
+        const std::string& input_op,
+        const std::vector<Tensor>& inputs,
+        const std::string& output_op,
+        int input_index = 0,
+        int output_index = 0,
+        std::source_location loc = std::source_location::current()) const
+    {
+        TF_Output in = resolve_output(input_op, input_index, loc);
+        TF_Output out = resolve_output(output_op, output_index, loc);
+        return BatchRunStacked(in,
+                               std::span<const Tensor>(inputs.data(), inputs.size()),
+                               out,
+                               loc);
+    }
+
+    [[nodiscard]] std::vector<Tensor> BatchRunStacked(
+        TF_Output input,
+        std::span<const Tensor> inputs,
+        TF_Output output,
+        std::source_location loc = std::source_location::current()) const
+    {
+        if (!session_) {
+            throw tf_wrap::Error::Wrapper(TF_FAILED_PRECONDITION,
+                "Session::BatchRunStacked",
+                "session is null (moved-from?)",
+                {}, -1, loc);
+        }
+        if (inputs.empty()) {
+            return {};
+        }
+
+        TF_Output in = validate_output_(input, "Session::BatchRunStacked input", loc);
+        TF_Output out = validate_output_(output, "Session::BatchRunStacked output", loc);
+
+        const Tensor& first = inputs.front();
+        if (!first.handle()) {
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                "Session::BatchRunStacked",
+                "first input tensor is null",
+                {}, -1, loc);
+        }
+        const TF_DataType dtype = first.dtype();
+        const std::size_t elem_size = TF_DataTypeSize(dtype);
+        if (elem_size == 0) {
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                "Session::BatchRunStacked",
+                "variable-length dtype not supported for stacked batching",
+                {}, -1, loc);
+        }
+
+        const auto base_shape = first.shape();
+        std::vector<std::int64_t> base_dims(base_shape.begin(), base_shape.end());
+
+        const std::size_t per_item_elems = detail::checked_product(base_dims, "Session::BatchRunStacked per_item");
+        const std::size_t per_item_bytes = detail::checked_mul(per_item_elems, elem_size, "Session::BatchRunStacked per_item_bytes");
+
+        for (std::size_t i = 0; i < inputs.size(); ++i) {
+            const Tensor& t = inputs[i];
+            if (!t.handle()) {
+                throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                    "Session::BatchRunStacked",
+                    tf_wrap::detail::format("input tensor {} is null", i),
+                    {}, static_cast<int>(i), loc);
+            }
+            if (t.dtype() != dtype) {
+                throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                    "Session::BatchRunStacked",
+                    "all inputs must have same dtype",
+                    {}, static_cast<int>(i), loc);
+            }
+            const auto sh = t.shape();
+            if (!std::equal(sh.begin(), sh.end(), base_dims.begin(), base_dims.end())) {
+                throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                    "Session::BatchRunStacked",
+                    "all inputs must have same shape",
+                    {}, static_cast<int>(i), loc);
+            }
+        }
+
+        std::vector<std::int64_t> batched_dims;
+        batched_dims.reserve(base_dims.size() + 1);
+        batched_dims.push_back(static_cast<std::int64_t>(inputs.size()));
+        batched_dims.insert(batched_dims.end(), base_dims.begin(), base_dims.end());
+
+        Tensor batched = allocate_by_dtype_(dtype, batched_dims, loc);
+        void* dst = TF_TensorData(batched.handle());
+        if (!dst && per_item_bytes != 0) {
+            throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                "Session::BatchRunStacked",
+                "TF_TensorData returned null for batched tensor",
+                {}, -1, loc);
+        }
+
+        for (std::size_t i = 0; i < inputs.size(); ++i) {
+            const void* src = TF_TensorData(inputs[i].handle());
+            if (!src && per_item_bytes != 0) {
+                throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                    "Session::BatchRunStacked",
+                    "TF_TensorData returned null for input tensor",
+                    {}, static_cast<int>(i), loc);
+            }
+            std::memcpy(static_cast<std::byte*>(dst) + i * per_item_bytes, src, per_item_bytes);
+        }
+
+        TF_Output input_ops[1] = {in};
+        TF_Tensor* input_vals[1] = {batched.handle()};
+        TF_Output output_ops[1] = {out};
+        TF_Tensor* output_vals[1] = {nullptr};
+
+        Status st;
+        TF_SessionRun(
+            session_,
+            nullptr,
+            input_ops, input_vals, 1,
+            output_ops, output_vals, 1,
+            nullptr, 0,
+            nullptr,
+            st.get());
+
+        struct TensorDeleter {
+            void operator()(TF_Tensor* t) const noexcept {
+                if (t) TF_DeleteTensor(t);
+            }
+        };
+        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+        RawTensorPtr owned(output_vals[0]);
+
+        st.throw_if_error("TF_SessionRun (BatchRunStacked)", loc);
+        if (!owned) {
+            throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                "TF_SessionRun (BatchRunStacked)",
+                "returned null output tensor",
+                {}, -1, loc);
+        }
+
+        Tensor out_batched = Tensor::FromRaw(owned.release());
+        if (out_batched.dtype() != dtype) {
+            // still allow, but splitting uses element size from returned dtype
+        }
+
+        const TF_DataType out_dtype = out_batched.dtype();
+        const std::size_t out_elem_size = TF_DataTypeSize(out_dtype);
+        if (out_elem_size == 0) {
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                "Session::BatchRunStacked",
+                "variable-length output dtype not supported for splitting",
+                {}, -1, loc);
+        }
+
+        const auto out_shape = out_batched.shape();
+        if (out_shape.size() < 1 || out_shape[0] != static_cast<std::int64_t>(inputs.size())) {
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                "Session::BatchRunStacked",
+                "batched output first dimension does not match batch size",
+                {}, -1, loc);
+        }
+
+        std::vector<std::int64_t> out_item_dims(out_shape.begin() + 1, out_shape.end());
+        const std::size_t out_item_elems = detail::checked_product(out_item_dims, "Session::BatchRunStacked out_item");
+        const std::size_t out_item_bytes = detail::checked_mul(out_item_elems, out_elem_size, "Session::BatchRunStacked out_item_bytes");
+
+        const void* out_src = TF_TensorData(out_batched.handle());
+        if (!out_src && out_item_bytes != 0) {
+            throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                "Session::BatchRunStacked",
+                "TF_TensorData returned null for output tensor",
+                {}, -1, loc);
+        }
+
+        std::vector<Tensor> split;
+        split.reserve(inputs.size());
+        for (std::size_t i = 0; i < inputs.size(); ++i) {
+            Tensor item = allocate_by_dtype_(out_dtype, out_item_dims, loc);
+            void* item_dst = TF_TensorData(item.handle());
+            if (!item_dst && out_item_bytes != 0) {
+                throw tf_wrap::Error::Wrapper(TF_INTERNAL,
+                    "Session::BatchRunStacked",
+                    "TF_TensorData returned null for split tensor",
+                    {}, static_cast<int>(i), loc);
+            }
+            std::memcpy(item_dst,
+                        static_cast<const std::byte*>(out_src) + i * out_item_bytes,
+                        out_item_bytes);
+            split.push_back(std::move(item));
+        }
+
+        return split;
     }
 
 

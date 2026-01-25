@@ -50,6 +50,37 @@ TEST_CASE("const_and_identity") {
     CHECK((v[0] == 1.0f && v[1] == 2.0f && v[2] == 3.0f));
 }
 
+TEST_CASE("batch_run_stacked_true_batching") {
+    tf_wrap::Graph g;
+    (void)g.NewOperation("Placeholder", "input")
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+
+    auto* in = g.GetOperationOrThrow("input");
+    (void)g.NewOperation("Identity", "output")
+        .AddInput({in, 0})
+        .Finish();
+
+    tf_wrap::Session s(g);
+
+    std::vector<tf_wrap::Tensor> xs;
+    xs.push_back(tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f}));
+    xs.push_back(tf_wrap::Tensor::FromVector<float>({2}, {3.0f, 4.0f}));
+    xs.push_back(tf_wrap::Tensor::FromVector<float>({2}, {5.0f, 6.0f}));
+
+    auto ys = s.BatchRunStacked("input", xs, "output");
+    REQUIRE(ys.size() == xs.size());
+
+    for (std::size_t i = 0; i < xs.size(); ++i) {
+        auto xr = xs[i].read<float>().span();
+        auto yr = ys[i].read<float>().span();
+        REQUIRE(xr.size() == yr.size());
+        for (std::size_t j = 0; j < xr.size(); ++j) {
+            CHECK(xr[j] == doctest::Approx(yr[j]));
+        }
+    }
+}
+
 TEST_CASE("add_subtract_multiply") {
     tf_wrap::Graph g;
     
