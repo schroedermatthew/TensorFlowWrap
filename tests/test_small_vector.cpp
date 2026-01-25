@@ -299,7 +299,7 @@ void benchmark_vs_vector() {
     // Warm up
     for (int i = 0; i < 1000; ++i) {
         MultiIndex idx = {1, 2, 3};
-        sink += idx[0];
+        sink = sink + idx[0];  // Avoid compound assignment on volatile (deprecated in C++20)
     }
     
     // SmallVector timing
@@ -308,7 +308,7 @@ void benchmark_vs_vector() {
         MultiIndex idx = {static_cast<std::int64_t>(i % 10), 
                           static_cast<std::int64_t>(i % 20), 
                           static_cast<std::int64_t>(i % 30)};
-        sink += idx[0] + idx[1] + idx[2];
+        sink = sink + idx[0] + idx[1] + idx[2];
     }
     auto end = std::chrono::high_resolution_clock::now();
     auto small_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
@@ -319,7 +319,7 @@ void benchmark_vs_vector() {
         std::vector<std::int64_t> idx = {static_cast<std::int64_t>(i % 10), 
                                           static_cast<std::int64_t>(i % 20), 
                                           static_cast<std::int64_t>(i % 30)};
-        sink += idx[0] + idx[1] + idx[2];
+        sink = sink + idx[0] + idx[1] + idx[2];
     }
     end = std::chrono::high_resolution_clock::now();
     auto vec_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
