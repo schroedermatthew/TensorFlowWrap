@@ -6,7 +6,7 @@
 
 #include "doctest.h"
 
-#include "tf_wrap/all.hpp"
+#include "tf_wrap/core.hpp"
 
 using namespace tf_wrap;
 namespace op = tf_wrap::ops;

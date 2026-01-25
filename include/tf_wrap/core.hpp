@@ -1,7 +1,7 @@
-// tf/all.hpp
+// tf/core.hpp
 // Umbrella header for TensorFlow C++20 wrapper
 //
-// Include this single header to get all wrapper functionality.
+// Include this single header to get core wrapper functionality (ops are opt-in).
 
 #pragma once
 
@@ -110,7 +110,7 @@
 //
 // OPTIONAL OP WRAPPERS:
 // ─────────────────────────────────────────────────────────────────────────────
-//   This umbrella header intentionally does NOT include the generated op
+//   This core umbrella header intentionally does NOT include the generated op
 //   wrappers. Include what you use:
 //
 //     #include "tf_wrap/ops/math.hpp"

@@ -140,7 +140,7 @@ The `TensorScalar` concept restricts access to valid TensorFlow types at compile
 
 **TensorFlowWrap:**
 ```cpp
-#include <tf_wrap/all.hpp>
+#include <tf_wrap/core.hpp>
 
 auto tensor = tf_wrap::Tensor::FromVector<float>({2, 2}, {1, 2, 3, 4});
 

@@ -3,7 +3,7 @@
 
 #include "doctest.h"
 
-#include "tf_wrap/all.hpp"
+#include "tf_wrap/core.hpp"
 
 #if defined(TF_WRAPPER_USE_STUB)
 

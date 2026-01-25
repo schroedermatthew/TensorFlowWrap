@@ -9,7 +9,7 @@
 // 5. Error handling
 // 6. Different tensor factories
 
-#include "tf_wrap/all.hpp"
+#include "tf_wrap/core.hpp"
 
 #include <algorithm>
 #include <atomic>

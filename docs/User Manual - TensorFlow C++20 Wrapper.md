@@ -40,7 +40,7 @@ This manual covers correct usage of the TensorFlow C++20 Wrapper library, includ
 
 **Component:** TensorFlow C++20 Wrapper  
 **Primary use case:** Type-safe, RAII-managed TensorFlow inference in C++ applications  
-**Integration pattern:** Header-only; include `<tf_wrap/all.hpp>` and link against TensorFlow C library  
+**Integration pattern:** Header-only; include `<tf_wrap/core.hpp>` and link against TensorFlow C library  
 **Key API:** `tf_wrap::Tensor`, `tf_wrap::Graph`, `tf_wrap::Session`, `tf_wrap::Status`, `tf_wrap::Device`  
 **std equivalent:** None. The TensorFlow C++ API (`tensorflow/cc`) exists but requires building TensorFlow from source  
 **Migration from std:** N/A — no standard equivalent  
@@ -181,7 +181,7 @@ The wrapper requires C++20 and the TensorFlow C library. Install TensorFlow C an
 Integration is header-only. Include the umbrella header to access all functionality, then link against the TensorFlow C library:
 
 ```cpp
-#include <tf_wrap/all.hpp>
+#include <tf_wrap/core.hpp>
 // Link with: -ltensorflow
 ```
 
@@ -190,7 +190,7 @@ Integration is header-only. Include the umbrella header to access all functional
 The following complete example creates a computational graph with a single constant, runs it through a session, and prints the result. This pattern — build graph, create session, run inference, extract results — applies to all TensorFlow C++ workflows.
 
 ```cpp
-#include <tf_wrap/all.hpp>
+#include <tf_wrap/core.hpp>
 #include <iostream>
 
 int main() {
@@ -660,7 +660,7 @@ SavedModel is TensorFlow's standard serialization format for production models. 
 The `LoadSavedModel()` static factory creates both a session and its associated graph from a SavedModel directory:
 
 ```cpp
-#include <tf_wrap/all.hpp>
+#include <tf_wrap/core.hpp>
 #include <iostream>
 
 int main() {

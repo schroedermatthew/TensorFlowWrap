@@ -1,7 +1,7 @@
 // tf_wrap/ops/all.hpp
 // Aggregate header for all generated operation wrappers.
 //
-// This file is intentionally NOT included by tf_wrap/all.hpp.
+// This file is intentionally NOT included by tf_wrap/core.hpp.
 // Include this header (or individual categories) only when you need to build
 // graphs via the generated op wrappers.
 

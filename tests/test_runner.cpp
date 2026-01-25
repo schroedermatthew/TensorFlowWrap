@@ -5,7 +5,7 @@
 
 #include "doctest.h"
 
-#include "tf_wrap/all.hpp"
+#include "tf_wrap/core.hpp"
 #include "tf_wrap/ops/common.hpp"
 
 using namespace tf_wrap;

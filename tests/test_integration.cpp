@@ -2,7 +2,7 @@
 // Integration test requiring a real TensorFlow C library.
 // This target is only built when TF_WRAPPER_TF_STUB=OFF.
 
-#include "tf_wrap/all.hpp"
+#include "tf_wrap/core.hpp"
 
 #include <vector>
 #include <cstdlib>

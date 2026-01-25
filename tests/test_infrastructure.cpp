@@ -20,7 +20,7 @@
 #pragma GCC diagnostic ignored "-Wunused-result"
 #endif
 
-#include "tf_wrap/all.hpp"
+#include "tf_wrap/core.hpp"
 
 #include <algorithm>
 #include <atomic>

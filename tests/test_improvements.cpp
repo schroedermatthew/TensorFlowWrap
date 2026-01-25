@@ -11,7 +11,7 @@
 #pragma GCC diagnostic ignored "-Wunused-result"
 #endif
 
-#include "tf_wrap/all.hpp"
+#include "tf_wrap/core.hpp"
 #include "tf_wrap/facade_ops.hpp"
 #include "tf_wrap/ops/cast.hpp"
 

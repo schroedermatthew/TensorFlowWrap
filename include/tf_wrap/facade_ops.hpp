@@ -1,7 +1,7 @@
 // tf_wrap/facade_ops.hpp
 // Optional graph-building helpers built on top of the generated op wrappers.
 //
-// This header is intentionally NOT included by tf_wrap/all.hpp.
+// This header is intentionally NOT included by tf_wrap/core.hpp.
 // Include it when you want dtype-inferred convenience helpers (Scalar, Add, ...).
 
 #pragma once

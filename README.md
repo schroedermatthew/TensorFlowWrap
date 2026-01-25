@@ -13,7 +13,7 @@ A modern C++20 header-only wrapper for the TensorFlow C API.
 ## Quick Start
 
 ```cpp
-#include <tf_wrap/all.hpp>
+#include <tf_wrap/core.hpp>
 
 int main() {
     // Create tensors

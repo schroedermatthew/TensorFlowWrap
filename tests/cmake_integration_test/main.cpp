@@ -1,7 +1,7 @@
 // CMake integration test - verifies tf::wrapper target works after find_package
 // This file should compile if the installed headers are correct
 
-#include <tf_wrap/all.hpp>
+#include <tf_wrap/core.hpp>
 #include <iostream>
 
 int main() {
