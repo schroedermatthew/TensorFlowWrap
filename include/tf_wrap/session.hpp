@@ -484,6 +484,91 @@ public:
     [[nodiscard]] Tensor Run(const char* op_name, int index = 0) const {
         return Run(std::string(op_name), index);
     }
+
+
+    // ─────────────────────────────────────────────────────────────────
+    // BatchRun - Convenience helper for running many single-input inferences
+    // ─────────────────────────────────────────────────────────────────
+
+    /// Run the same (input -> output) mapping for many inputs.
+    ///
+    /// This is a convenience wrapper that:
+    /// - resolves the input/output TF_Output once (with bounds checking),
+    /// - then calls TF_SessionRun repeatedly (one per input).
+    ///
+    /// The returned vector has the same length as `inputs`.
+    [[nodiscard]] std::vector<Tensor> BatchRun(
+        const std::string& input_op,
+        const std::vector<Tensor>& inputs,
+        const std::string& output_op,
+        int input_index = 0,
+        int output_index = 0) const
+    {
+        return BatchRun(input_op, std::span<const Tensor>(inputs.data(), inputs.size()),
+                        output_op, input_index, output_index);
+    }
+
+    [[nodiscard]] std::vector<Tensor> BatchRun(
+        const std::string& input_op,
+        std::span<const Tensor> inputs,
+        const std::string& output_op,
+        int input_index = 0,
+        int output_index = 0) const
+    {
+        if (!session_) {
+            throw std::runtime_error("Session::BatchRun(): session is null (moved-from?)");
+        }
+
+        TF_Output in = resolve_output(input_op, input_index);
+        TF_Output out = resolve_output(output_op, output_index);
+
+        std::vector<Tensor> results;
+        results.reserve(inputs.size());
+
+        struct TensorDeleter {
+            void operator()(TF_Tensor* t) const noexcept {
+                if (t) TF_DeleteTensor(t);
+            }
+        };
+        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+
+        Status st;
+        TF_Output input_ops[1] = {in};
+        TF_Output output_ops[1] = {out};
+
+        for (const Tensor& t : inputs) {
+            if (!t.handle()) {
+                throw std::invalid_argument("Session::BatchRun: input tensor is null");
+            }
+
+            TF_Tensor* input_vals[1] = {t.handle()};
+            TF_Tensor* output_vals[1] = {nullptr};
+
+            st.reset();
+            TF_SessionRun(
+                session_,
+                nullptr,  // run_options
+                input_ops, input_vals, 1,
+                output_ops, output_vals, 1,
+                nullptr, 0,  // targets
+                nullptr,      // run_metadata
+                st.get());
+
+            RawTensorPtr owned(output_vals[0]);
+
+            st.throw_if_error("TF_SessionRun (BatchRun)");
+
+            if (!owned) {
+                throw std::runtime_error(tf_wrap::detail::format(
+                    "TF_SessionRun (BatchRun): fetch '{}' returned null tensor",
+                    output_op));
+            }
+
+            results.push_back(Tensor::FromRaw(owned.release()));
+        }
+
+        return results;
+    }
     
     // ─────────────────────────────────────────────────────────────────
     // Device enumeration
