@@ -5629,7 +5629,7 @@ TEST_CASE("partial_run_setup_and_execute") {
         .AddInput({const_two, 0})
         .Finish();
     
-    auto result = g.NewOperation("AddV2", "result")
+    (void)g.NewOperation("AddV2", "result")
         .AddInput({plus2, 0})
         .AddInput({b, 0})
         .Finish();

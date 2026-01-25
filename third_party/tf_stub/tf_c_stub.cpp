@@ -186,7 +186,7 @@ static std::unique_ptr<TF_Tensor> clone_tensor(const TF_Tensor* t)
             {
                 TF_TString_Init(&dst_str[i]);
                 const char* p = TF_TString_GetDataPointer(&src_str[i]);
-                const size_t sz = TF_TString_GetSize(&src_str[i]);
+                const size_t sz = p ? TF_TString_GetSize(&src_str[i]) : 0;
                 TF_TString_Copy(&dst_str[i], p ? p : "", sz);
             }
         }

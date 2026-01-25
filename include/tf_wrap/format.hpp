@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 // Prefer a feature-test when available.
 #if defined(__cpp_lib_format) && (__cpp_lib_format >= 201907L)
@@ -70,15 +71,64 @@ inline void append_all(std::ostringstream& os, Args&&... args)
 }
 
 // Conservative fallback: keep fmt visible and append args.
+template<class T>
+inline std::string to_string_one(T&& v)
+{
+    std::ostringstream tmp;
+    append_one(tmp, std::forward<T>(v));
+    return tmp.str();
+}
+
 template<class... Args>
 inline std::string braces_replace(std::string_view fmt, Args&&... args)
 {
+    // Convert args to strings once (so we can substitute them into the format string)
+    std::vector<std::string> arg_strs;
+    arg_strs.reserve(sizeof...(Args));
+    (arg_strs.push_back(to_string_one(std::forward<Args>(args))), ...);
+
     std::ostringstream os;
-    os << fmt;
-    if constexpr (sizeof...(Args) > 0) {
-        os << " |";
-        append_all(os, std::forward<Args>(args)...);
+    std::size_t i = 0;
+    std::size_t arg_i = 0;
+
+    while (i < fmt.size()) {
+        const char c = fmt[i];
+
+        // Escaped braces: "{{" -> "{", "}}" -> "}"
+        if (c == '{' && (i + 1) < fmt.size() && fmt[i + 1] == '{') {
+            os << '{';
+            i += 2;
+            continue;
+        }
+        if (c == '}' && (i + 1) < fmt.size() && fmt[i + 1] == '}') {
+            os << '}';
+            i += 2;
+            continue;
+        }
+
+        // Replacement: "{}" -> next arg (if any)
+        if (c == '{' && (i + 1) < fmt.size() && fmt[i + 1] == '}') {
+            if (arg_i < arg_strs.size()) {
+                os << arg_strs[arg_i++];
+            } else {
+                os << "{}";
+            }
+            i += 2;
+            continue;
+        }
+
+        os << c;
+        ++i;
     }
+
+    // If there were extra args, keep old fallback behavior: append after a marker
+    if (arg_i < arg_strs.size()) {
+        os << " |";
+        for (std::size_t j = arg_i; j < arg_strs.size(); ++j) {
+            os << ' ' << arg_strs[j];
+        }
+    }
+
     return os.str();
 }
 } // namespace detail_impl

@@ -389,29 +389,42 @@ TEST_CASE("fuzz: random dtype values" * doctest::test_suite("stress")) {
 
 TEST_CASE("fuzz: OperationBuilder exception safety" * doctest::test_suite("stress")) {
     tf_wrap::Graph graph;
-    int abandoned = 0;
-    
+    int exception_paths = 0;
+
     for (int i = 0; i < 50; ++i) {
+        auto builder = graph.NewOperation("Const", "test_" + std::to_string(i));
+
         try {
-            auto builder = graph.NewOperation("Const", "test_" + std::to_string(i));
-            
             if (i % 3 == 0) {
                 throw std::runtime_error("simulated error");
             }
-            
+
             auto t = tf_wrap::Tensor::FromScalar<float>(1.0f);
             builder.SetAttrTensor("value", t.handle());
             builder.SetAttrType("dtype", TF_FLOAT);
             (void)std::move(builder).Finish();
-            
+
         } catch (const std::exception&) {
-            ++abandoned;
+            ++exception_paths;
+
+#ifdef TF_WRAPPER_TF_STUB_ENABLED
+            // In stub mode we can truly abandon and free the op description.
+            builder.Abandon();
+#else
+            // In real TensorFlow, there is no public API to delete a TF_OperationDescription.
+            // To avoid leaking, we finish the op with safe dummy attributes.
+            auto t = tf_wrap::Tensor::FromScalar<float>(0.0f);
+            builder.SetAttrTensor("value", t.handle());
+            builder.SetAttrType("dtype", TF_FLOAT);
+            (void)std::move(builder).Finish();
+#endif
         }
     }
-    
-    std::cout << "    " << abandoned << " builders safely abandoned\n";
-    CHECK(abandoned > 0);
+
+    std::cout << "    " << exception_paths << " builders handled via exception path\n";
+    CHECK(exception_paths > 0);
 }
+
 
 TEST_CASE("fuzz: moved-from object safety" * doctest::test_suite("stress")) {
     for (int i = 0; i < 50; ++i) {

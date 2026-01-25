@@ -163,7 +163,12 @@ graph TB
 
 When you call `tensor.read<float>()`, the returned view captures a shared reference to the tensor's state. Even if the original `Tensor` object goes out of scope while the view is still alive, the underlying data remains valid because the view's shared_ptr keeps the state alive. This design eliminates an entire class of dangling-pointer bugs that plague C API wrappers.
 
-The `Graph` and `Session` wrappers follow a simpler ownership model. Each graph owns its `TF_Graph*` directly and deletes it in the destructor. Sessions hold a non-owning pointer to their associated graph — the graph must outlive the session. This matches TensorFlow's own lifetime requirements and is enforced by the API: you construct a session from a graph reference, not by copy.
+The `Graph` and `Session` wrappers use shared ownership of the underlying `TF_Graph*`.
+
+- `Graph` owns a `shared_ptr` to an internal `GraphState` that deletes the `TF_Graph*` when the last owner goes away.
+- `Session` captures (shares) that same `GraphState` when you construct it from a `Graph&`.
+
+This means the `Graph` wrapper object does **not** have to outlive the `Session` wrapper object — the underlying graph stays alive as long as either wrapper still exists.
 
 ---
 
@@ -679,7 +684,11 @@ int main() {
 }
 ```
 
-The method returns a `std::pair<Session, Graph>` because `TF_LoadSessionFromSavedModel()` populates the graph during loading. **Both objects must be kept alive** — the session holds a non-owning pointer to the graph.
+The method returns a `std::pair<Session, Graph>` because `TF_LoadSessionFromSavedModel()` populates the graph during loading.
+
+Both wrappers share ownership of the underlying graph state:
+- Keep the `Session` alive to run the model.
+- Keep the returned `Graph` alive only if you want to inspect operations after loading (the session already keeps the graph alive internally).
 
 ### Model Tags
 
@@ -1064,7 +1073,7 @@ auto [session, graph] = tf_wrap::Session::LoadSavedModel("/path/to/model");
 auto results = session.Run({tf_wrap::Feed{"input:0", tensor}}, {tf_wrap::Fetch{"output:0"}});
 ```
 
-The method returns both a session and the populated graph. Keep both alive for the session's lifetime.
+The method returns both a session and the populated graph. The session already keeps the graph alive internally; keep the returned graph only if you want to inspect it (e.g., list operations).
 
 **Q: Is there GPU support?**
 
