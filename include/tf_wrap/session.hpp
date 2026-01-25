@@ -181,19 +181,6 @@ struct Fetch {
     int index{0};
 
 
-struct Target {
-    std::string op_name;
-
-    TF_Operation* oper{nullptr};
-    bool has_oper{false};
-
-    Target(std::string name) : op_name(std::move(name)) {}
-
-    Target(TF_Operation* op) : oper(op), has_oper(true) {}
-
-    Target(TF_Operation* op, std::string debug_name)
-        : op_name(std::move(debug_name)), oper(op), has_oper(true) {}
-};
 
 
     // Optional pre-resolved output handle (avoids string lookup in Session::Run).
@@ -211,6 +198,21 @@ struct Target {
     Fetch(TF_Operation* op, int idx = 0)
         : Fetch(TF_Output{op, idx}) {}
 };
+
+struct Target {
+    std::string op_name;
+
+    TF_Operation* oper{nullptr};
+    bool has_oper{false};
+
+    Target(std::string name) : op_name(std::move(name)) {}
+
+    Target(TF_Operation* op) : oper(op), has_oper(true) {}
+
+    Target(TF_Operation* op, std::string debug_name)
+        : op_name(std::move(debug_name)), oper(op), has_oper(true) {}
+};
+
 
 // ============================================================================
 // Device - Information about a compute device
@@ -493,13 +495,13 @@ std::vector<Tensor> Run(
     for (const auto& name : targets) {
         t.emplace_back(name);
     }
-    return Run(feeds, fetches, t, run_options, run_metadata, loc);
+    return Run(feeds, fetches, std::span<const Target>(t), run_options, run_metadata, loc);
 }
 
 std::vector<Tensor> Run(
         const std::vector<Feed>& feeds,
         const std::vector<Fetch>& fetches,
-        const std::vector<Target>& targets,
+        std::span<const Target> targets,
         TF_Buffer* run_options,
         TF_Buffer* run_metadata,
         std::source_location loc = std::source_location::current()) const
@@ -604,13 +606,13 @@ std::vector<Tensor> Run(
         const std::vector<Feed>& feeds,
         const std::vector<Fetch>& fetches) const
     {
-        return Run(feeds, fetches, {}, nullptr, nullptr);
+        return Run(feeds, fetches, std::span<const Target>{}, nullptr, nullptr);
     }
     
     [[nodiscard]] std::vector<Tensor> Run(
         const std::vector<Fetch>& fetches) const
     {
-        return Run({}, fetches, {}, nullptr, nullptr);
+        return Run(std::vector<Feed>{}, fetches, std::span<const Target>{}, nullptr, nullptr);
     }
     
     /// Convenience: Run with targets but no fetch outputs
@@ -625,7 +627,7 @@ std::vector<Tensor> Run(
     /// Convenience: Fetch single output by name and index
     [[nodiscard]] Tensor Run(const std::string& op_name, int index = 0,
         std::source_location loc = std::source_location::current()) const {
-        auto results = Run({}, {Fetch{op_name, index}}, {}, nullptr, nullptr, loc);
+        auto results = Run(std::vector<Feed>{}, std::vector<Fetch>{Fetch{op_name, index}}, std::span<const Target>{}, nullptr, nullptr, loc);
         return std::move(results[0]);
     }
     

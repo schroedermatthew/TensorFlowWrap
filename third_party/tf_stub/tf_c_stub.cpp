@@ -27,10 +27,13 @@
 
 struct TF_Status {
     TF_Code code{TF_OK};
+    std::string message;
+};
 
 // -----------------------------------------------------------------------------
 // Stub error injection (tests only)
 // -----------------------------------------------------------------------------
+namespace {
 struct TF_StubNextError {
     std::string api;
     TF_Code code{TF_OK};
@@ -51,6 +54,7 @@ static bool tf_stub_consume_next_error(const char* api, TF_Status* status) {
     g_next_error = TF_StubNextError{};
     return true;
 }
+} // namespace
 
 extern "C" void TF_StubSetNextError(const char* api, TF_Code code, const char* message) {
     g_next_error.api = api ? api : "";
@@ -59,9 +63,6 @@ extern "C" void TF_StubSetNextError(const char* api, TF_Code code, const char* m
     g_next_error.is_set = true;
 }
 
-
-    std::string message;
-};
 
 struct TF_Tensor {
     TF_DataType dtype{TF_FLOAT};
