@@ -24,6 +24,8 @@
 #   - header-check: Verify headers compile standalone
 #   - stress-test: Run stress/fuzz tests
 #   - strict-warnings: Extra warning flags
+#   - utility-tests: SmallVector and ScopeGuard tests (GCC/Clang/macOS)
+#   - utility-tests-windows: SmallVector and ScopeGuard tests (MSVC)
 #   - real-tensorflow: Comprehensive tests with real TensorFlow C library
 #                      (TF 2.13.0, 2.14.0, 2.15.0, 2.16.1, 2.17.1, 2.18.1)
 #   - ci-success: Gate job
@@ -565,6 +567,108 @@ jobs:
         run: ./test_comprehensive --all
 
   # ===========================================================================
+  # Utility Headers Tests (SmallVector, ScopeGuard)
+  # ===========================================================================
+  utility-tests:
+    name: Utility Headers (${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            compiler: g++-13
+            install: sudo apt-get update && sudo apt-get install -y g++-13
+          - os: ubuntu-22.04
+            compiler: clang++-15
+            install: |
+              wget https://apt.llvm.org/llvm.sh
+              chmod +x llvm.sh
+              sudo ./llvm.sh 15
+          - os: macos-14
+            compiler: clang++
+            install: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install compiler
+        if: matrix.install != ''
+        run: ${{ matrix.install }}
+
+      - name: Build and run SmallVector tests
+        run: |
+          echo "Building SmallVector tests with ${{ matrix.compiler }}..."
+          
+          ${{ matrix.compiler }} -std=c++20 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -O2 \
+            -I${{ env.INCLUDE_DIR }} \
+            ${{ env.TEST_DIR }}/test_small_vector.cpp \
+            -o test_small_vector
+          
+          echo "Running SmallVector tests..."
+          ./test_small_vector
+
+      - name: Build and run ScopeGuard tests
+        run: |
+          echo "Building ScopeGuard tests with ${{ matrix.compiler }}..."
+          
+          ${{ matrix.compiler }} -std=c++20 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -O2 \
+            -I${{ env.INCLUDE_DIR }} \
+            ${{ env.TEST_DIR }}/test_scope_guard.cpp \
+            -o test_scope_guard
+          
+          echo "Running ScopeGuard tests..."
+          ./test_scope_guard
+
+      - name: Run SmallVector benchmark
+        run: |
+          echo "Running SmallVector benchmark..."
+          ./test_small_vector --benchmark
+
+  # ===========================================================================
+  # Utility Headers - Windows MSVC
+  # ===========================================================================
+  utility-tests-windows:
+    name: Utility Headers (MSVC)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build and run SmallVector tests
+        shell: cmd
+        run: |
+          echo Building SmallVector tests with MSVC...
+          
+          cl /std:c++20 /W4 /WX /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            %TEST_DIR%\test_small_vector.cpp ^
+            /Fe:test_small_vector.exe
+          
+          echo Running SmallVector tests...
+          test_small_vector.exe
+
+      - name: Build and run ScopeGuard tests
+        shell: cmd
+        run: |
+          echo Building ScopeGuard tests with MSVC...
+          
+          cl /std:c++20 /W4 /WX /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            %TEST_DIR%\test_scope_guard.cpp ^
+            /Fe:test_scope_guard.exe
+          
+          echo Running ScopeGuard tests...
+          test_scope_guard.exe
+
+  # ===========================================================================
   # Real TensorFlow Integration Test (Multiple Versions)
   # ===========================================================================
   real-tensorflow:
@@ -914,6 +1018,8 @@ jobs:
       - header-check
       - stress-test
       - strict-warnings
+      - utility-tests
+      - utility-tests-windows
       - real-tensorflow
     if: always()
 
@@ -921,17 +1027,19 @@ jobs:
       - name: Check all jobs passed
         run: |
           echo "Job results:"
-          echo "  linux-gcc:         ${{ needs.linux-gcc.result }}"
-          echo "  linux-clang:       ${{ needs.linux-clang.result }}"
-          echo "  windows-msvc:      ${{ needs.windows-msvc.result }}"
-          echo "  macos:             ${{ needs.macos.result }}"
-          echo "  sanitizer-asan:    ${{ needs.sanitizer-asan.result }}"
-          echo "  sanitizer-ubsan:   ${{ needs.sanitizer-ubsan.result }}"
-          echo "  sanitizer-tsan:    ${{ needs.sanitizer-tsan.result }}"
-          echo "  header-check:      ${{ needs.header-check.result }}"
-          echo "  stress-test:       ${{ needs.stress-test.result }}"
-          echo "  strict-warnings:   ${{ needs.strict-warnings.result }}"
-          echo "  real-tensorflow:   ${{ needs.real-tensorflow.result }}"
+          echo "  linux-gcc:              ${{ needs.linux-gcc.result }}"
+          echo "  linux-clang:            ${{ needs.linux-clang.result }}"
+          echo "  windows-msvc:           ${{ needs.windows-msvc.result }}"
+          echo "  macos:                  ${{ needs.macos.result }}"
+          echo "  sanitizer-asan:         ${{ needs.sanitizer-asan.result }}"
+          echo "  sanitizer-ubsan:        ${{ needs.sanitizer-ubsan.result }}"
+          echo "  sanitizer-tsan:         ${{ needs.sanitizer-tsan.result }}"
+          echo "  header-check:           ${{ needs.header-check.result }}"
+          echo "  stress-test:            ${{ needs.stress-test.result }}"
+          echo "  strict-warnings:        ${{ needs.strict-warnings.result }}"
+          echo "  utility-tests:          ${{ needs.utility-tests.result }}"
+          echo "  utility-tests-windows:  ${{ needs.utility-tests-windows.result }}"
+          echo "  real-tensorflow:        ${{ needs.real-tensorflow.result }}"
           
           if [ "${{ needs.linux-gcc.result }}" != "success" ] || \
              [ "${{ needs.linux-clang.result }}" != "success" ] || \
@@ -943,6 +1051,8 @@ jobs:
              [ "${{ needs.header-check.result }}" != "success" ] || \
              [ "${{ needs.stress-test.result }}" != "success" ] || \
              [ "${{ needs.strict-warnings.result }}" != "success" ] || \
+             [ "${{ needs.utility-tests.result }}" != "success" ] || \
+             [ "${{ needs.utility-tests-windows.result }}" != "success" ] || \
              [ "${{ needs.real-tensorflow.result }}" != "success" ]; then
             echo "❌ One or more jobs failed"
             exit 1
