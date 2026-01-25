@@ -534,3 +534,60 @@ TEST_CASE("TensorName resolution in Runner") {
 }
 
 } // TEST_SUITE
+
+
+// ============================================================================
+// P2: Zero-copy reshape + batch inference helper
+// ============================================================================
+
+TEST_SUITE("P2 enhancements") {
+
+TEST_CASE("Tensor::reshape shares buffer and changes shape") {
+    auto t = Tensor::FromVector<float>({2, 3}, std::vector<float>{1, 2, 3, 4, 5, 6});
+    auto r = t.reshape({3, 2});
+
+    CHECK(r.shape() == std::vector<std::int64_t>{3, 2});
+    CHECK(r.dtype() == TF_FLOAT);
+    CHECK(r.num_elements() == 6);
+
+    // Same underlying buffer
+    CHECK(r.data<float>() == t.data<float>());
+
+    // Mutate via reshaped view and observe in original tensor
+    r.write<float>()[0] = 99.0f;
+    CHECK(t.read<float>()[0] == doctest::Approx(99.0f));
+}
+
+TEST_CASE("Tensor::reshape throws on mismatched element count") {
+    auto t = Tensor::FromVector<float>({2, 3}, std::vector<float>{1, 2, 3, 4, 5, 6});
+    CHECK_THROWS_AS(t.reshape({2, 2}), std::invalid_argument);
+}
+
+TEST_CASE("Tensor::matches_shape works") {
+    auto t = Tensor::Allocate<float>({2, 3});
+    CHECK(t.matches_shape({2, 3}));
+    CHECK_FALSE(t.matches_shape({3, 2}));
+    CHECK_FALSE(t.matches_shape({2}));
+}
+
+TEST_CASE("Session::BatchRun runs many inputs") {
+    Graph graph;
+    auto ph = easy::Placeholder<float>(graph, "input");
+    easy::Identity<float>(graph, "output", ph.output(0));
+
+    Session session(graph);
+
+    std::vector<Tensor> inputs;
+    inputs.push_back(Tensor::FromScalar<float>(1.0f));
+    inputs.push_back(Tensor::FromScalar<float>(2.5f));
+    inputs.push_back(Tensor::FromScalar<float>(-3.0f));
+
+    auto outputs = session.BatchRun("input", inputs, "output");
+    REQUIRE(outputs.size() == inputs.size());
+
+    CHECK(outputs[0].ToScalar<float>() == doctest::Approx(1.0f));
+    CHECK(outputs[1].ToScalar<float>() == doctest::Approx(2.5f));
+    CHECK(outputs[2].ToScalar<float>() == doctest::Approx(-3.0f));
+}
+
+} // TEST_SUITE
