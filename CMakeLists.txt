@@ -120,18 +120,18 @@ install(EXPORT TensorFlowWrapTargets
 
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/TensorFlowWrap-config.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/TensorFlowWrap-config.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/TensorFlowWrapConfig.cmake
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/TensorFlowWrap
 )
 
 write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/TensorFlowWrap-config-version.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/TensorFlowWrapConfigVersion.cmake
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMajorVersion
 )
 
 install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/TensorFlowWrap-config.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/TensorFlowWrap-config-version.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/TensorFlowWrapConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/TensorFlowWrapConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/TensorFlowWrap
 )

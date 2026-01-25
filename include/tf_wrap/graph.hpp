@@ -270,14 +270,23 @@ public:
     // Use this when you intentionally don't want to complete an operation.
     // Without this call, destroying an unfinished builder triggers a debug warning.
     void Abandon() noexcept {
-        if (!finished_ && desc_) {
-#ifdef TF_WRAPPER_TF_STUB_ENABLED
-            TF_DeleteOperationDescription(desc_);
-#endif
-            desc_ = nullptr;
-            finished_ = true;
-            abandoned_ = true;
+        if (finished_) {
+            return;
         }
+
+        // Best-effort discard of the underlying TF_OperationDescription.
+        //
+        // In TensorFlow's C API, the only portable way to ensure an
+        // OperationDescription is freed is TF_FinishOperation(), which also
+        // creates an operation on success. To avoid accidentally mutating the
+        // graph, we force TF_FinishOperation() to fail by injecting an invalid
+        // attribute name (contains '$', which cannot match any registered OpDef
+        // attribute name), guaranteeing:
+        //   * graph is not modified
+        //   * desc is deleted (TF_FinishOperation deletes `desc` in either case)
+        discard_desc_no_graph_mod_();
+        finished_ = true;
+        abandoned_ = true;
     }
     
     [[nodiscard]] bool valid() const noexcept { return desc_ != nullptr && !finished_; }
@@ -288,19 +297,56 @@ private:
     bool finished_;
     bool abandoned_{false};
 
+    void discard_desc_no_graph_mod_() noexcept {
+        if (!desc_) {
+            return;
+        }
+
+#ifdef TF_WRAPPER_TF_STUB_ENABLED
+        // Stub can delete without affecting the graph.
+        TF_DeleteOperationDescription(desc_);
+        desc_ = nullptr;
+#else
+        // Real TF: force TF_FinishOperation() to fail so graph isn't modified,
+        // while still guaranteeing the TF_OperationDescription is freed.
+        TF_SetAttrString(desc_, "tf_wrap$abandon_operation_desc", "", 0);
+
+        TF_Status* st = TF_NewStatus();
+        if (st) {
+            TF_Operation* op = TF_FinishOperation(desc_, st);
+#ifndef NDEBUG
+            if (op != nullptr || TF_GetCode(st) == TF_OK) {
+                std::fprintf(stderr,
+                    "[TensorFlowWrap WARNING] Abandon cleanup unexpectedly succeeded; "
+                    "graph may have been modified.\n");
+            }
+#endif
+            (void)op;
+            TF_DeleteStatus(st);
+        } else {
+#ifndef NDEBUG
+            std::fprintf(stderr,
+                "[TensorFlowWrap WARNING] Failed to allocate TF_Status while discarding an "
+                "OperationDescription; potential leak.\n");
+#endif
+        }
+
+        // TF_FinishOperation deletes `desc` whether it succeeds or fails.
+        desc_ = nullptr;
+#endif
+    }
+
     void cleanup_desc_() noexcept {
         if (!finished_ && desc_) {
 #ifndef NDEBUG
-            // Warn about potential leak, but don't assert - this can happen legitimately
-            // during exception handling or when tests intentionally abandon builders.
+            // Warn about API misuse (unfinished builder). We discard the
+            // operation description (graph not modified) instead of asserting.
+            // This can happen legitimately in tests or exception paths.
             std::fprintf(stderr,
                 "[TensorFlowWrap WARNING] OperationBuilder destroyed without Finish() or Abandon() - "
-                "operation description discarded (stub frees, real TF leaks)\n");
+                "discarding operation description (graph not modified)\n");
 #endif
-#ifdef TF_WRAPPER_TF_STUB_ENABLED
-            TF_DeleteOperationDescription(desc_);
-#endif
-            desc_ = nullptr;
+            discard_desc_no_graph_mod_();
             finished_ = true;
         }
     }

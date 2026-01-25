@@ -736,7 +736,9 @@ jobs:
 
           # Create a simple model: output = input * 2 + 1
           class SimpleModel(tf.Module):
-              @tf.function(input_signature=[tf.TensorSpec(shape=[None], dtype=tf.float32)])
+              # Disable AutoGraph conversion to avoid noisy warnings in CI when
+              # the function's source code isn't available.
+              @tf.function(input_signature=[tf.TensorSpec(shape=[None], dtype=tf.float32)], autograph=False)
               def serve(self, x):
                   return x * 2.0 + 1.0
 
