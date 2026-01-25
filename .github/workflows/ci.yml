@@ -465,7 +465,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Guard: core.hpp must not include ops
+      - name: "Guard: core.hpp must not include ops"
         run: |
           chmod +x scripts/ci/check_corehpp_no_ops.sh
           scripts/ci/check_corehpp_no_ops.sh
