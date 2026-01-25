@@ -1,5 +1,5 @@
 // tests/test_improvements.cpp
-// Tests for P0/P1 improvements: dtype tracking, bool safety, bounds checking, easy layer
+// Tests for P0/P1 improvements: dtype tracking, bool safety, bounds checking, facade layer
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
@@ -12,6 +12,8 @@
 #endif
 
 #include "tf_wrap/all.hpp"
+#include "tf_wrap/facade_ops.hpp"
+#include "tf_wrap/ops/cast.hpp"
 
 #include <cstdint>
 #include <string>
@@ -249,59 +251,59 @@ TEST_CASE("Session::Run validates feed indices") {
 TEST_SUITE("TensorName parsing") {
 
 TEST_CASE("Simple op name without index") {
-    auto tn = easy::TensorName::parse("my_op");
+    auto tn = facade::TensorName::parse("my_op");
     CHECK(tn.op == "my_op");
     CHECK(tn.index == 0);
     CHECK(tn.had_explicit_index == false);
 }
 
 TEST_CASE("Op name with index 0") {
-    auto tn = easy::TensorName::parse("my_op:0");
+    auto tn = facade::TensorName::parse("my_op:0");
     CHECK(tn.op == "my_op");
     CHECK(tn.index == 0);
     CHECK(tn.had_explicit_index == true);
 }
 
 TEST_CASE("Op name with index > 0") {
-    auto tn = easy::TensorName::parse("my_op:5");
+    auto tn = facade::TensorName::parse("my_op:5");
     CHECK(tn.op == "my_op");
     CHECK(tn.index == 5);
     CHECK(tn.had_explicit_index == true);
 }
 
 TEST_CASE("Scoped op name") {
-    auto tn = easy::TensorName::parse("scope/inner/op:2");
+    auto tn = facade::TensorName::parse("scope/inner/op:2");
     CHECK(tn.op == "scope/inner/op");
     CHECK(tn.index == 2);
 }
 
 TEST_CASE("Whitespace trimming") {
-    auto tn = easy::TensorName::parse("  my_op:1  ");
+    auto tn = facade::TensorName::parse("  my_op:1  ");
     CHECK(tn.op == "my_op");
     CHECK(tn.index == 1);
 }
 
 TEST_CASE("Empty string throws") {
-    CHECK_THROWS_AS(easy::TensorName::parse(""), std::invalid_argument);
-    CHECK_THROWS_AS(easy::TensorName::parse("   "), std::invalid_argument);
+    CHECK_THROWS_AS(facade::TensorName::parse(""), std::invalid_argument);
+    CHECK_THROWS_AS(facade::TensorName::parse("   "), std::invalid_argument);
 }
 
 TEST_CASE("Empty op name throws") {
-    CHECK_THROWS_AS(easy::TensorName::parse(":0"), std::invalid_argument);
+    CHECK_THROWS_AS(facade::TensorName::parse(":0"), std::invalid_argument);
 }
 
 TEST_CASE("Missing index after colon throws") {
-    CHECK_THROWS_AS(easy::TensorName::parse("op:"), std::invalid_argument);
+    CHECK_THROWS_AS(facade::TensorName::parse("op:"), std::invalid_argument);
 }
 
 TEST_CASE("Round-trip to_string") {
-    auto tn1 = easy::TensorName::parse("op:0");
+    auto tn1 = facade::TensorName::parse("op:0");
     CHECK(tn1.to_string() == "op:0");
     
-    auto tn2 = easy::TensorName::parse("op");
+    auto tn2 = facade::TensorName::parse("op");
     CHECK(tn2.to_string() == "op");
     
-    auto tn3 = easy::TensorName::parse("scope/op:3");
+    auto tn3 = facade::TensorName::parse("scope/op:3");
     CHECK(tn3.to_string() == "scope/op:3");
 }
 
@@ -313,46 +315,46 @@ TEST_CASE("Round-trip to_string") {
 
 TEST_SUITE("Dtype inference") {
 
-TEST_CASE("easy::Add infers dtype") {
+TEST_CASE("facade::Add infers dtype") {
     Graph graph;
     auto t1 = Tensor::FromScalar<float>(1.0f);
     auto t2 = Tensor::FromScalar<float>(2.0f);
     auto c1 = Const(graph, "c1", t1.handle(), TF_FLOAT);
     auto c2 = Const(graph, "c2", t2.handle(), TF_FLOAT);
     
-    auto sum = easy::Add(graph, "sum", c1.output(0), c2.output(0));
+    auto sum = facade::Add(graph, "sum", c1.output(0), c2.output(0));
     CHECK(TF_OperationOutputType(sum.output(0)) == TF_FLOAT);
 }
 
-TEST_CASE("easy::Mul infers dtype") {
+TEST_CASE("facade::Mul infers dtype") {
     Graph graph;
     auto t1 = Tensor::FromScalar<double>(1.0);
     auto t2 = Tensor::FromScalar<double>(2.0);
     auto c1 = Const(graph, "c1", t1.handle(), TF_DOUBLE);
     auto c2 = Const(graph, "c2", t2.handle(), TF_DOUBLE);
     
-    auto prod = easy::Mul(graph, "prod", c1.output(0), c2.output(0));
+    auto prod = facade::Mul(graph, "prod", c1.output(0), c2.output(0));
     CHECK(TF_OperationOutputType(prod.output(0)) == TF_DOUBLE);
 }
 
-TEST_CASE("easy::Add throws on dtype mismatch") {
+TEST_CASE("facade::Add throws on dtype mismatch") {
     Graph graph;
     auto t1 = Tensor::FromScalar<float>(1.0f);
     auto t2 = Tensor::FromScalar<std::int32_t>(2);
     auto c1 = Const(graph, "c1", t1.handle(), TF_FLOAT);
     auto c2 = Const(graph, "c2", t2.handle(), TF_INT32);
     
-    CHECK_THROWS_AS(easy::Add(graph, "sum", c1.output(0), c2.output(0)), std::invalid_argument);
+    CHECK_THROWS_AS(facade::Add(graph, "sum", c1.output(0), c2.output(0)), std::invalid_argument);
 }
 
-TEST_CASE("easy::MatMul infers dtype") {
+TEST_CASE("facade::MatMul infers dtype") {
     Graph graph;
     auto t1 = Tensor::FromScalar<float>(1.0f);
     auto t2 = Tensor::FromScalar<float>(2.0f);
     auto c1 = Const(graph, "c1", t1.handle(), TF_FLOAT);
     auto c2 = Const(graph, "c2", t2.handle(), TF_FLOAT);
     
-    auto mm = easy::MatMul(graph, "mm", c1.output(0), c2.output(0));
+    auto mm = facade::MatMul(graph, "mm", c1.output(0), c2.output(0));
     CHECK(TF_OperationOutputType(mm.output(0)) == TF_FLOAT);
 }
 
@@ -373,7 +375,7 @@ TEST_CASE("Runner basic feed/fetch") {
     Session session(graph);
     auto input = Tensor::FromScalar<float>(42.0f);
     
-    auto result = easy::Runner(session)
+    auto result = facade::Runner(session)
         .feed("input:0", input)
         .fetch("output:0")
         .run_one();
@@ -390,7 +392,7 @@ TEST_CASE("Runner multiple fetches") {
     
     Session session(graph);
     
-    auto results = easy::Runner(session)
+    auto results = facade::Runner(session)
         .fetch("c1:0")
         .fetch("c2:0")
         .run();
@@ -409,10 +411,10 @@ TEST_CASE("Runner validates endpoints") {
     auto input = Tensor::FromScalar<float>(1.0f);
     
     // Nonexistent op
-    CHECK_THROWS(easy::Runner(session).feed("nonexistent:0", input).fetch("c:0").run());
+    CHECK_THROWS(facade::Runner(session).feed("nonexistent:0", input).fetch("c:0").run());
     
     // Out of range index
-    CHECK_THROWS(easy::Runner(session).fetch("c:5").run());
+    CHECK_THROWS(facade::Runner(session).fetch("c:5").run());
 }
 
 TEST_CASE("Runner run_one throws on wrong fetch count") {
@@ -425,11 +427,11 @@ TEST_CASE("Runner run_one throws on wrong fetch count") {
     Session session(graph);
     
     // No fetches
-    CHECK_THROWS_AS(easy::Runner(session).run_one(), std::runtime_error);
+    CHECK_THROWS_AS(facade::Runner(session).run_one(), std::runtime_error);
     
     // Multiple fetches
     CHECK_THROWS_AS(
-        easy::Runner(session).fetch("c1:0").fetch("c2:0").run_one(),
+        facade::Runner(session).fetch("c1:0").fetch("c2:0").run_one(),
         std::runtime_error);
 }
 
@@ -444,7 +446,7 @@ TEST_CASE("Runner fluent chaining") {
     auto t1 = Tensor::FromScalar<float>(3.0f);
     auto t2 = Tensor::FromScalar<float>(4.0f);
     
-    auto result = easy::Runner(session)
+    auto result = facade::Runner(session)
         .feed("in1:0", t1)
         .feed("in2:0", t2)
         .fetch("sum:0")
@@ -461,36 +463,36 @@ TEST_CASE("Runner fluent chaining") {
 
 TEST_SUITE("Easy helpers") {
 
-TEST_CASE("easy::Scalar creates typed constants") {
+TEST_CASE("facade::Scalar creates typed constants") {
     Graph graph;
     
-    auto sf = easy::Scalar<float>(graph, "sf", 3.14f);
+    auto sf = facade::Scalar<float>(graph, "sf", 3.14f);
     CHECK(TF_OperationOutputType(sf.output(0)) == TF_FLOAT);
     
-    auto sd = easy::Scalar<double>(graph, "sd", 2.718);
+    auto sd = facade::Scalar<double>(graph, "sd", 2.718);
     CHECK(TF_OperationOutputType(sd.output(0)) == TF_DOUBLE);
     
-    auto si = easy::Scalar<std::int32_t>(graph, "si", 42);
+    auto si = facade::Scalar<std::int32_t>(graph, "si", 42);
     CHECK(TF_OperationOutputType(si.output(0)) == TF_INT32);
 }
 
-TEST_CASE("easy::Placeholder creates typed placeholders") {
+TEST_CASE("facade::Placeholder creates typed placeholders") {
     Graph graph;
     
-    auto ph_f = easy::Placeholder<float>(graph, "ph_f");
+    auto ph_f = facade::Placeholder<float>(graph, "ph_f");
     CHECK(TF_OperationOutputType(ph_f.output(0)) == TF_FLOAT);
     
-    auto ph_d = easy::Placeholder<double>(graph, "ph_d");
+    auto ph_d = facade::Placeholder<double>(graph, "ph_d");
     CHECK(TF_OperationOutputType(ph_d.output(0)) == TF_DOUBLE);
     
-    auto ph_i = easy::Placeholder<std::int32_t>(graph, "ph_i");
+    auto ph_i = facade::Placeholder<std::int32_t>(graph, "ph_i");
     CHECK(TF_OperationOutputType(ph_i.output(0)) == TF_INT32);
 }
 
-TEST_CASE("easy::Identity creates typed identity") {
+TEST_CASE("facade::Identity creates typed identity") {
     Graph graph;
-    auto c = easy::Scalar<float>(graph, "c", 1.0f);
-    auto id = easy::Identity<float>(graph, "id", c.output(0));
+    auto c = facade::Scalar<float>(graph, "c", 1.0f);
+    auto id = facade::Identity<float>(graph, "id", c.output(0));
     CHECK(TF_OperationOutputType(id.output(0)) == TF_FLOAT);
 }
 
@@ -504,13 +506,13 @@ TEST_SUITE("Integration") {
 
 TEST_CASE("Full pipeline: placeholder -> identity -> run") {
     Graph graph;
-    auto ph = easy::Placeholder<float>(graph, "input");
-    easy::Identity<float>(graph, "output", ph.output(0));
+    auto ph = facade::Placeholder<float>(graph, "input");
+    facade::Identity<float>(graph, "output", ph.output(0));
     
     Session session(graph);
     auto input = Tensor::FromScalar<float>(99.0f);
     
-    auto result = easy::Runner(session)
+    auto result = facade::Runner(session)
         .feed("input:0", input)
         .fetch("output:0")
         .run_one();
@@ -520,16 +522,16 @@ TEST_CASE("Full pipeline: placeholder -> identity -> run") {
 
 TEST_CASE("TensorName resolution in Runner") {
     Graph graph;
-    auto c = easy::Scalar<float>(graph, "my_const", 42.0f);
+    auto c = facade::Scalar<float>(graph, "my_const", 42.0f);
     
     Session session(graph);
     
     // Using string
-    auto r1 = easy::Runner(session).fetch("my_const:0").run_one();
+    auto r1 = facade::Runner(session).fetch("my_const:0").run_one();
     CHECK(r1.ToScalar<float>() == doctest::Approx(42.0f));
     
     // Using Endpoint with TF_Output directly
-    auto r2 = easy::Runner(session).fetch(c.output(0)).run_one();
+    auto r2 = facade::Runner(session).fetch(c.output(0)).run_one();
     CHECK(r2.ToScalar<float>() == doctest::Approx(42.0f));
 }
 
@@ -572,8 +574,8 @@ TEST_CASE("Tensor::matches_shape works") {
 
 TEST_CASE("Session::BatchRun runs many inputs") {
     Graph graph;
-    auto ph = easy::Placeholder<float>(graph, "input");
-    easy::Identity<float>(graph, "output", ph.output(0));
+    auto ph = facade::Placeholder<float>(graph, "input");
+    facade::Identity<float>(graph, "output", ph.output(0));
 
     Session session(graph);
 

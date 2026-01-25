@@ -465,6 +465,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Guard: all.hpp must not include ops
+        run: |
+          chmod +x scripts/ci/check_allhpp_no_ops.sh
+          scripts/ci/check_allhpp_no_ops.sh
+
+
       - name: Install GCC
         run: |
           sudo apt-get update

@@ -13,8 +13,7 @@
 #include "tf_wrap/operation.hpp"
 #include "tf_wrap/graph.hpp"
 #include "tf_wrap/session.hpp"
-#include "tf_wrap/ops.hpp"  // 160 TensorFlow operations
-#include "tf_wrap/easy.hpp" // Ergonomic layer: TensorName, Runner, Model
+#include "tf_wrap/facade.hpp" // Ergonomic layer: TensorName, Runner, Model
 
 // ============================================================================
 // TensorFlow C++20 Wrapper - Quick Reference
@@ -36,7 +35,7 @@
 //   tf_wrap::ScopeGuardOnSuccess - Cleanup only on normal exit (for commit)
 //   tf_wrap::SmallVector<T,N> - Stack-optimized vector for small collections
 //
-// ERGONOMIC LAYER (easy.hpp):
+// ERGONOMIC LAYER (facade.hpp):
 // ─────────────────────────────────────────────────────────────────────────────
 //   tf_wrap::TensorName     - Parse "op:index" strings
 //   tf_wrap::Runner         - Fluent API for session execution
@@ -109,12 +108,28 @@
 //       .fetch("output2:0")
 //       .run();
 //
-// DTYPE-INFERRED OPERATIONS:
+// OPTIONAL OP WRAPPERS:
 // ─────────────────────────────────────────────────────────────────────────────
-//   using namespace tf_wrap::easy;
-//   auto c1 = Scalar<float>(graph, "c1", 1.0f);
-//   auto c2 = Scalar<float>(graph, "c2", 2.0f);
-//   auto sum = Add(graph, "sum", c1, c2);  // dtype inferred from inputs!
+//   This umbrella header intentionally does NOT include the generated op
+//   wrappers. Include what you use:
+//
+//     #include "tf_wrap/ops/math.hpp"
+//     #include "tf_wrap/ops/matrix.hpp"
+//     #include "tf_wrap/ops/array.hpp"
+//
+//   Or include all wrapper categories:
+//
+//     #include "tf_wrap/ops/all.hpp"
+//
+// DTYPE-INFERRED FACADES (optional):
+// ─────────────────────────────────────────────────────────────────────────────
+//   The dtype-inferred graph-building helpers live in tf_wrap/facade_ops.hpp:
+//
+//     #include "tf_wrap/facade_ops.hpp"
+//     using namespace tf_wrap::facade;
+//     auto c1 = Scalar<float>(graph, "c1", 1.0f);
+//     auto c2 = Scalar<float>(graph, "c2", 2.0f);
+//     auto sum = Add(graph, "sum", c1.output(0), c2.output(0));
 //
 // DEVICE ENUMERATION:
 // ─────────────────────────────────────────────────────────────────────────────

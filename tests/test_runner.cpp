@@ -1,14 +1,15 @@
 // tests/test_runner.cpp
 // Tests for fluent Runner API
 //
-// Purpose: Verify the easy::Runner provides ergonomic session execution
+// Purpose: Verify the facade::Runner provides ergonomic session execution
 
 #include "doctest.h"
 
 #include "tf_wrap/all.hpp"
+#include "tf_wrap/ops/common.hpp"
 
 using namespace tf_wrap;
-using namespace tf_wrap::easy;
+using namespace tf_wrap::facade;
 
 // ============================================================================
 // Basic Runner Usage
