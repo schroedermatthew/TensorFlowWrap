@@ -486,8 +486,8 @@ std::vector<Tensor> Run(
     const std::vector<Feed>& feeds,
     const std::vector<Fetch>& fetches,
     const std::vector<std::string>& targets,
-    TF_Buffer* run_options,
-    TF_Buffer* run_metadata,
+    TF_Buffer* run_options = nullptr,
+    TF_Buffer* run_metadata = nullptr,
     std::source_location loc = std::source_location::current()) const
 {
     std::vector<Target> t;
@@ -502,8 +502,8 @@ std::vector<Tensor> Run(
         const std::vector<Feed>& feeds,
         const std::vector<Fetch>& fetches,
         std::span<const Target> targets,
-        TF_Buffer* run_options,
-        TF_Buffer* run_metadata,
+        TF_Buffer* run_options = nullptr,
+        TF_Buffer* run_metadata = nullptr,
         std::source_location loc = std::source_location::current()) const
     {
         if (!session_) {
@@ -621,7 +621,7 @@ std::vector<Tensor> Run(
         const std::vector<Fetch>& fetches,
         const std::vector<Target>& targets) const
     {
-        return Run(feeds, fetches, targets, nullptr, nullptr);
+        return Run(feeds, fetches, std::span<const Target>(targets.data(), targets.size()));
     }
     
     /// Convenience: Fetch single output by name and index
