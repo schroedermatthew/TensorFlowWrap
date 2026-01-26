@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -463,9 +464,11 @@ public:
             
             if (all_digits) {
                 op_name = std::string(name.substr(0, colon_pos));
-                index = 0;
-                for (char c : suffix) {
-                    index = index * 10 + (c - '0');
+                // Use std::from_chars for safe parsing (no overflow UB)
+                auto [ptr, ec] = std::from_chars(suffix.data(), suffix.data() + suffix.size(), index);
+                if (ec != std::errc{} || ptr != suffix.data() + suffix.size()) {
+                    throw Error::Wrapper(TF_INVALID_ARGUMENT, "Session::resolve",
+                        "invalid output index (overflow or parse error)", op_name, -1, loc);
                 }
             } else {
                 op_name = std::string(name);
@@ -755,7 +758,7 @@ public:
         for (const Tensor& t : inputs) {
             if (!t.handle()) {
                 throw Error::Wrapper(TF_INVALID_ARGUMENT, "Session::BatchRun",
-                    "input tensor is null", "", -1, loc);
+                    "null tensor handle", "", -1, loc);
             }
 
             TF_Tensor* input_vals[1] = {t.handle()};
@@ -819,7 +822,7 @@ public:
         const Tensor& first = inputs.front();
         if (!first.handle()) {
             throw Error::Wrapper(TF_INVALID_ARGUMENT, "Session::BatchRunStacked",
-                "first input tensor is null", "", -1, loc);
+                "null tensor handle (first input)", "", -1, loc);
         }
         
         const TF_DataType dtype = first.dtype();
@@ -863,7 +866,7 @@ public:
             const Tensor& t = inputs[i];
             if (!t.handle()) {
                 throw Error::Wrapper(TF_INVALID_ARGUMENT, "Session::BatchRunStacked",
-                    "input tensor is null", "", static_cast<int>(i), loc);
+                    "null tensor handle", "", static_cast<int>(i), loc);
             }
             if (t.dtype() != dtype || t.shape() != item_shape) {
                 throw Error::Wrapper(TF_INVALID_ARGUMENT, "Session::BatchRunStacked",

@@ -27,6 +27,7 @@
 #include <memory>
 #include <new>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -235,14 +236,18 @@ public:
 
     [[nodiscard]] reference at(size_type pos) {
         if (pos >= size_) {
-            throw std::out_of_range("SmallVector::at: index out of range");
+            throw std::out_of_range(
+                "SmallVector::at: index " + std::to_string(pos) + 
+                " out of range (size " + std::to_string(size_) + ")");
         }
         return data_[pos];
     }
 
     [[nodiscard]] const_reference at(size_type pos) const {
         if (pos >= size_) {
-            throw std::out_of_range("SmallVector::at: index out of range");
+            throw std::out_of_range(
+                "SmallVector::at: index " + std::to_string(pos) + 
+                " out of range (size " + std::to_string(size_) + ")");
         }
         return data_[pos];
     }

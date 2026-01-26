@@ -269,3 +269,44 @@ TEST_CASE("Tensor::reshape preserves data after root destroyed") {
     CHECK(view[3] == 40.0f);
 }
 
+// ============================================================================
+// P3: resolve() index overflow protection
+// ============================================================================
+
+TEST_CASE("Session::resolve handles large index gracefully") {
+    auto tiny = MakeTinyGraph();
+    tf_wrap::Session sess(tiny.g);
+    
+    // Normal case works
+    auto out = sess.resolve("x:0");
+    CHECK(out.oper != nullptr);
+    CHECK(out.index == 0);
+    
+    // Out of range index throws (but doesn't overflow/crash)
+    CHECK_THROWS_AS(sess.resolve("x:999"), tf_wrap::Error);
+}
+
+// ============================================================================
+// P3-9: SmallVector::at() error message includes context
+// ============================================================================
+
+TEST_CASE("SmallVector::at() error message includes index and size") {
+    tf_wrap::SmallVector<int, 4> vec{1, 2, 3};
+    
+    // Valid access works
+    CHECK(vec.at(0) == 1);
+    CHECK(vec.at(2) == 3);
+    
+    // Invalid access throws with context
+    bool caught = false;
+    try {
+        (void)vec.at(10);
+    } catch (const std::out_of_range& e) {
+        caught = true;
+        std::string msg = e.what();
+        // Should contain index and size
+        CHECK(msg.find("10") != std::string::npos);
+        CHECK(msg.find("3") != std::string::npos);
+    }
+    CHECK(caught);
+}
