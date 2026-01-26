@@ -4,15 +4,15 @@
 
 #include "tf_wrap/core.hpp"
 
-#include <vector>
 #include <cstdlib>
+#include <vector>
 
 int main()
 {
     try {
         tf_wrap::Graph g;
 
-        // Const A - Use initializer_list overload (both args must be init lists)
+        // Const A
         {
             auto a_tensor = tf_wrap::Tensor::FromVector<float>({2}, {1.0f, 2.0f});
             (void)g.NewOperation("Const", "A")
@@ -30,37 +30,36 @@ int main()
                 .Finish();
         }
 
-        // Add A + B - Use tf_wrap::Output helper
+        // Add A + B
         {
             TF_Operation* op_a = g.GetOperationOrThrow("A");
             TF_Operation* op_b = g.GetOperationOrThrow("B");
-            
+
             (void)g.NewOperation("AddV2", "AddAB")
                 .AddInput(tf_wrap::Output(op_a, 0))
                 .AddInput(tf_wrap::Output(op_b, 0))
+                .SetAttrType("T", TF_FLOAT)
                 .Finish();
         }
 
         tf_wrap::Session s(g);
-        
-        // Run the graph
-        std::vector<tf_wrap::Fetch> fetches = {tf_wrap::Fetch{"AddAB", 0}};
+
+        // Resolve once, then run using handles.
+        std::vector<tf_wrap::Fetch> fetches{tf_wrap::Fetch{s.resolve("AddAB:0")}};
         auto results = s.Run({}, fetches, {});
 
         if (results.size() != 1u) {
             return 1;
         }
 
-        // Extract results using ToVector
         auto v = results[0].ToVector<float>();
-        
         if (v.size() != 2u) {
             return 1;
         }
 
         // Verify: [1, 2] + [10, 20] = [11, 22]
         return (v[0] == 11.0f && v[1] == 22.0f) ? 0 : 1;
-        
+
     } catch (const std::exception&) {
         return 1;
     }

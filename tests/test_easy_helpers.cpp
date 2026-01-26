@@ -329,7 +329,7 @@ TEST_CASE("TensorName::parse fuzz does not crash")
         // Ensure no exceptions escape except the documented ones.
         try
         {
-            (void)tf_wrap::facade::TensorName::parse(s);
+            (void)TensorName::parse(s);
         }
         catch (const std::exception&)
         {

@@ -1,7 +1,9 @@
-// tf/core.hpp
-// Umbrella header for TensorFlow C++20 wrapper
+// tf_wrap/core.hpp
+// Umbrella header for TensorFlow C++20 wrapper - Production Inference Edition
 //
-// Include this single header to get core wrapper functionality (ops are opt-in).
+// Optimized for inference workloads. All APIs are handle-based for maximum
+// performance. Resolve operation names to TF_Output once at startup, then
+// use handles in the hot path.
 
 #pragma once
 
@@ -13,124 +15,101 @@
 #include "tf_wrap/operation.hpp"
 #include "tf_wrap/graph.hpp"
 #include "tf_wrap/session.hpp"
-#include "tf_wrap/facade.hpp" // Ergonomic layer: TensorName, Runner, Model
+#include "tf_wrap/facade.hpp"        // RunnerBuilder, Runner, Model
 
 // ============================================================================
-// TensorFlow C++20 Wrapper - Quick Reference
+// TensorFlow C++20 Wrapper - Production Inference Quick Reference
 // ============================================================================
 //
 // CORE CLASSES:
 // ─────────────────────────────────────────────────────────────────────────────
 //   tf_wrap::Tensor         - RAII wrapper for TF_Tensor
-//   tf_wrap::Graph          - RAII wrapper for TF_Graph
+//   tf_wrap::Graph          - RAII wrapper for TF_Graph (read-only after load)
 //   tf_wrap::Session        - RAII wrapper for TF_Session
-//   tf_wrap::Operation      - Non-owning handle to TF_Operation
-//   tf_wrap::Status         - RAII wrapper for TF_Status
 //   tf_wrap::SessionOptions - RAII wrapper for TF_SessionOptions
+//   tf_wrap::Buffer         - RAII wrapper for TF_Buffer
+//   tf_wrap::Feed           - Input specification (TF_Output + Tensor)
+//   tf_wrap::Fetch          - Output specification (TF_Output)
+//   tf_wrap::Target         - Target operation (TF_Operation*)
+//   tf_wrap::RunContext     - Reusable buffers for zero-allocation hot path
 //
-// UTILITY CLASSES (used internally, available for users):
+// ERGONOMIC LAYER:
 // ─────────────────────────────────────────────────────────────────────────────
-//   tf_wrap::ScopeGuard       - RAII cleanup on scope exit (like Go's defer)
-//   tf_wrap::ScopeGuardOnFail - Cleanup only on exception (for rollback)
-//   tf_wrap::ScopeGuardOnSuccess - Cleanup only on normal exit (for commit)
-//   tf_wrap::SmallVector<T,N> - Stack-optimized vector for small collections
-//
-// ERGONOMIC LAYER (facade.hpp):
-// ─────────────────────────────────────────────────────────────────────────────
-//   tf_wrap::TensorName     - Parse "op:index" strings
-//   tf_wrap::Runner         - Fluent API for session execution
-//   tf_wrap::Model          - High-level SavedModel facade
+//   tf_wrap::RunnerBuilder  - Fluent builder used at startup
+//   tf_wrap::Runner         - Compiled inference signature (fast hot path)
+//   tf_wrap::Model          - High-level SavedModel facade with production features
 //
 // THREAD SAFETY:
 // ─────────────────────────────────────────────────────────────────────────────
 //   Session::Run() is thread-safe (TensorFlow's guarantee)
 //   Graph is frozen after Session creation (immutable)
 //   Tensors are NOT thread-safe - don't share mutably across threads
-//   Runner is NOT thread-safe - do not share a Runner instance across threads
+//   Runner is thread-safe (immutable) once compiled
+//   Runner::Context is NOT thread-safe - use one Context per thread for zero-allocation hot path
 //   For multi-threaded serving, each request should have its own input tensors
+//
+// PRODUCTION USAGE (RECOMMENDED):
+// ─────────────────────────────────────────────────────────────────────────────
+//   // 1. Load model at startup
+//   auto model = tf_wrap::Model::Load("/path/to/saved_model");
+//
+//   // 2. Resolve endpoints ONCE at startup (not per-request!)
+//   auto [input, output] = model.resolve("serving_default_input:0", 
+//                                         "StatefulPartitionedCall:0");
+//
+//   // 3. Warmup to trigger JIT compilation
+//   auto dummy = tf_wrap::Tensor::Zeros<float>({1, 224, 224, 3});
+//   model.warmup(input, dummy, output);
+//
+//   // 4. Hot path - use handles, no string parsing
+//   // 3. Compile a fast inference signature ONCE at startup
+//   auto run = model.runner()
+//       .feed(input)
+//       .fetch(output)
+//       .compile();
+//
+//   // 4. Hot path - treat the signature like a function
+//   while (serving) {
+//       auto input_tensor = get_request_tensor();
+//       auto result = run(input_tensor);   // "wow this is easy"
+//       send_response(std::move(result));
+//   }
+//
+// ZERO-ALLOCATION HOT PATH (OPTIONAL):
+// ─────────────────────────────────────────────────────────────────────────────
+//   tf_wrap::RunContext ctx;  // Create once, reuse
+//   while (serving) {
+//       ctx.reset();
+//       ctx.add_feed(input, get_request_tensor());
+//       ctx.add_fetch(output);
+//       auto results = model.session().Run(ctx);
+//   }
+//
+// BATCH INFERENCE:
+// ─────────────────────────────────────────────────────────────────────────────
+//   // Multiple calls (one TF call per input)
+//   auto results = model.BatchRun(input, input_tensors, output);
+//
+//   // Single call (stack inputs, run once, split outputs)
+//   auto results = model.BatchRunStacked(input, input_tensors, output);
+//
+// INPUT VALIDATION:
+// ─────────────────────────────────────────────────────────────────────────────
+//   // Check dtype matches expected
+//   auto error = model.validate_input(input, tensor);
+//   if (!error.empty()) { /* handle error */ }
+//
+//   // Or throw on mismatch
+//   model.require_valid_input(input, tensor);
 //
 // TENSOR ACCESS:
 // ─────────────────────────────────────────────────────────────────────────────
-//   auto view = tensor.read<float>();   // Read-only view (keeps tensor alive)
-//   auto view = tensor.write<float>();  // Writable view (keeps tensor alive)
+//   auto view = tensor.read<float>();   // Read-only view
+//   auto view = tensor.write<float>();  // Writable view
 //   for (float x : view) { ... }
 //
-//   // Or callback-based:
-//   tensor.with_read<float>([](std::span<const float> s) { ... });
-//   tensor.with_write<float>([](std::span<float> s) { ... });
-//
-//   // Or direct pointer access:
+//   // Or direct pointer access
 //   float* p = tensor.data<float>();
-//
-// BASIC USAGE:
-// ─────────────────────────────────────────────────────────────────────────────
-//   // Build graph
-//   tf_wrap::Graph graph;
-//
-//   auto tensor = tf_wrap::Tensor::FromVector<float>({1, 4}, {1, 2, 3, 4});
-//
-//   auto const_op = graph.NewOperation("Const", "my_const")
-//       .SetAttrTensor("value", tensor.handle())
-//       .SetAttrType("dtype", TF_FLOAT)
-//       .Finish();
-//
-//   graph.NewOperation("Identity", "output")
-//       .AddInput(const_op, 0)
-//       .Finish();
-//
-//   // Run inference
-//   tf_wrap::Session session(graph);
-//   auto results = session.Run({tf_wrap::Fetch{"output", 0}});
-//
-//   // Access results
-//   auto view = results[0].read<float>();
-//   for (float x : view) {
-//       std::cout << x << " ";
-//   }
-//
-// FLUENT RUNNER API (recommended):
-// ─────────────────────────────────────────────────────────────────────────────
-//   tf_wrap::Session session(graph);
-//   auto result = tf_wrap::Runner(session)
-//       .feed("input:0", input_tensor)
-//       .fetch("output:0")
-//       .run_one();
-//
-// LOAD SAVEDMODEL (recommended for production):
-// ─────────────────────────────────────────────────────────────────────────────
-//   auto model = tf_wrap::Model::Load("/path/to/model");
-//   auto result = model("input:0", input_tensor, "output:0");
-//
-//   // Or with runner for multiple inputs/outputs:
-//   auto results = model.runner()
-//       .feed("input1:0", tensor1)
-//       .feed("input2:0", tensor2)
-//       .fetch("output1:0")
-//       .fetch("output2:0")
-//       .run();
-//
-// OPTIONAL OP WRAPPERS:
-// ─────────────────────────────────────────────────────────────────────────────
-//   This core umbrella header intentionally does NOT include the generated op
-//   wrappers. Include what you use:
-//
-//     #include "tf_wrap/ops/math.hpp"
-//     #include "tf_wrap/ops/matrix.hpp"
-//     #include "tf_wrap/ops/array.hpp"
-//
-//   Or include all wrapper categories:
-//
-//     #include "tf_wrap/ops/all.hpp"
-//
-// DTYPE-INFERRED FACADES (optional):
-// ─────────────────────────────────────────────────────────────────────────────
-//   The dtype-inferred graph-building helpers live in tf_wrap/facade_ops.hpp:
-//
-//     #include "tf_wrap/facade_ops.hpp"
-//     using namespace tf_wrap::facade;
-//     auto c1 = Scalar<float>(graph, "c1", 1.0f);
-//     auto c2 = Scalar<float>(graph, "c2", 2.0f);
-//     auto sum = Add(graph, "sum", c1.output(0), c2.output(0));
 //
 // DEVICE ENUMERATION:
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,7 +120,7 @@
 //   }
 //   if (session.HasGPU()) { /* use GPU */ }
 //
-// SCALAR TYPES SUPPORTED:
+// SUPPORTED DTYPES:
 // ─────────────────────────────────────────────────────────────────────────────
 //   float, double
 //   int8_t, int16_t, int32_t, int64_t

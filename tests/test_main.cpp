@@ -270,14 +270,14 @@ TEST_CASE("All scalar types map to TF dtypes") {
 
 TEST_CASE("SessionOptions RAII works") {
     tf_wrap::SessionOptions opts;
-    CHECK(opts.get() != nullptr);
+    CHECK(opts.handle() != nullptr);
 
     tf_wrap::SessionOptions with_data;
-    CHECK(with_data.get() != nullptr);
+    CHECK(with_data.handle() != nullptr);
 
     tf_wrap::SessionOptions moved = std::move(with_data);
-    CHECK(moved.get() != nullptr);
-    CHECK(with_data.get() == nullptr);  // NOLINT: testing moved-from state
+    CHECK(moved.handle() != nullptr);
+    CHECK(with_data.handle() == nullptr);  // NOLINT: testing moved-from state
 }
 
 // ============================================================================
@@ -325,11 +325,11 @@ TEST_CASE("tf_wrap::Output helper creates correct TF_Output") {
 
 TEST_CASE("Buffer RAII works correctly") {
     tf_wrap::Buffer buf;
-    CHECK(buf.get() != nullptr);
+    CHECK(buf.handle() != nullptr);
     
     tf_wrap::Buffer moved = std::move(buf);
-    CHECK(moved.get() != nullptr);
-    CHECK(buf.get() == nullptr);  // NOLINT: testing moved-from state
+    CHECK(moved.handle() != nullptr);
+    CHECK(buf.handle() == nullptr);  // NOLINT: testing moved-from state
 }
 
 TEST_CASE("Graph ToGraphDef serializes graph") {
