@@ -33,6 +33,7 @@ extern "C" {
 #include "tf_wrap/scope_guard.hpp"
 #include "tf_wrap/status.hpp"
 #include "tf_wrap/tensor.hpp"
+#include "tf_wrap/tensor_name.hpp"
 
 namespace tf_wrap {
 
@@ -98,16 +99,31 @@ struct Feed {
 
     // Name-based feeds (backward compatible)
     Feed(std::string name, int idx, TF_Tensor* t)
-        : op_name(std::move(name)), index(idx), tensor(t) {}
+        : tensor(t)
+    {
+        auto parsed = detail::parse_tensor_name(name);
+        if (parsed.had_explicit_index && parsed.index != idx) {
+            throw std::invalid_argument(detail::format(
+                "Feed: conflicting output index for '{}' (name specifies {}, argument specifies {})",
+                name, parsed.index, idx));
+        }
+        op_name = std::move(parsed.op);
+        index = parsed.had_explicit_index ? parsed.index : idx;
+    }
 
     Feed(std::string name, TF_Tensor* t)
-        : op_name(std::move(name)), index(0), tensor(t) {}
+        : tensor(t)
+    {
+        auto parsed = detail::parse_tensor_name(name);
+        op_name = std::move(parsed.op);
+        index = parsed.index;
+    }
 
     Feed(std::string name, int idx, const Tensor& t)
-        : op_name(std::move(name)), index(idx), tensor(t.handle()) {}
+        : Feed(std::move(name), idx, t.handle()) {}
 
     Feed(std::string name, const Tensor& t)
-        : op_name(std::move(name)), index(0), tensor(t.handle()) {}
+        : Feed(std::move(name), t.handle()) {}
 
     // Handle-based feeds (preferred for hot paths)
     Feed(TF_Output out, TF_Tensor* t)
@@ -190,7 +206,23 @@ struct Fetch {
 
     // Name-based fetches (backward compatible)
     Fetch(std::string name, int idx = 0)
-        : op_name(std::move(name)), index(idx) {}
+    {
+        auto parsed = detail::parse_tensor_name(name);
+        op_name = std::move(parsed.op);
+
+        if (parsed.had_explicit_index) {
+            // If the caller also passed an explicit non-zero index, treat that as a conflict.
+            // (idx == 0 may be a default argument, so we cannot reliably distinguish.)
+            if (idx != 0 && idx != parsed.index) {
+                throw std::invalid_argument(detail::format(
+                    "Fetch: conflicting output index for '{}' (name specifies {}, argument specifies {})",
+                    name, parsed.index, idx));
+            }
+            index = parsed.index;
+        } else {
+            index = idx;
+        }
+    }
 
     // Handle-based fetches
     Fetch(TF_Output out)
@@ -395,32 +427,52 @@ public:
         int index = 0,
         std::source_location loc = std::source_location::current()) const
     {
+        detail::ParsedTensorName parsed;
+        try {
+            parsed = detail::parse_tensor_name(op_name);
+        } catch (const std::invalid_argument& e) {
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                "Session::resolve_output",
+                e.what(),
+                op_name, -1, loc);
+        }
+
+        int used_index = parsed.had_explicit_index ? parsed.index : index;
+        if (parsed.had_explicit_index && index != 0 && index != parsed.index) {
+            throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
+                "Session::resolve_output",
+                tf_wrap::detail::format(
+                    "conflicting output indices: name specifies {}, argument specifies {}",
+                    parsed.index, index),
+                parsed.op, parsed.index, loc);
+        }
+
         if (!graph_state_ || !graph_state_->graph) {
             throw tf_wrap::Error::Wrapper(TF_FAILED_PRECONDITION,
                 "Session::resolve_output",
                 "session has no graph",
-                op_name, index, loc);
+                parsed.op, used_index, loc);
         }
         
-        TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, op_name.c_str());
+        TF_Operation* op = TF_GraphOperationByName(graph_state_->graph, parsed.op.c_str());
         if (!op) {
             throw tf_wrap::Error::Wrapper(TF_NOT_FOUND,
                 "Session::resolve_output",
                 "operation not found in graph",
-                op_name, index, loc);
+                parsed.op, used_index, loc);
         }
         
         const int num_outputs = TF_OperationNumOutputs(op);
-        if (index < 0 || index >= num_outputs) {
+        if (used_index < 0 || used_index >= num_outputs) {
             throw tf_wrap::Error::Wrapper(TF_OUT_OF_RANGE,
                 "Session::resolve_output",
                 tf_wrap::detail::format(
                     "output index {} out of range (has {} outputs, valid indices are 0-{})",
-                    index, num_outputs, num_outputs > 0 ? num_outputs - 1 : 0),
-                op_name, index, loc);
+                    used_index, num_outputs, num_outputs > 0 ? num_outputs - 1 : 0),
+                parsed.op, used_index, loc);
         }
         
-        return TF_Output{op, index};
+        return TF_Output{op, used_index};
     }
     
     

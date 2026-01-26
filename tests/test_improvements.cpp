@@ -184,6 +184,41 @@ TEST_CASE("resolve_output finds existing op") {
     CHECK(output.index == 0);
 }
 
+TEST_CASE("resolve_output parses explicit index suffix") {
+    Graph graph;
+    auto t = Tensor::FromScalar<float>(1.0f);
+    Const(graph, "const", t.handle(), TF_FLOAT);
+
+    Session session(graph);
+
+    // If ":1" were treated as part of the op name, this would be NOT_FOUND.
+    // With tensor-name parsing, this resolves op "const" and then fails
+    // bounds-checking with OUT_OF_RANGE.
+    try {
+        (void)session.resolve_output("const:1");
+        FAIL("Expected resolve_output(const:1) to throw");
+    } catch (const tf_wrap::Error& e) {
+        CHECK(e.code() == TF_OUT_OF_RANGE);
+        CHECK(e.op_name() == "const");
+        CHECK(e.index() == 1);
+    }
+}
+
+TEST_CASE("resolve_output detects conflicting indices") {
+    Graph graph;
+    auto t = Tensor::FromScalar<float>(1.0f);
+    Const(graph, "const", t.handle(), TF_FLOAT);
+
+    Session session(graph);
+
+    try {
+        (void)session.resolve_output("const:0", 1);
+        FAIL("Expected resolve_output(const:0, 1) to throw");
+    } catch (const tf_wrap::Error& e) {
+        CHECK(e.code() == TF_INVALID_ARGUMENT);
+    }
+}
+
 TEST_CASE("resolve_output throws for nonexistent op") {
     Graph graph;
     Session session(graph);
@@ -240,6 +275,31 @@ TEST_CASE("Session::Run validates feed indices") {
     CHECK_THROWS_AS(
         session.Run({Feed{"input", 1, input}}, {Fetch{"output", 0}}),
         std::runtime_error);
+}
+
+TEST_CASE("Feed and Fetch parse 'op:index' names") {
+    auto t = Tensor::FromScalar<float>(1.0f);
+
+    Feed f1{"input:3", t};
+    CHECK(f1.op_name == "input");
+    CHECK(f1.index == 3);
+
+    // Colon not followed by digits is treated as part of the op name.
+    Feed f2{"scope/op:name", t};
+    CHECK(f2.op_name == "scope/op:name");
+    CHECK(f2.index == 0);
+
+    Fetch k1{"output:2"};
+    CHECK(k1.op_name == "output");
+    CHECK(k1.index == 2);
+
+    Fetch k2{"scope/op:name", 7};
+    CHECK(k2.op_name == "scope/op:name");
+    CHECK(k2.index == 7);
+
+    // Conflicting explicit indices are rejected (when the caller passes a non-zero idx).
+    CHECK_THROWS_AS((Fetch{"output:0", 1}), std::invalid_argument);
+    CHECK_THROWS_AS((Feed{"input:0", 1, t}), std::invalid_argument);
 }
 
 TEST_CASE("OpResult::output throws for invalid index") {
