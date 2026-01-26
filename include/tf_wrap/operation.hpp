@@ -78,8 +78,21 @@ public:
     }
     
     /// Get output at index (default 0)
-    [[nodiscard]] TF_Output output(int index = 0) const noexcept { 
-        return TF_Output{op_, index}; 
+    ///
+    /// Throws std::out_of_range if index is invalid.
+    [[nodiscard]] TF_Output output(int index = 0) const {
+        const int n = num_outputs();
+        if (index < 0 || index >= n) {
+            throw std::out_of_range(tf_wrap::detail::format(
+                "Operation::output: index {} out of range for '{}' (has {} outputs)",
+                index, name(), n));
+        }
+        return TF_Output{op_, index};
+    }
+
+    /// Get output at index without bounds checking (caller must ensure validity).
+    [[nodiscard]] TF_Output output_unchecked(int index = 0) const noexcept {
+        return TF_Output{op_, index};
     }
     
     /// Get input at index (default 0)
@@ -120,7 +133,7 @@ private:
 }
 
 /// Create TF_Output from Operation wrapper
-[[nodiscard]] inline TF_Output Output(const Operation& op, int index = 0) noexcept {
+[[nodiscard]] inline TF_Output Output(const Operation& op, int index = 0) {
     return op.output(index);
 }
 

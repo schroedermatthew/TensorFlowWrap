@@ -242,6 +242,95 @@ TEST_CASE("Session::Run validates feed indices") {
         std::runtime_error);
 }
 
+TEST_CASE("OpResult::output throws for invalid index") {
+    Graph graph;
+    auto t = Tensor::FromScalar<float>(1.0f);
+    auto c = Const(graph, "c", t.handle(), TF_FLOAT);
+
+    // Const has exactly 1 output
+    CHECK_NOTHROW(c.output(0));
+    CHECK_THROWS_AS(c.output(1), std::out_of_range);
+    CHECK_THROWS_AS(c.output(-1), std::out_of_range);
+
+    // Unchecked variant preserves old behavior
+    CHECK(c.output_unchecked(1).oper == c.op());
+    CHECK(c.output_unchecked(1).index == 1);
+}
+
+TEST_CASE("Operation::output throws for invalid index") {
+    Graph graph;
+    auto t = Tensor::FromScalar<float>(1.0f);
+    auto c = Const(graph, "c", t.handle(), TF_FLOAT);
+
+    Operation op(c.op());
+
+    CHECK_NOTHROW(op.output(0));
+    CHECK_THROWS_AS(op.output(1), std::out_of_range);
+    CHECK_THROWS_AS(op.output(-1), std::out_of_range);
+
+    // Unchecked variant preserves old behavior
+    CHECK(op.output_unchecked(1).oper == op.handle());
+    CHECK(op.output_unchecked(1).index == 1);
+}
+
+} // TEST_SUITE
+
+
+// ============================================================================
+// P0: BatchRunStacked dtype allocation
+// ============================================================================
+
+TEST_SUITE("BatchRunStacked") {
+
+TEST_CASE("BatchRunStacked preserves TF_HALF dtype and raw bytes") {
+    Graph graph;
+
+    // A simple identity graph: input -> output
+    std::vector<std::int64_t> shape = {2};
+    auto ph = Placeholder(graph, "input", TF_HALF, shape);
+    Identity(graph, "output", ph.output(0), TF_HALF);
+
+    Session session(graph);
+
+    auto make_half = [](std::uint16_t a, std::uint16_t b) {
+        std::int64_t dims[1] = {2};
+        const std::size_t bytes = 2 * sizeof(std::uint16_t);
+        TF_Tensor* raw = TF_AllocateTensor(TF_HALF, dims, 1, bytes);
+        REQUIRE(raw != nullptr);
+        auto* p = static_cast<std::uint16_t*>(TF_TensorData(raw));
+        REQUIRE(p != nullptr);
+        p[0] = a;
+        p[1] = b;
+        return Tensor::FromRaw(raw);
+    };
+
+    std::vector<Tensor> inputs;
+    inputs.emplace_back(make_half(0x3C00u, 0x4000u)); // 1.0, 2.0 (IEEE 754 half bits)
+    inputs.emplace_back(make_half(0x0000u, 0xBC00u)); // 0.0, -1.0
+    inputs.emplace_back(make_half(0x3555u, 0x3E00u)); // ~0.333, 1.5
+
+    auto outputs = session.BatchRunStacked("input", inputs, "output");
+    REQUIRE(outputs.size() == inputs.size());
+
+    for (std::size_t i = 0; i < inputs.size(); ++i) {
+        const Tensor& in = inputs[i];
+        const Tensor& out = outputs[i];
+
+        CHECK(out.dtype() == TF_HALF);
+        CHECK(out.shape() == in.shape());
+
+        const std::size_t in_bytes = TF_TensorByteSize(in.handle());
+        const std::size_t out_bytes = TF_TensorByteSize(out.handle());
+        CHECK(out_bytes == in_bytes);
+
+        const void* in_data = TF_TensorData(in.handle());
+        const void* out_data = TF_TensorData(out.handle());
+        REQUIRE(in_data != nullptr);
+        REQUIRE(out_data != nullptr);
+        CHECK(std::memcmp(in_data, out_data, in_bytes) == 0);
+    }
+}
+
 } // TEST_SUITE
 
 // ============================================================================

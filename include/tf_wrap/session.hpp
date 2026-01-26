@@ -456,25 +456,40 @@ public:
         std::span<const std::int64_t> dims,
         std::source_location loc)
     {
-        switch (dtype) {
-        case TF_FLOAT:   return Tensor::Allocate<float>(dims);
-        case TF_DOUBLE:  return Tensor::Allocate<double>(dims);
-        case TF_INT32:   return Tensor::Allocate<std::int32_t>(dims);
-        case TF_INT64:   return Tensor::Allocate<std::int64_t>(dims);
-        case TF_UINT8:   return Tensor::Allocate<std::uint8_t>(dims);
-        case TF_BOOL:    return Tensor::Allocate<bool>(dims);
-        case TF_INT16:   return Tensor::Allocate<std::int16_t>(dims);
-        case TF_INT8:    return Tensor::Allocate<std::int8_t>(dims);
-        case TF_UINT16:  return Tensor::Allocate<std::uint16_t>(dims);
-        case TF_UINT32:  return Tensor::Allocate<std::uint32_t>(dims);
-        case TF_UINT64:  return Tensor::Allocate<std::uint64_t>(dims);
-        case TF_HALF:    return Tensor::Allocate<std::uint16_t>(dims); // raw half bits
-        default:
+        const std::size_t dtype_size = TF_DataTypeSize(dtype);
+        if (dtype_size == 0) {
             throw tf_wrap::Error::Wrapper(TF_INVALID_ARGUMENT,
                 "Session::BatchRunStacked",
-                tf_wrap::detail::format("unsupported dtype {} for stacked batching", static_cast<int>(dtype)),
+                tf_wrap::detail::format(
+                    "variable-length or unsupported dtype {} ({}) for stacked batching",
+                    static_cast<int>(dtype), tf_wrap::dtype_name(dtype)),
                 {}, -1, loc);
         }
+
+        const std::size_t num_elems = detail::checked_product(
+            dims,
+            "Session::BatchRunStacked allocate_by_dtype_");
+        const std::size_t bytes = detail::checked_mul(
+            num_elems,
+            dtype_size,
+            "Session::BatchRunStacked allocate_by_dtype_ bytes");
+
+        const int num_dims = detail::checked_int(
+            dims.size(),
+            "Session::BatchRunStacked allocate_by_dtype_ num_dims");
+        const std::int64_t* dims_ptr = dims.empty() ? nullptr : dims.data();
+
+        TF_Tensor* raw = TF_AllocateTensor(dtype, dims_ptr, num_dims, bytes);
+        if (!raw) {
+            throw tf_wrap::Error::Wrapper(TF_RESOURCE_EXHAUSTED,
+                "Session::BatchRunStacked",
+                tf_wrap::detail::format(
+                    "TF_AllocateTensor failed for dtype {} ({}) with shape {}",
+                    static_cast<int>(dtype), tf_wrap::dtype_name(dtype), detail::shape_to_string(dims)),
+                {}, -1, loc);
+        }
+
+        return Tensor::FromRaw(raw);
     }
 
 // ─────────────────────────────────────────────────────────────────

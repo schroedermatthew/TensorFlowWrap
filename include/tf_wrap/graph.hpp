@@ -466,9 +466,16 @@ public:
         TF_GraphToGraphDef(state_->graph, buf, st.get());
         st.throw_if_error("TF_GraphToGraphDef");
         
-        return std::vector<std::uint8_t>(
-            static_cast<const std::uint8_t*>(buf->data),
-            static_cast<const std::uint8_t*>(buf->data) + buf->length);
+        if (buf->length == 0) {
+            return {};
+        }
+        if (!buf->data) {
+            throw std::runtime_error(
+                "ToGraphDef: TF_GraphToGraphDef returned null data with non-zero length");
+        }
+
+        const auto* p = static_cast<const std::uint8_t*>(buf->data);
+        return std::vector<std::uint8_t>(p, p + buf->length);
     }
     
     [[nodiscard]] std::vector<TF_Operation*> GetOperationsByType(const std::string& op_type) const {
