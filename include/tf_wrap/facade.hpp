@@ -28,6 +28,8 @@
 #include "tf_wrap/graph.hpp"
 #include "tf_wrap/session.hpp"
 #include "tf_wrap/tensor.hpp"
+#include "tf_wrap/detail/raw_tensor_ptr.hpp"
+#include "tf_wrap/tensor_name.hpp"
 
 namespace tf_wrap {
 namespace facade {
@@ -44,72 +46,11 @@ struct TensorName {
     /// Parse a tensor name string like "op_name:0" or "op_name"
     /// Throws std::invalid_argument on parse errors
     [[nodiscard]] static TensorName parse(std::string_view s) {
+        auto parsed = tf_wrap::detail::parse_tensor_name(s);
         TensorName result;
-        
-        // Trim whitespace
-        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) {
-            s.remove_prefix(1);
-        }
-        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) {
-            s.remove_suffix(1);
-        }
-        
-        if (s.empty()) {
-            throw std::invalid_argument("TensorName::parse: empty string");
-        }
-        
-        // Find the last colon
-        const auto colon_pos = s.rfind(':');
-        
-        if (colon_pos == std::string_view::npos) {
-            // No colon - just op name
-            result.op = std::string(s);
-            result.index = 0;
-            result.had_explicit_index = false;
-        } else if (colon_pos == 0) {
-            // Colon at start - invalid
-            throw std::invalid_argument("TensorName::parse: empty operation name");
-        } else if (colon_pos == s.size() - 1) {
-            // Colon at end with nothing after
-            throw std::invalid_argument("TensorName::parse: missing index after colon");
-        } else {
-            // Has colon - check if everything after is a valid non-negative integer
-            std::string_view index_part = s.substr(colon_pos + 1);
-            
-            // Check all digits
-            bool all_digits = !index_part.empty() && 
-                std::all_of(index_part.begin(), index_part.end(), 
-                    [](unsigned char c) { return std::isdigit(c); });
-            
-            if (all_digits) {
-                result.op = std::string(s.substr(0, colon_pos));
-                
-                // Parse the index
-                int idx = 0;
-                auto [ptr, ec] = std::from_chars(
-                    index_part.data(), 
-                    index_part.data() + index_part.size(), 
-                    idx);
-                
-                if (ec != std::errc{} || ptr != index_part.data() + index_part.size()) {
-                    throw std::invalid_argument(tf_wrap::detail::format(
-                        "TensorName::parse: invalid index '{}'", index_part));
-                }
-                
-                result.index = idx;
-                result.had_explicit_index = true;
-            } else {
-                // Colon is part of the op name (e.g. "scope/op:name")
-                result.op = std::string(s);
-                result.index = 0;
-                result.had_explicit_index = false;
-            }
-        }
-        
-        if (result.op.empty()) {
-            throw std::invalid_argument("TensorName::parse: empty operation name");
-        }
-        
+        result.op = std::move(parsed.op);
+        result.index = parsed.index;
+        result.had_explicit_index = parsed.had_explicit_index;
         return result;
     }
     
@@ -248,7 +189,10 @@ public:
     /// Add a feed (input tensor)
     Runner& feed(Endpoint endpoint, const Tensor& tensor) & {
         TF_Output output = resolve(endpoint);
-        feeds_.push_back({output, tensor.handle()});
+        if (!tensor.handle()) {
+            throw std::invalid_argument("Runner::feed: null tensor handle");
+        }
+        feeds_.push_back(FeedEntry{output, tensor.handle(), tensor.keepalive()});
         return *this;
     }
     
@@ -258,8 +202,11 @@ public:
     
     /// Add a feed from raw TF_Tensor*
     Runner& feed(Endpoint endpoint, TF_Tensor* tensor) & {
+        if (!tensor) {
+            throw std::invalid_argument("Runner::feed: null TF_Tensor*");
+        }
         TF_Output output = resolve(endpoint);
-        feeds_.push_back({output, tensor});
+        feeds_.push_back(FeedEntry{output, tensor, {}});
         return *this;
     }
     
@@ -301,9 +248,9 @@ public:
         input_ops.reserve(feeds_.size());
         input_vals.reserve(feeds_.size());
         
-        for (const auto& [output, tensor] : feeds_) {
-            input_ops.push_back(output);
-            input_vals.push_back(tensor);
+        for (const auto& f : feeds_) {
+            input_ops.push_back(f.output);
+            input_vals.push_back(f.tensor);
         }
         
         std::vector<TF_Tensor*> output_vals(fetches_.size(), nullptr);
@@ -317,21 +264,29 @@ public:
             targets_.data(), detail::checked_int(targets_.size(), "Runner::run targets"),
             run_metadata_ ? run_metadata_->handle() : nullptr,  // run_metadata
             st.handle());
-        
         // Take ownership of output tensors for exception safety
-        struct TensorDeleter {
-            void operator()(TF_Tensor* t) const noexcept {
-                if (t) TF_DeleteTensor(t);
-            }
-        };
-        std::vector<std::unique_ptr<TF_Tensor, TensorDeleter>> owned;
+        using RawTensorPtr = tf_wrap::detail::RawTensorPtr;
+        std::vector<RawTensorPtr> owned;
         owned.reserve(output_vals.size());
         for (auto* t : output_vals) {
             owned.emplace_back(t);
         }
         
         st.throw_if_error("Runner::run");
-        
+
+        for (std::size_t i = 0; i < owned.size(); ++i) {
+            if (!owned[i]) {
+                const TF_Output out = fetches_[i];
+                const char* op_name = out.oper ? TF_OperationName(out.oper) : nullptr;
+                throw tf_wrap::Error::Wrapper(
+                    TF_INTERNAL,
+                    "Runner::run",
+                    "fetch returned null tensor",
+                    op_name ? op_name : "",
+                    out.index);
+            }
+        }
+
         std::vector<Tensor> results;
         results.reserve(owned.size());
         for (auto& p : owned) {
@@ -366,30 +321,70 @@ private:
     const Buffer* run_options_{nullptr};
     Buffer* run_metadata_{nullptr};
     
-    std::vector<std::pair<TF_Output, TF_Tensor*>> feeds_;
+    struct FeedEntry {
+        TF_Output output{nullptr, 0};
+        TF_Tensor* tensor{nullptr};
+        std::shared_ptr<const void> keepalive{};
+    };
+
+    std::vector<FeedEntry> feeds_;
     std::vector<TF_Output> fetches_;
     std::vector<TF_Operation*> targets_;
     
     // Per-runner resolution cache (Runner is single-use, not thread-safe)
-    mutable std::unordered_map<std::string, TF_Output> cache_;
+    struct CacheKey {
+        std::string op;
+        int index{0};
+
+        friend bool operator==(const CacheKey& a, const CacheKey& b) noexcept {
+            return a.index == b.index && a.op == b.op;
+        }
+    };
+
+    struct CacheKeyHash {
+        std::size_t operator()(const CacheKey& k) const noexcept {
+            std::size_t h1 = std::hash<std::string>{}(k.op);
+            std::size_t h2 = std::hash<int>{}(k.index);
+            // Hash combine (boost-style)
+            return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
+        }
+    };
+
+    mutable std::unordered_map<CacheKey, TF_Output, CacheKeyHash> cache_;
     
+    [[nodiscard]] static TF_Output validate_output_(TF_Output out, const char* context) {
+        if (!out.oper) {
+            throw std::invalid_argument(tf_wrap::detail::format(
+                "{}: null TF_Operation*", context));
+        }
+        const int n = TF_OperationNumOutputs(out.oper);
+        if (out.index < 0 || out.index >= n) {
+            const char* name = TF_OperationName(out.oper);
+            throw std::out_of_range(tf_wrap::detail::format(
+                "{}: output index {} out of range for operation '{}' (has {} outputs)",
+                context, out.index, name ? name : "", n));
+        }
+        return out;
+    }
+
     TF_Output resolve(const Endpoint& endpoint) const {
         if (endpoint.is_resolved()) {
-            return endpoint.as_output();
+            return validate_output_(endpoint.as_output(), "Runner::resolve");
         }
-        
+
         const TensorName& name = endpoint.as_name();
-        const std::string key = name.to_string();
-        
+        CacheKey key{name.op, name.index};
+
         auto it = cache_.find(key);
         if (it != cache_.end()) {
             return it->second;
         }
-        
+
         TF_Output output = name.to_output(graph_);
-        cache_[key] = output;
+        cache_.emplace(std::move(key), output);
         return output;
     }
+
 };
 
 // ============================================================================
@@ -419,6 +414,8 @@ public:
             m.session_ = std::make_unique<Session>(std::move(session));
             m.graph_ = std::make_unique<Graph>(std::move(graph));
             return m;
+        } catch (const tf_wrap::Error&) {
+            throw;
         } catch (const std::exception& e) {
             throw std::runtime_error(tf_wrap::detail::format(
                 "Model::Load: failed to load SavedModel from '{}': {} (check the directory exists and contains saved_model.pb)",

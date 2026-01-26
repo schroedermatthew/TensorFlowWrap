@@ -468,7 +468,13 @@ private:
             throw std::length_error("SmallVector::grow: capacity overflow");
         }
         
-        const size_type new_cap = std::max(min_capacity, capacity_ * 2);
+        const size_type doubled = (capacity_ <= max_size() / 2)
+            ? capacity_ * 2
+            : max_size();
+        const size_type new_cap = std::max(min_capacity, doubled);
+        if (new_cap > max_size()) {
+            throw std::length_error("SmallVector::grow: capacity overflow");
+        }
         T* new_data = static_cast<T*>(::operator new(new_cap * sizeof(T)));
         
         // Move elements to new storage

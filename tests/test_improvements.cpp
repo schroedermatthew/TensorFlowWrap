@@ -16,6 +16,7 @@
 #include "tf_wrap/ops/cast.hpp"
 
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -566,6 +567,24 @@ TEST_CASE("Runner validates endpoints") {
     CHECK_THROWS(facade::Runner(session).fetch("c:5").run());
 }
 
+
+TEST_CASE("Runner validates resolved TF_Output endpoints") {
+    Graph graph;
+    auto t = Tensor::FromScalar<float>(1.0f);
+    auto c = Const(graph, "c", t.handle(), TF_FLOAT);
+
+    Session session(graph);
+
+    TF_Output c0 = session.resolve_output("c", 0);
+    TF_Output bad = TF_Output{c0.oper, 1}; // Const has exactly 1 output
+
+    CHECK_THROWS_AS(facade::Runner(session).fetch(Endpoint(bad)).run(), std::out_of_range);
+
+    // Null operation pointer should throw invalid_argument
+    TF_Output nullop{nullptr, 0};
+    CHECK_THROWS_AS(facade::Runner(session).fetch(Endpoint(nullop)).run(), std::invalid_argument);
+}
+
 TEST_CASE("Runner run_one throws on wrong fetch count") {
     Graph graph;
     auto t1 = Tensor::FromScalar<float>(1.0f);
@@ -841,5 +860,59 @@ TEST_CASE("Handle-based fetch bounds checking throws") {
     }
 }
 
+
+
+TEST_CASE("Feed constructed from temporary Tensor keeps tensor alive") {
+    struct Flag {
+        bool freed{false};
+    } flag;
+
+    auto dealloc = [](void* data, std::size_t, void* arg) noexcept {
+        static_cast<Flag*>(arg)->freed = true;
+        std::free(data);
+    };
+
+    void* data = std::malloc(sizeof(float));
+    REQUIRE(data != nullptr);
+    *static_cast<float*>(data) = 1.0f;
+
+    {
+        Feed f("X:0", Tensor::Adopt(TF_FLOAT, std::vector<std::int64_t>{1}, data, sizeof(float), dealloc, &flag));
+        CHECK_FALSE(flag.freed);
+        (void)f;
+    }
+
+    CHECK(flag.freed);
+}
+
+TEST_CASE("Runner::feed constructed from temporary Tensor keeps tensor alive") {
+    Graph graph;
+    std::vector<std::int64_t> shape = {};
+    auto ph = Placeholder(graph, "input", TF_FLOAT, shape);
+    Identity(graph, "output", ph.output(0), TF_FLOAT);
+
+    Session session(graph);
+
+    struct Flag {
+        bool freed{false};
+    } flag;
+
+    auto dealloc = [](void* data, std::size_t, void* arg) noexcept {
+        static_cast<Flag*>(arg)->freed = true;
+        std::free(data);
+    };
+
+    void* data = std::malloc(sizeof(float));
+    REQUIRE(data != nullptr);
+    *static_cast<float*>(data) = 2.0f;
+
+    {
+        facade::Runner r(session);
+        r.feed("input:0", Tensor::Adopt(TF_FLOAT, std::vector<std::int64_t>{}, data, sizeof(float), dealloc, &flag));
+        CHECK_FALSE(flag.freed);
+    }
+
+    CHECK(flag.freed);
+}
 } // TEST_SUITE
 

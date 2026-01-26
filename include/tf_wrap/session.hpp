@@ -33,6 +33,7 @@ extern "C" {
 #include "tf_wrap/scope_guard.hpp"
 #include "tf_wrap/status.hpp"
 #include "tf_wrap/tensor.hpp"
+#include "tf_wrap/detail/raw_tensor_ptr.hpp"
 #include "tf_wrap/tensor_name.hpp"
 
 namespace tf_wrap {
@@ -92,6 +93,7 @@ struct Feed {
     std::string op_name;
     int index{0};
     TF_Tensor* tensor{nullptr};
+    std::shared_ptr<const void> keepalive{};
 
     // Optional pre-resolved output handle (avoids string lookup in Session::Run).
     TF_Output output{nullptr, 0};
@@ -120,29 +122,46 @@ struct Feed {
     }
 
     Feed(std::string name, int idx, const Tensor& t)
-        : Feed(std::move(name), idx, t.handle()) {}
+        : tensor(t.handle()), keepalive(t.keepalive())
+    {
+        auto parsed = detail::parse_tensor_name(name);
+        if (parsed.had_explicit_index && parsed.index != idx) {
+            throw std::invalid_argument(detail::format(
+                "Feed: conflicting output index for '{}' (name specifies {}, argument specifies {})",
+                name, parsed.index, idx));
+        }
+        op_name = std::move(parsed.op);
+        index = parsed.had_explicit_index ? parsed.index : idx;
+    }
+
 
     Feed(std::string name, const Tensor& t)
-        : Feed(std::move(name), t.handle()) {}
+        : tensor(t.handle()), keepalive(t.keepalive())
+    {
+        auto parsed = detail::parse_tensor_name(name);
+        op_name = std::move(parsed.op);
+        index = parsed.index;
+    }
+
 
     // Handle-based feeds (preferred for hot paths)
     Feed(TF_Output out, TF_Tensor* t)
         : op_name(), index(out.index), tensor(t), output(out), has_output(true) {}
 
     Feed(TF_Output out, const Tensor& t)
-        : Feed(out, t.handle()) {}
+        : op_name(), index(out.index), tensor(t.handle()), keepalive(t.keepalive()), output(out), has_output(true) {}
 
     Feed(TF_Operation* op, int idx, TF_Tensor* t)
         : Feed(TF_Output{op, idx}, t) {}
 
     Feed(TF_Operation* op, int idx, const Tensor& t)
-        : Feed(TF_Output{op, idx}, t.handle()) {}
+        : Feed(TF_Output{op, idx}, t) {}
 
     Feed(TF_Operation* op, TF_Tensor* t)
         : Feed(TF_Output{op, 0}, t) {}
 
     Feed(TF_Operation* op, const Tensor& t)
-        : Feed(TF_Output{op, 0}, t.handle()) {}
+        : Feed(TF_Output{op, 0}, t) {}
 };
 
 // ============================================================================
@@ -647,13 +666,7 @@ std::vector<Tensor> Run(
             target_ops.data(), num_targets,
             run_metadata,
             st.get());
-
-        struct TensorDeleter {
-            void operator()(TF_Tensor* t) const noexcept {
-                if (t) TF_DeleteTensor(t);
-            }
-        };
-        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+        using RawTensorPtr = tf_wrap::detail::RawTensorPtr;
 
         std::vector<RawTensorPtr> owned;
         owned.reserve(output_vals.size());
@@ -761,13 +774,7 @@ std::vector<Tensor> Run(
 
         std::vector<Tensor> results;
         results.reserve(inputs.size());
-
-        struct TensorDeleter {
-            void operator()(TF_Tensor* t) const noexcept {
-                if (t) TF_DeleteTensor(t);
-            }
-        };
-        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+        using RawTensorPtr = tf_wrap::detail::RawTensorPtr;
 
         Status st;
         TF_Output input_ops[1] = {in};
@@ -842,13 +849,7 @@ std::vector<Tensor> Run(
 
         std::vector<Tensor> results;
         results.reserve(inputs.size());
-
-        struct TensorDeleter {
-            void operator()(TF_Tensor* t) const noexcept {
-                if (t) TF_DeleteTensor(t);
-            }
-        };
-        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+        using RawTensorPtr = tf_wrap::detail::RawTensorPtr;
 
         Status st;
         TF_Output input_ops[1] = {in};
@@ -1023,13 +1024,7 @@ std::vector<Tensor> Run(
             nullptr, 0,
             nullptr,
             st.get());
-
-        struct TensorDeleter {
-            void operator()(TF_Tensor* t) const noexcept {
-                if (t) TF_DeleteTensor(t);
-            }
-        };
-        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+        using RawTensorPtr = tf_wrap::detail::RawTensorPtr;
         RawTensorPtr owned(output_vals[0]);
 
         st.throw_if_error("TF_SessionRun (BatchRunStacked)", loc);
@@ -1275,13 +1270,7 @@ std::vector<Tensor> PartialRun(
             output_ops.data(), output_vals.data(), num_outputs,
             target_ops.data(), num_targets,
             st.get());
-
-        struct TensorDeleter {
-            void operator()(TF_Tensor* t) const noexcept {
-                if (t) TF_DeleteTensor(t);
-            }
-        };
-        using RawTensorPtr = std::unique_ptr<TF_Tensor, TensorDeleter>;
+        using RawTensorPtr = tf_wrap::detail::RawTensorPtr;
 
         std::vector<RawTensorPtr> owned;
         owned.reserve(output_vals.size());

@@ -328,6 +328,14 @@ public:
     [[nodiscard]] explicit operator bool() const noexcept { return state_->tensor != nullptr; }
     [[nodiscard]] TF_Tensor* handle() const noexcept { return state_->tensor; }
 
+    /// Return a keepalive handle that extends the lifetime of the underlying TF_Tensor.
+    ///
+    /// This is primarily intended for APIs (e.g. Feed/Runner) that store raw TF_Tensor* pointers
+    /// but must ensure the tensor remains alive.
+    [[nodiscard]] std::shared_ptr<const void> keepalive() const noexcept {
+        return std::static_pointer_cast<const void>(state_);
+    }
+
 
     // ─────────────────────────────────────────────────────────────────
     // Shape helpers
