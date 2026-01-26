@@ -80,52 +80,108 @@ public:
         TF_SetStatus(st_, TF_OK, "");
     }
 
+    void set(TF_Code code, const char* msg = "") noexcept {
+        TF_SetStatus(st_, code, msg ? msg : "");
+    }
+
+    void set(TF_Code code, const std::string& msg) noexcept {
+        TF_SetStatus(st_, code, msg.c_str());
+    }
+
+    /// Set status with string_view - makes owned copy for null-termination safety
+    void set(TF_Code code, std::string_view msg) {
+        if (msg.empty()) {
+            TF_SetStatus(st_, code, "");
+            return;
+        }
+        std::string tmp(msg);
+        TF_SetStatus(st_, code, tmp.c_str());
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // Error handling
     // ─────────────────────────────────────────────────────────────────
 
-    void throw_if_error(const char* context,
-                        std::source_location loc = std::source_location::current()) const
+    void throw_if_error(
+        std::string_view context = "",
+        std::source_location loc = std::source_location::current()) const
     {
         if (ok()) return;
-        throw Error::from_status(*this, context, loc);
+
+        throw tf_wrap::Error::TensorFlow(code(),
+            context,
+            message(),
+            loc);
     }
 
-    void throw_if_error(const std::string& context,
-                        std::source_location loc = std::source_location::current()) const
+    void ThrowIfNotOK(
+        std::string_view context = "",
+        std::source_location loc = std::source_location::current()) const
     {
-        throw_if_error(context.c_str(), loc);
+        throw_if_error(context, loc);
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // Code name helper
+    // Static helpers
     // ─────────────────────────────────────────────────────────────────
 
-    [[nodiscard]] static const char* code_to_string(TF_Code code) noexcept {
+    [[nodiscard]] static constexpr const char* code_to_string(TF_Code code) noexcept {
         switch (code) {
-        case TF_OK: return "TF_OK";
-        case TF_CANCELLED: return "TF_CANCELLED";
-        case TF_UNKNOWN: return "TF_UNKNOWN";
-        case TF_INVALID_ARGUMENT: return "TF_INVALID_ARGUMENT";
-        case TF_DEADLINE_EXCEEDED: return "TF_DEADLINE_EXCEEDED";
-        case TF_NOT_FOUND: return "TF_NOT_FOUND";
-        case TF_ALREADY_EXISTS: return "TF_ALREADY_EXISTS";
-        case TF_PERMISSION_DENIED: return "TF_PERMISSION_DENIED";
-        case TF_UNAUTHENTICATED: return "TF_UNAUTHENTICATED";
-        case TF_RESOURCE_EXHAUSTED: return "TF_RESOURCE_EXHAUSTED";
-        case TF_FAILED_PRECONDITION: return "TF_FAILED_PRECONDITION";
-        case TF_ABORTED: return "TF_ABORTED";
-        case TF_OUT_OF_RANGE: return "TF_OUT_OF_RANGE";
-        case TF_UNIMPLEMENTED: return "TF_UNIMPLEMENTED";
-        case TF_INTERNAL: return "TF_INTERNAL";
-        case TF_UNAVAILABLE: return "TF_UNAVAILABLE";
-        case TF_DATA_LOSS: return "TF_DATA_LOSS";
-        default: return "TF_<unknown>";
+            case TF_OK:                  return "OK";
+            case TF_CANCELLED:           return "CANCELLED";
+            case TF_UNKNOWN:             return "UNKNOWN";
+            case TF_INVALID_ARGUMENT:    return "INVALID_ARGUMENT";
+            case TF_DEADLINE_EXCEEDED:   return "DEADLINE_EXCEEDED";
+            case TF_NOT_FOUND:           return "NOT_FOUND";
+            case TF_ALREADY_EXISTS:      return "ALREADY_EXISTS";
+            case TF_PERMISSION_DENIED:   return "PERMISSION_DENIED";
+            case TF_UNAUTHENTICATED:     return "UNAUTHENTICATED";
+            case TF_RESOURCE_EXHAUSTED:  return "RESOURCE_EXHAUSTED";
+            case TF_FAILED_PRECONDITION: return "FAILED_PRECONDITION";
+            case TF_ABORTED:             return "ABORTED";
+            case TF_OUT_OF_RANGE:        return "OUT_OF_RANGE";
+            case TF_UNIMPLEMENTED:       return "UNIMPLEMENTED";
+            case TF_INTERNAL:            return "INTERNAL";
+            case TF_UNAVAILABLE:         return "UNAVAILABLE";
+            case TF_DATA_LOSS:           return "DATA_LOSS";
+            default:                     return "UNKNOWN_CODE";
         }
     }
 
 private:
     TF_Status* st_{nullptr};
 };
+
+// ============================================================================
+// Free function helpers
+// ============================================================================
+
+inline void throw_if_error(
+    const Status& st,
+    std::string_view context = "",
+    std::source_location loc = std::source_location::current())
+{
+    st.throw_if_error(context, loc);
+}
+
+inline void consume_status(
+    TF_Status* st,
+    std::string_view context = "",
+    std::source_location loc = std::source_location::current())
+{
+    if (!st) return;
+
+    const bool is_ok = TF_GetCode(st) == TF_OK;
+    const char* msg = TF_Message(st);
+    
+    if (!is_ok) {
+        const TF_Code code = TF_GetCode(st);
+        std::string message = msg ? msg : "";
+        TF_DeleteStatus(st);
+        throw tf_wrap::Error::TensorFlow(code, context, message, loc);
+    }
+    
+    TF_DeleteStatus(st);
+}
 
 } // namespace tf_wrap
