@@ -771,10 +771,13 @@ public:
                 nullptr,
                 st.get());
 
+            // Check TF status before accessing output tensor
+            st.throw_if_error("Session::BatchRun", loc);
+
             detail::RawTensorPtr owned(output_vals[0]);
-                if (!owned) {
+            if (!owned) {
                 const char* out_name = TF_OperationName(output.oper);
-                throw Error::Wrapper(TF_INTERNAL, "TF_SessionRun",
+                throw Error::Wrapper(TF_INTERNAL, "Session::BatchRun",
                     "fetch returned null tensor",
                     out_name ? out_name : "", output.index, loc);
             }
@@ -886,6 +889,9 @@ public:
             nullptr, 0,
             nullptr,
             st.get());
+
+        // Check TF status before accessing output tensor
+        st.throw_if_error("Session::BatchRunStacked", loc);
 
         detail::RawTensorPtr out_owned(output_vals[0]);
         if (!out_owned) {

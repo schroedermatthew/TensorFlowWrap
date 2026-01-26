@@ -213,3 +213,59 @@ TEST_CASE("Runner: throws on wrong number of inputs") {
 
     CHECK_THROWS_AS(run(x), tf_wrap::Error);
 }
+
+// ============================================================================
+// P0-1 Fix: reshape keepalive chain flattening
+// ============================================================================
+
+TEST_CASE("Tensor::reshape keepalive chain is flattened (P0-1 fix)") {
+    // Create a tensor and reshape it many times.
+    // Before the fix, this would create an O(n) keepalive chain.
+    // After the fix, all reshaped tensors point directly to the root.
+    
+    auto root = tf_wrap::Tensor::FromVector<float>({6}, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
+    
+    // Chain of reshapes
+    auto r1 = root.reshape({2, 3});
+    auto r2 = r1.reshape({3, 2});
+    auto r3 = r2.reshape({6});
+    auto r4 = r3.reshape({1, 6});
+    auto r5 = r4.reshape({6, 1});
+    
+    // All should be valid and contain the same data
+    CHECK(r5.num_elements() == 6);
+    auto view = r5.read<float>();
+    CHECK(view[0] == 1.0f);
+    CHECK(view[5] == 6.0f);
+    
+    // The fix ensures memory doesn't grow with reshape depth.
+    // We can't directly test the internal keepalive structure, but we can
+    // verify correctness after many reshapes.
+    
+    // Stress test: 1000 reshapes should not cause memory issues
+    tf_wrap::Tensor current = root.reshape({6});
+    for (int i = 0; i < 1000; ++i) {
+        current = current.reshape({6});
+    }
+    CHECK(current.num_elements() == 6);
+    CHECK(current.read<float>()[0] == 1.0f);
+}
+
+TEST_CASE("Tensor::reshape preserves data after root destroyed") {
+    // Verify keepalive works: reshape should keep data alive even after
+    // the original tensor goes out of scope.
+    
+    tf_wrap::Tensor reshaped;
+    {
+        auto root = tf_wrap::Tensor::FromVector<float>({4}, {10.0f, 20.0f, 30.0f, 40.0f});
+        reshaped = root.reshape({2, 2});
+        // root goes out of scope here
+    }
+    
+    // reshaped should still be valid
+    CHECK(reshaped.num_elements() == 4);
+    auto view = reshaped.read<float>();
+    CHECK(view[0] == 10.0f);
+    CHECK(view[3] == 40.0f);
+}
+
