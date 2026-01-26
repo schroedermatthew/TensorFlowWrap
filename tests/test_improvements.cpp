@@ -310,3 +310,30 @@ TEST_CASE("SmallVector::at() error message includes index and size") {
     }
     CHECK(caught);
 }
+
+// ============================================================================
+// Runner hot path stress test
+// ============================================================================
+
+TEST_CASE("Runner hot path: 100 iterations with context reuse") {
+    auto tiny = MakeTinyGraph();
+    auto sess = std::make_shared<tf_wrap::Session>(tiny.g);
+
+    auto run = tf_wrap::RunnerBuilder(sess)
+        .feed("x:0")
+        .feed("y:0")
+        .fetch("sum:0")
+        .compile();
+
+    auto ctx = run.make_context();
+
+    // Simulate serving loop - 100 iterations
+    for (int i = 0; i < 100; ++i) {
+        auto x = tf_wrap::Tensor::FromScalar<float>(static_cast<float>(i));
+        auto y = tf_wrap::Tensor::FromScalar<float>(1.0f);
+        auto results = run.run(ctx, x, y);
+
+        REQUIRE(results.size() == 1);
+        CHECK(results[0].ToScalar<float>() == doctest::Approx(static_cast<float>(i + 1)));
+    }
+}

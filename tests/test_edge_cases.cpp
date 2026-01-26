@@ -161,3 +161,59 @@ TEST_CASE("Session Run with empty fetches") {
         CHECK(msg.find("INVALID_ARGUMENT") != std::string::npos);
     }
 }
+
+TEST_CASE("Session::Run fetches multiple outputs in single call") {
+    tf_wrap::Graph g;
+
+    // Create two independent constants
+    auto t1 = tf_wrap::Tensor::FromScalar<float>(10.0f);
+    (void)g.NewOperation("Const", "const1")
+        .SetAttrTensor("value", t1.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+
+    auto t2 = tf_wrap::Tensor::FromScalar<float>(20.0f);
+    (void)g.NewOperation("Const", "const2")
+        .SetAttrTensor("value", t2.handle())
+        .SetAttrType("dtype", TF_FLOAT)
+        .Finish();
+
+    tf_wrap::Session s(g);
+
+    // Fetch both outputs in single Run call
+    auto results = s.Run({}, F(s, {"const1:0", "const2:0"}), {});
+
+    REQUIRE(results.size() == 2);
+    CHECK(results[0].ToScalar<float>() == doctest::Approx(10.0f));
+    CHECK(results[1].ToScalar<float>() == doctest::Approx(20.0f));
+}
+
+TEST_CASE("ReadView keeps data alive after tensor moved") {
+    auto tensor = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    auto view = tensor.read<float>();
+
+    // Move tensor away
+    tf_wrap::Tensor moved = std::move(tensor);
+    CHECK(!tensor.valid());  // NOLINT: testing moved-from state
+
+    // View should still be valid due to keepalive
+    CHECK(view.size() == 3);
+    CHECK(view[0] == 1.0f);
+    CHECK(view[1] == 2.0f);
+    CHECK(view[2] == 3.0f);
+}
+
+TEST_CASE("Empty tensor operations are safe") {
+    tf_wrap::Tensor empty;
+
+    CHECK_FALSE(empty.valid());
+    CHECK(empty.handle() == nullptr);
+
+    // Clone of empty returns empty
+    auto cloned = empty.Clone();
+    CHECK_FALSE(cloned.valid());
+
+    // Move of empty is safe
+    tf_wrap::Tensor moved = std::move(empty);
+    CHECK_FALSE(moved.valid());
+}
