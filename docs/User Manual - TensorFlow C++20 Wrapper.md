@@ -6,8 +6,8 @@ fatp_components: ["tf_wrap/all", "tf_wrap/tensor", "tf_wrap/graph", "tf_wrap/ses
 topics: ["TensorFlow C API wrapping", "RAII resource management", "tensor memory safety", "graph building", "session execution", "SavedModel loading", "device enumeration"]
 constraints: ["TensorFlow C API lifetime rules", "tensor view lifetime", "exception safety", "moved-from object safety", "graph must outlive session"]
 cxx_standard: "C++20"
-std_equivalent: null
-boost_equivalent: null
+std_equivalent: "None — TensorFlow C++ API (tensorflow/cc/) exists but requires building TensorFlow from source and has unstable ABI"
+boost_equivalent: "None"
 build_modes: ["Debug", "Release"]
 last_verified: "2026-01-24"
 audience: ["C++ developers", "ML engineers", "AI assistants"]
@@ -42,10 +42,11 @@ This manual covers correct usage of the TensorFlow C++20 Wrapper library, includ
 **Primary use case:** Type-safe, RAII-managed TensorFlow inference in C++ applications  
 **Integration pattern:** Header-only; include `<tf_wrap/core.hpp>` and link against TensorFlow C library  
 **Key API:** `tf_wrap::Tensor`, `tf_wrap::Graph`, `tf_wrap::Session`, `tf_wrap::Status`, `tf_wrap::Device`  
-**std equivalent:** None. The TensorFlow C++ API (`tensorflow/cc`) exists but requires building TensorFlow from source  
+**std equivalent:** None — TensorFlow C++ API (`tensorflow/cc`) exists but requires building TensorFlow from source  
 **Migration from std:** N/A — no standard equivalent  
 **Common mistakes:** Holding tensor views across scope boundaries, forgetting to call `Finish()` on operation builders, using wrong dtype template parameter, destroying graph before session  
-**Performance notes:** View-based access avoids copies; `HasGPU()` enables runtime hardware detection
+**Performance notes:** View-based access avoids copies; `HasGPU()` enables runtime hardware detection  
+**Read next:** Migration Guide - TensorFlow C API to TensorFlowWrap
 
 ---
 
@@ -448,12 +449,15 @@ This pattern prevents accidentally extending view lifetime. The span cannot esca
 
 ### Direct Pointer Access
 
-The `data<T>()` method returns a raw pointer for integration with external libraries:
+Some external libraries and legacy APIs require raw pointers rather than views or spans. For these interoperability scenarios, the `data<T>()` method provides direct pointer access. Unlike views, raw pointers do not extend tensor lifetime — you must ensure the tensor remains alive while the pointer is in use:
 
 ```cpp
 float* raw = tensor.data<float>();
 external_library_process(raw, tensor.num_elements());
+// tensor must remain in scope until external_library_process completes
 ```
+
+Prefer views when possible; use raw pointers only for API compatibility with code you cannot modify.
 
 ---
 
@@ -873,11 +877,16 @@ You need features beyond the C API's capabilities, such as custom gradient funct
 
 ## Migration from Raw TensorFlow C API
 
+For comprehensive migration guidance including step-by-step procedures, lifetime models, thread-safety contracts, verification plans, and rollback strategies, see the separate **Migration Guide - TensorFlow C API to TensorFlowWrap**.
+
+This section provides a quick reference for common API mappings.
+
 ### Alternatives
 
-- **TensorFlow C++ API** — Official C++ bindings, requires building TensorFlow from source
-- **TensorFlow Lite C++ API** — Mobile-focused, different model format
-- **ONNX Runtime** — Multi-framework inference, different API style
+- **TensorFlow C API (raw)** — Maximum control, manual lifetime management
+- **TensorFlow C++ API** (`tensorflow/cc/`) — Official C++ bindings, requires building TensorFlow from source, unstable ABI
+- **TensorFlow Lite C++ API** — Mobile/embedded focused, different model format
+- **ONNX Runtime C++ API** — Multi-framework inference, requires ONNX model conversion
 - **PyTorch C++ (LibTorch)** — Alternative framework, requires PyTorch models
 
 ### API Mapping
