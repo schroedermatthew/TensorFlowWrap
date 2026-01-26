@@ -46,6 +46,7 @@
 //   Session::Run() is thread-safe (TensorFlow's guarantee)
 //   Graph is frozen after Session creation (immutable)
 //   Tensors are NOT thread-safe - don't share mutably across threads
+//   Runner is NOT thread-safe - do not share a Runner instance across threads
 //   For multi-threaded serving, each request should have its own input tensors
 //
 // TENSOR ACCESS:
@@ -65,22 +66,22 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //   // Build graph
 //   tf_wrap::Graph graph;
-//   
+//
 //   auto tensor = tf_wrap::Tensor::FromVector<float>({1, 4}, {1, 2, 3, 4});
-//   
+//
 //   auto const_op = graph.NewOperation("Const", "my_const")
 //       .SetAttrTensor("value", tensor.handle())
 //       .SetAttrType("dtype", TF_FLOAT)
 //       .Finish();
-//   
+//
 //   graph.NewOperation("Identity", "output")
 //       .AddInput(const_op, 0)
 //       .Finish();
-//   
+//
 //   // Run inference
 //   tf_wrap::Session session(graph);
 //   auto results = session.Run({tf_wrap::Fetch{"output", 0}});
-//   
+//
 //   // Access results
 //   auto view = results[0].read<float>();
 //   for (float x : view) {
@@ -99,7 +100,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //   auto model = tf_wrap::Model::Load("/path/to/model");
 //   auto result = model("input:0", input_tensor, "output:0");
-//   
+//
 //   // Or with runner for multiple inputs/outputs:
 //   auto results = model.runner()
 //       .feed("input1:0", tensor1)
