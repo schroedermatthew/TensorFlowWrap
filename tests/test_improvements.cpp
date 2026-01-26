@@ -571,7 +571,7 @@ TEST_CASE("Runner validates endpoints") {
 TEST_CASE("Runner validates resolved TF_Output endpoints") {
     Graph graph;
     auto t = Tensor::FromScalar<float>(1.0f);
-    auto c = Const(graph, "c", t.handle(), TF_FLOAT);
+    Const(graph, "c", t.handle(), TF_FLOAT);
 
     Session session(graph);
 
