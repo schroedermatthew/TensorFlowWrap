@@ -239,6 +239,26 @@ jobs:
             -o test_operation
           ./test_operation
 
+      - name: Build and run Lifecycle tests (stub)
+        run: |
+          g++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_lifecycle.cpp \
+            -o test_lifecycle
+          ./test_lifecycle
+
+      - name: Run compile-fail tests
+        run: |
+          chmod +x ${{ env.TEST_DIR }}/run_compile_fail_tests.sh
+          ${{ env.TEST_DIR }}/run_compile_fail_tests.sh \
+            g++-${{ matrix.version }} \
+            ${{ env.INCLUDE_DIR }} \
+            ${{ env.STUB_DIR }}
+
       - name: Build and verify library compilation
         run: |
           g++-${{ matrix.version }} -std=c++20 \
@@ -415,6 +435,27 @@ jobs:
             -o test_operation
           ./test_operation
 
+      - name: Build and run Lifecycle tests (stub)
+        run: |
+          clang++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -Wno-gnu-zero-variadic-macro-arguments \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_lifecycle.cpp \
+            -o test_lifecycle
+          ./test_lifecycle
+
+      - name: Run compile-fail tests
+        run: |
+          chmod +x ${{ env.TEST_DIR }}/run_compile_fail_tests.sh
+          ${{ env.TEST_DIR }}/run_compile_fail_tests.sh \
+            clang++-${{ matrix.version }} \
+            ${{ env.INCLUDE_DIR }} \
+            ${{ env.STUB_DIR }}
+
       - name: Build and verify library compilation
         run: |
           clang++-${{ matrix.version }} -std=c++20 \
@@ -575,6 +616,18 @@ jobs:
             /Fe:test_operation.exe
           test_operation.exe
 
+      - name: Build and run Lifecycle tests (stub)
+        shell: cmd
+        run: |
+          cl /std:c++20 /W4 /WX /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            /I%STUB_DIR% ^
+            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
+            %STUB_DIR%\tf_c_stub.cpp ^
+            %TEST_DIR%\test_lifecycle.cpp ^
+            /Fe:test_lifecycle.exe
+          test_lifecycle.exe
+
       - name: Build and verify library compilation
         shell: cmd
         run: |
@@ -727,6 +780,26 @@ jobs:
             -o test_operation
           ./test_operation
 
+      - name: Build and run Lifecycle tests (stub)
+        run: |
+          clang++ -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_lifecycle.cpp \
+            -o test_lifecycle
+          ./test_lifecycle
+
+      - name: Run compile-fail tests
+        run: |
+          chmod +x ${{ env.TEST_DIR }}/run_compile_fail_tests.sh
+          ${{ env.TEST_DIR }}/run_compile_fail_tests.sh \
+            clang++ \
+            ${{ env.INCLUDE_DIR }} \
+            ${{ env.STUB_DIR }}
+
       - name: Build and verify library compilation
         run: |
           clang++ -std=c++20 \
@@ -870,6 +943,16 @@ jobs:
             ${{ env.TEST_DIR }}/test_operation.cpp \
             -o test_asan_operation
           ./test_asan_operation
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=address -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_lifecycle.cpp \
+            -o test_asan_lifecycle
+          ./test_asan_lifecycle
           echo "✓ ASan passed"
 
       - name: Build and run with UndefinedBehaviorSanitizer
@@ -969,6 +1052,16 @@ jobs:
             ${{ env.TEST_DIR }}/test_operation.cpp \
             -o test_ubsan_operation
           ./test_ubsan_operation
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=undefined -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_lifecycle.cpp \
+            -o test_ubsan_lifecycle
+          ./test_ubsan_lifecycle
           echo "✓ UBSan passed"
 
   # ===========================================================================
