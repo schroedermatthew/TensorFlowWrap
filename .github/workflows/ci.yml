@@ -513,6 +513,104 @@ jobs:
         run: ./test_small_vector_ubsan
 
   # ===========================================================================
+  # Real TensorFlow Integration Test (Multiple Versions)
+  # ===========================================================================
+  real-tensorflow:
+    name: Real TensorFlow ${{ matrix.tf_version }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        tf_version: ["2.13.0", "2.14.0", "2.15.0", "2.16.1", "2.17.1", "2.18.1"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-12 curl
+
+      - name: Download TensorFlow C library
+        run: |
+          echo "Downloading TensorFlow C library v${{ matrix.tf_version }}..."
+          
+          TF_VERSION="${{ matrix.tf_version }}"
+          TF_MAJOR_MINOR=$(echo "$TF_VERSION" | cut -d. -f1,2)
+          
+          if [[ "$TF_MAJOR_MINOR" == "2.16" ]] || [[ "$TF_MAJOR_MINOR" == "2.17" ]] || [[ "$TF_MAJOR_MINOR" == "2.18" ]]; then
+            TF_URL="https://storage.googleapis.com/tensorflow/versions/${TF_VERSION}/libtensorflow-cpu-linux-x86_64.tar.gz"
+          else
+            TF_URL="https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-linux-x86_64-${TF_VERSION}.tar.gz"
+          fi
+          
+          mkdir -p tensorflow_c
+          
+          echo "Fetching from: $TF_URL"
+          curl -fSL --retry 3 "$TF_URL" -o tf.tar.gz
+          tar -xzf tf.tar.gz -C tensorflow_c
+          
+          echo "TensorFlow C library contents:"
+          ls -la tensorflow_c/lib/
+
+      - name: Create test SavedModel with Python
+        run: |
+          echo "Installing TensorFlow Python..."
+          
+          TF_VERSION="${{ matrix.tf_version }}"
+          TF_MAJOR_MINOR=$(echo "$TF_VERSION" | cut -d. -f1,2)
+          
+          if [[ "$TF_MAJOR_MINOR" == "2.16" ]] || [[ "$TF_MAJOR_MINOR" == "2.17" ]] || [[ "$TF_MAJOR_MINOR" == "2.18" ]]; then
+            pip install tensorflow==${{ matrix.tf_version }} --quiet
+          else
+            pip install "numpy<2" tensorflow==${{ matrix.tf_version }} --quiet
+          fi
+          
+          echo "Creating test SavedModel..."
+          python3 << 'PYEOF'
+          import tensorflow as tf
+          import os
+
+          class SimpleModel(tf.Module):
+              @tf.function(input_signature=[tf.TensorSpec(shape=[None], dtype=tf.float32)], autograph=False)
+              def serve(self, x):
+                  return x * 2.0 + 1.0
+
+          model = SimpleModel()
+          
+          result = model.serve(tf.constant([1.0, 2.0, 3.0]))
+          print(f"Test run: [1,2,3] -> {result.numpy()}")
+          
+          export_dir = "test_savedmodel"
+          tf.saved_model.save(model, export_dir, signatures={"serving_default": model.serve})
+          
+          print(f"SavedModel saved to {export_dir}")
+          PYEOF
+          
+          echo "✓ Test SavedModel created"
+
+      - name: Build and run real TF test
+        run: |
+          TF_INCLUDE="tensorflow_c/include"
+          TF_LIB="tensorflow_c/lib"
+          
+          g++-12 -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -I"$TF_INCLUDE" \
+            ${{ env.TEST_DIR }}/test_real_tf_minimal.cpp \
+            -L"$TF_LIB" \
+            -ltensorflow \
+            -Wl,-rpath,"$TF_LIB" \
+            -pthread \
+            -o test_real_tf
+          
+          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
+          ./test_real_tf
+          
+          echo "✓ Real TensorFlow test passed"
+
+  # ===========================================================================
   # CI Success Gate
   # ===========================================================================
   ci-success:
@@ -528,6 +626,7 @@ jobs:
       - utility-tests-windows
       - sanitizer-asan
       - sanitizer-ubsan
+      - real-tensorflow
     if: always()
 
     steps:
@@ -543,6 +642,7 @@ jobs:
           echo "  utility-tests-windows:  ${{ needs.utility-tests-windows.result }}"
           echo "  sanitizer-asan:         ${{ needs.sanitizer-asan.result }}"
           echo "  sanitizer-ubsan:        ${{ needs.sanitizer-ubsan.result }}"
+          echo "  real-tensorflow:        ${{ needs.real-tensorflow.result }}"
           
           if [ "${{ needs.header-check.result }}" != "success" ] || \
              [ "${{ needs.linux-gcc.result }}" != "success" ] || \
@@ -552,7 +652,8 @@ jobs:
              [ "${{ needs.utility-tests.result }}" != "success" ] || \
              [ "${{ needs.utility-tests-windows.result }}" != "success" ] || \
              [ "${{ needs.sanitizer-asan.result }}" != "success" ] || \
-             [ "${{ needs.sanitizer-ubsan.result }}" != "success" ]; then
+             [ "${{ needs.sanitizer-ubsan.result }}" != "success" ] || \
+             [ "${{ needs.real-tensorflow.result }}" != "success" ]; then
             echo "❌ One or more jobs failed"
             exit 1
           fi
