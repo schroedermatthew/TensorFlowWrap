@@ -16,6 +16,13 @@
 
 #pragma once
 
+// GCC 14+ has false positives with -Wstringop-overflow in placement new contexts
+// See: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=110952
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 14
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -563,3 +570,7 @@ template <typename T>
 SmallVector(std::initializer_list<T>) -> SmallVector<T, 8>;
 
 } // namespace tf_wrap
+
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 14
+#pragma GCC diagnostic pop
+#endif
