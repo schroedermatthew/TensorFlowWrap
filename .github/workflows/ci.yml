@@ -614,34 +614,35 @@ jobs:
 
       - name: Build and run tests
         run: |
+          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
+          
           # Tensor tests with real TF
           g++-12 -std=c++20 -O2 \
             -Wall -Wextra -Wpedantic \
             -I${{ env.INCLUDE_DIR }} \
             -Itensorflow_c/include \
-            ${{ env.TEST_DIR }}/test_tensor.cpp \
+            ${{ env.TEST_DIR }}/test_tensor_tf.cpp \
             -Ltensorflow_c/lib \
             -ltensorflow \
             -Wl,-rpath,tensorflow_c/lib \
             -pthread \
-            -o test_tensor
+            -o test_tensor_tf
           
-          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
-          ./test_tensor
+          ./test_tensor_tf
           
           # Session tests with real TF
           g++-12 -std=c++20 -O2 \
             -Wall -Wextra -Wpedantic \
             -I${{ env.INCLUDE_DIR }} \
             -Itensorflow_c/include \
-            ${{ env.TEST_DIR }}/test_session.cpp \
+            ${{ env.TEST_DIR }}/test_session_tf.cpp \
             -Ltensorflow_c/lib \
             -ltensorflow \
             -Wl,-rpath,tensorflow_c/lib \
             -pthread \
-            -o test_session
+            -o test_session_tf
           
-          ./test_session
+          ./test_session_tf
           
           # SavedModel inference tests
           g++-12 -std=c++20 -O2 \
