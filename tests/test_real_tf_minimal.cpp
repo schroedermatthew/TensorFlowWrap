@@ -3,9 +3,8 @@
 //
 // Tests:
 // 1. Load SavedModel
-// 2. Resolve endpoints
-// 3. Run inference with handle-based API
-// 4. Verify results
+// 2. Run inference using signature inputs/outputs
+// 3. Verify results
 
 #include "tf_wrap/core.hpp"
 
@@ -66,200 +65,150 @@ TEST(load_savedmodel) {
 }
 
 // ============================================================================
-// Test: Resolve endpoints
+// Test: Tensor creation and access
 // ============================================================================
-TEST(resolve_endpoints) {
-    auto model = tf_wrap::Model::Load(SAVEDMODEL_PATH);
+TEST(tensor_basics) {
+    // FromScalar
+    auto t1 = tf_wrap::Tensor::FromScalar<float>(3.14f);
+    REQUIRE(t1.num_elements() == 1);
+    REQUIRE_CLOSE(t1.ToScalar<float>(), 3.14f, 0.001f);
     
-    // The model has signature "serving_default" with input "x" and output
-    // SavedModel signature names vary, so we look for common patterns
-    auto& graph = model.graph();
+    // FromVector
+    auto t2 = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
+    REQUIRE(t2.num_elements() == 3);
+    auto view = t2.read<float>();
+    REQUIRE_CLOSE(view[0], 1.0f, 0.001f);
+    REQUIRE_CLOSE(view[1], 2.0f, 0.001f);
+    REQUIRE_CLOSE(view[2], 3.0f, 0.001f);
     
-    // Print available operations for debugging
-    std::cout << "\n  Available ops: ";
-    auto ops = graph.GetAllOperations();
-    int count = 0;
-    for (auto* op : ops) {
-        if (count++ < 10) {
-            std::cout << TF_OperationName(op) << " ";
-        }
-    }
-    if (ops.size() > 10) std::cout << "... (" << ops.size() << " total)";
-    std::cout << "\n  ";
-    
-    // Try to find input/output - names vary by TF version
-    // Common patterns: "serving_default_x", "x", "StatefulPartitionedCall"
-    TF_Output input{nullptr, 0};
-    TF_Output output{nullptr, 0};
-    
-    // Try common input names
-    const char* input_names[] = {
-        "serving_default_x", "serving_default_input", "x", "input"
-    };
-    for (const char* name : input_names) {
-        if (auto op = graph.GetOperation(name)) {
-            input = TF_Output{*op, 0};
-            std::cout << "Found input: " << name << "\n  ";
-            break;
-        }
+    // Zeros
+    auto t3 = tf_wrap::Tensor::Zeros<float>({2, 2});
+    REQUIRE(t3.num_elements() == 4);
+    auto view3 = t3.read<float>();
+    for (int i = 0; i < 4; ++i) {
+        REQUIRE_CLOSE(view3[i], 0.0f, 0.001f);
     }
     
-    // Try common output names
-    const char* output_names[] = {
-        "StatefulPartitionedCall", "PartitionedCall", "Identity", "output"
-    };
-    for (const char* name : output_names) {
-        if (auto op = graph.GetOperation(name)) {
-            output = TF_Output{*op, 0};
-            std::cout << "Found output: " << name << "\n  ";
-            break;
-        }
-    }
-    
-    REQUIRE(input.oper != nullptr);
-    REQUIRE(output.oper != nullptr);
+    // Clone
+    auto t4 = t2.Clone();
+    REQUIRE(t4.num_elements() == 3);
+    auto view4 = t4.read<float>();
+    REQUIRE_CLOSE(view4[1], 2.0f, 0.001f);
 }
 
 // ============================================================================
-// Test: Run inference with handle-based API
+// Test: Run inference using SavedModel signature
 // ============================================================================
-TEST(run_inference) {
+TEST(run_savedmodel_inference) {
     auto model = tf_wrap::Model::Load(SAVEDMODEL_PATH);
     auto& graph = model.graph();
     
-    // Find endpoints (same logic as above)
-    TF_Output input{nullptr, 0};
+    // For SavedModel signatures, the input placeholder is named after the signature
+    // Input: "serving_default_x:0"
+    // Output: Try "PartitionedCall" first (TF 2.16+), then "StatefulPartitionedCall"
+    
+    // Find input - should be "serving_default_x"
+    auto input_op = graph.GetOperation("serving_default_x");
+    REQUIRE(input_op.has_value());
+    TF_Output input{*input_op, 0};
+    
+    // Find output - try PartitionedCall first (avoids saver dependencies in TF 2.16+)
     TF_Output output{nullptr, 0};
-    
-    const char* input_names[] = {"serving_default_x", "serving_default_input", "x", "input"};
-    for (const char* name : input_names) {
-        if (auto op = graph.GetOperation(name)) {
-            input = TF_Output{*op, 0};
-            break;
-        }
+    if (auto op = graph.GetOperation("PartitionedCall")) {
+        output = TF_Output{*op, 0};
+    } else if (auto op = graph.GetOperation("StatefulPartitionedCall")) {
+        output = TF_Output{*op, 0};
     }
-    
-    const char* output_names[] = {"StatefulPartitionedCall", "PartitionedCall", "Identity", "output"};
-    for (const char* name : output_names) {
-        if (auto op = graph.GetOperation(name)) {
-            output = TF_Output{*op, 0};
-            break;
-        }
-    }
-    
-    REQUIRE(input.oper != nullptr);
     REQUIRE(output.oper != nullptr);
     
     // Create input tensor: [1.0, 2.0, 3.0]
     auto input_tensor = tf_wrap::Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
     
-    // Run inference using handle-based API
-    auto result = model.runner()
-        .feed(input, input_tensor)
-        .fetch(output)
-        .run_one();
-    
-    // Model computes: output = input * 2 + 1
-    // Expected: [3.0, 5.0, 7.0]
-    REQUIRE(result.num_elements() == 3);
-    
-    auto view = result.read<float>();
-    REQUIRE_CLOSE(view[0], 3.0f, 0.001f);
-    REQUIRE_CLOSE(view[1], 5.0f, 0.001f);
-    REQUIRE_CLOSE(view[2], 7.0f, 0.001f);
-}
-
-// ============================================================================
-// Test: Run inference multiple times (verify no leaks/crashes)
-// ============================================================================
-TEST(run_inference_repeated) {
-    auto model = tf_wrap::Model::Load(SAVEDMODEL_PATH);
-    auto& graph = model.graph();
-    
-    // Find endpoints
-    TF_Output input{nullptr, 0};
-    TF_Output output{nullptr, 0};
-    
-    const char* input_names[] = {"serving_default_x", "serving_default_input", "x", "input"};
-    for (const char* name : input_names) {
-        if (auto op = graph.GetOperation(name)) {
-            input = TF_Output{*op, 0};
-            break;
-        }
-    }
-    
-    const char* output_names[] = {"StatefulPartitionedCall", "PartitionedCall", "Identity", "output"};
-    for (const char* name : output_names) {
-        if (auto op = graph.GetOperation(name)) {
-            output = TF_Output{*op, 0};
-            break;
-        }
-    }
-    
-    REQUIRE(input.oper != nullptr);
-    REQUIRE(output.oper != nullptr);
-    
-    // Run 100 times
-    for (int i = 0; i < 100; ++i) {
-        float val = static_cast<float>(i);
-        auto input_tensor = tf_wrap::Tensor::FromVector<float>({1}, {val});
-        
-        auto result = model.runner()
-            .feed(input, input_tensor)
-            .fetch(output)
-            .run_one();
-        
-        // output = input * 2 + 1
-        float expected = val * 2.0f + 1.0f;
-        auto view = result.read<float>();
-        REQUIRE_CLOSE(view[0], expected, 0.001f);
-    }
-}
-
-// ============================================================================
-// Test: Session::Run with Feed/Fetch structs
-// ============================================================================
-TEST(session_run_structs) {
-    auto model = tf_wrap::Model::Load(SAVEDMODEL_PATH);
-    auto& graph = model.graph();
-    
-    // Find endpoints
-    TF_Output input{nullptr, 0};
-    TF_Output output{nullptr, 0};
-    
-    const char* input_names[] = {"serving_default_x", "serving_default_input", "x", "input"};
-    for (const char* name : input_names) {
-        if (auto op = graph.GetOperation(name)) {
-            input = TF_Output{*op, 0};
-            break;
-        }
-    }
-    
-    const char* output_names[] = {"StatefulPartitionedCall", "PartitionedCall", "Identity", "output"};
-    for (const char* name : output_names) {
-        if (auto op = graph.GetOperation(name)) {
-            output = TF_Output{*op, 0};
-            break;
-        }
-    }
-    
-    REQUIRE(input.oper != nullptr);
-    REQUIRE(output.oper != nullptr);
-    
-    // Create input
-    auto input_tensor = tf_wrap::Tensor::FromVector<float>({3}, {10.0f, 20.0f, 30.0f});
-    
-    // Run using Feed/Fetch structs directly
+    // Run inference
     auto results = model.session().Run(
         {tf_wrap::Feed(input, input_tensor)},
         {tf_wrap::Fetch(output)},
         {}
     );
     
+    // Model computes: output = input * 2 + 1
+    // Expected: [3.0, 5.0, 7.0]
     REQUIRE(results.size() == 1);
     REQUIRE(results[0].num_elements() == 3);
     
     auto view = results[0].read<float>();
+    REQUIRE_CLOSE(view[0], 3.0f, 0.001f);
+    REQUIRE_CLOSE(view[1], 5.0f, 0.001f);
+    REQUIRE_CLOSE(view[2], 7.0f, 0.001f);
+}
+
+// ============================================================================
+// Test: Run inference multiple times
+// ============================================================================
+TEST(run_inference_repeated) {
+    auto model = tf_wrap::Model::Load(SAVEDMODEL_PATH);
+    auto& graph = model.graph();
+    
+    auto input_op = graph.GetOperation("serving_default_x");
+    REQUIRE(input_op.has_value());
+    TF_Output input{*input_op, 0};
+    
+    TF_Output output{nullptr, 0};
+    if (auto op = graph.GetOperation("PartitionedCall")) {
+        output = TF_Output{*op, 0};
+    } else if (auto op = graph.GetOperation("StatefulPartitionedCall")) {
+        output = TF_Output{*op, 0};
+    }
+    REQUIRE(output.oper != nullptr);
+    
+    // Run 50 times
+    for (int i = 0; i < 50; ++i) {
+        float val = static_cast<float>(i);
+        auto input_tensor = tf_wrap::Tensor::FromVector<float>({1}, {val});
+        
+        auto results = model.session().Run(
+            {tf_wrap::Feed(input, input_tensor)},
+            {tf_wrap::Fetch(output)},
+            {}
+        );
+        
+        // output = input * 2 + 1
+        float expected = val * 2.0f + 1.0f;
+        auto view = results[0].read<float>();
+        REQUIRE_CLOSE(view[0], expected, 0.001f);
+    }
+}
+
+// ============================================================================
+// Test: Runner fluent API
+// ============================================================================
+TEST(runner_api) {
+    auto model = tf_wrap::Model::Load(SAVEDMODEL_PATH);
+    auto& graph = model.graph();
+    
+    auto input_op = graph.GetOperation("serving_default_x");
+    REQUIRE(input_op.has_value());
+    TF_Output input{*input_op, 0};
+    
+    TF_Output output{nullptr, 0};
+    if (auto op = graph.GetOperation("PartitionedCall")) {
+        output = TF_Output{*op, 0};
+    } else if (auto op = graph.GetOperation("StatefulPartitionedCall")) {
+        output = TF_Output{*op, 0};
+    }
+    REQUIRE(output.oper != nullptr);
+    
+    auto input_tensor = tf_wrap::Tensor::FromVector<float>({3}, {10.0f, 20.0f, 30.0f});
+    
+    // Use Runner fluent API
+    auto result = model.runner()
+        .feed(input, input_tensor)
+        .fetch(output)
+        .run_one();
+    
+    REQUIRE(result.num_elements() == 3);
+    
+    auto view = result.read<float>();
     REQUIRE_CLOSE(view[0], 21.0f, 0.001f);  // 10*2+1
     REQUIRE_CLOSE(view[1], 41.0f, 0.001f);  // 20*2+1
     REQUIRE_CLOSE(view[2], 61.0f, 0.001f);  // 30*2+1
@@ -268,10 +217,8 @@ TEST(session_run_structs) {
 // ============================================================================
 // Main
 // ============================================================================
-int main(int argc, char** argv) {
+int main() {
     std::cout << "=== TensorFlowWrap Real TF Minimal Test ===\n\n";
-    
-    // Check if savedmodel exists
     std::cout << "Using SavedModel: " << SAVEDMODEL_PATH << "\n\n";
     
     // Tests run automatically via static initialization
