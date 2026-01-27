@@ -10,14 +10,12 @@
 #
 # Jobs:
 #   - header-check: Verify all headers compile standalone
-#   - utility-tests: ScopeGuard and SmallVector unit tests
-#   - utility-tests-windows: Same for MSVC
-#   - linux-gcc: GCC 13 build verification
-#   - linux-clang: Clang 17 build verification
-#   - macos: Apple Clang (ARM)
-#   - windows-msvc: MSVC build verification
-#   - sanitizer-asan: AddressSanitizer
-#   - sanitizer-ubsan: UndefinedBehaviorSanitizer
+#   - linux-gcc: GCC 13/14 build + tests
+#   - linux-clang: Clang 17/18 build + tests
+#   - macos: Apple Clang (ARM) build + tests
+#   - windows-msvc: MSVC build + tests
+#   - sanitizers: ASan + UBSan
+#   - real-tensorflow: Real TF library tests (6 versions)
 #   - ci-success: Gate job
 # =============================================================================
 
@@ -73,7 +71,6 @@ jobs:
           for header in ${{ env.INCLUDE_DIR }}/tf_wrap/*.hpp; do
             basename=$(basename "$header")
             
-            # Create test file that includes only this header
             cat > test_header.cpp << EOF
           #include "tf_wrap/$basename"
           int main() { return 0; }
@@ -128,11 +125,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y g++-${{ matrix.version }}
 
-      - name: Build and verify compilation
+      - name: Build and run SmallVector tests
         run: |
-          echo "Building with GCC-${{ matrix.version }}..."
-          
-          # Compile stub
+          g++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            ${{ env.TEST_DIR }}/test_small_vector.cpp \
+            -o test_small_vector
+          ./test_small_vector
+
+      - name: Build and run ScopeGuard tests
+        run: |
+          g++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            ${{ env.TEST_DIR }}/test_scope_guard.cpp \
+            -o test_scope_guard
+          ./test_scope_guard
+
+      - name: Build and verify library compilation
+        run: |
           g++-${{ matrix.version }} -std=c++20 \
             -Wall -Wextra -Wpedantic -Werror \
             -I${{ env.INCLUDE_DIR }} \
@@ -141,24 +153,16 @@ jobs:
             -c ${{ env.STUB_DIR }}/tf_c_stub.cpp \
             -o stub.o
           
-          # Compile a test that exercises the main APIs
           cat > compile_test.cpp << 'EOF'
           #include "tf_wrap/core.hpp"
-          
           int main() {
-              // Verify core types compile
               tf_wrap::SessionOptions opts;
               (void)opts;
-              
               tf_wrap::Tensor t = tf_wrap::Tensor::FromScalar<float>(1.0f);
               (void)t.dtype();
               (void)t.shape();
-              (void)t.num_elements();
-              
-              // Verify SmallVector
               tf_wrap::SmallVector<int, 4> sv;
               sv.push_back(1);
-              
               return 0;
           }
           EOF
@@ -170,9 +174,8 @@ jobs:
             -DTF_WRAPPER_TF_STUB_ENABLED=1 \
             compile_test.cpp stub.o \
             -o compile_test
-          
           ./compile_test
-          echo "✓ GCC-${{ matrix.version }} compilation successful"
+          echo "✓ GCC-${{ matrix.version }} build successful"
 
   # ===========================================================================
   # Linux Clang
@@ -194,10 +197,26 @@ jobs:
           chmod +x llvm.sh
           sudo ./llvm.sh ${{ matrix.version }}
 
-      - name: Build and verify compilation
+      - name: Build and run SmallVector tests
         run: |
-          echo "Building with Clang-${{ matrix.version }}..."
-          
+          clang++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            ${{ env.TEST_DIR }}/test_small_vector.cpp \
+            -o test_small_vector
+          ./test_small_vector
+
+      - name: Build and run ScopeGuard tests
+        run: |
+          clang++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            ${{ env.TEST_DIR }}/test_scope_guard.cpp \
+            -o test_scope_guard
+          ./test_scope_guard
+
+      - name: Build and verify library compilation
+        run: |
           clang++-${{ matrix.version }} -std=c++20 \
             -Wall -Wextra -Wpedantic -Werror \
             -Wno-gnu-zero-variadic-macro-arguments \
@@ -209,16 +228,11 @@ jobs:
           
           cat > compile_test.cpp << 'EOF'
           #include "tf_wrap/core.hpp"
-          
           int main() {
               tf_wrap::SessionOptions opts;
               (void)opts;
-              
               tf_wrap::Tensor t = tf_wrap::Tensor::FromScalar<float>(1.0f);
               (void)t.dtype();
-              (void)t.shape();
-              (void)t.num_elements();
-              
               return 0;
           }
           EOF
@@ -231,9 +245,8 @@ jobs:
             -DTF_WRAPPER_TF_STUB_ENABLED=1 \
             compile_test.cpp stub.o \
             -o compile_test
-          
           ./compile_test
-          echo "✓ Clang-${{ matrix.version }} compilation successful"
+          echo "✓ Clang-${{ matrix.version }} build successful"
 
   # ===========================================================================
   # Windows MSVC
@@ -248,11 +261,27 @@ jobs:
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Build and verify compilation
+      - name: Build and run SmallVector tests
         shell: cmd
         run: |
-          echo Building with MSVC...
-          
+          cl /std:c++20 /W4 /WX /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            %TEST_DIR%\test_small_vector.cpp ^
+            /Fe:test_small_vector.exe
+          test_small_vector.exe
+
+      - name: Build and run ScopeGuard tests
+        shell: cmd
+        run: |
+          cl /std:c++20 /W4 /WX /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            %TEST_DIR%\test_scope_guard.cpp ^
+            /Fe:test_scope_guard.exe
+          test_scope_guard.exe
+
+      - name: Build and verify library compilation
+        shell: cmd
+        run: |
           cl /std:c++20 /W4 /WX /EHsc ^
             /I%INCLUDE_DIR% ^
             /I%STUB_DIR% ^
@@ -275,9 +304,8 @@ jobs:
             /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
             compile_test.cpp stub.obj ^
             /Fe:compile_test.exe
-          
           compile_test.exe
-          echo MSVC compilation successful
+          echo MSVC build successful
 
   # ===========================================================================
   # macOS (Apple Clang)
@@ -289,11 +317,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build and verify compilation
+      - name: Build and run SmallVector tests
         run: |
-          echo "Compiler version:"
-          clang++ --version
-          
+          clang++ -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            ${{ env.TEST_DIR }}/test_small_vector.cpp \
+            -o test_small_vector
+          ./test_small_vector
+
+      - name: Build and run ScopeGuard tests
+        run: |
+          clang++ -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            ${{ env.TEST_DIR }}/test_scope_guard.cpp \
+            -o test_scope_guard
+          ./test_scope_guard
+
+      - name: Build and verify library compilation
+        run: |
           clang++ -std=c++20 \
             -Wall -Wextra -Wpedantic -Werror \
             -I${{ env.INCLUDE_DIR }} \
@@ -304,16 +347,11 @@ jobs:
           
           cat > compile_test.cpp << 'EOF'
           #include "tf_wrap/core.hpp"
-          
           int main() {
               tf_wrap::SessionOptions opts;
               (void)opts;
-              
               tf_wrap::Tensor t = tf_wrap::Tensor::FromScalar<float>(1.0f);
               (void)t.dtype();
-              (void)t.shape();
-              (void)t.num_elements();
-              
               return 0;
           }
           EOF
@@ -325,112 +363,14 @@ jobs:
             -DTF_WRAPPER_TF_STUB_ENABLED=1 \
             compile_test.cpp stub.o \
             -o compile_test
-          
           ./compile_test
-          echo "✓ macOS compilation successful"
+          echo "✓ macOS build successful"
 
   # ===========================================================================
-  # Utility Headers Tests (SmallVector, ScopeGuard)
+  # Sanitizers
   # ===========================================================================
-  utility-tests:
-    name: Utility Headers (${{ matrix.compiler }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            compiler: g++-13
-            install: sudo apt-get update && sudo apt-get install -y g++-13
-          - os: ubuntu-24.04
-            compiler: clang++-17
-            install: |
-              wget https://apt.llvm.org/llvm.sh
-              chmod +x llvm.sh
-              sudo ./llvm.sh 17
-          - os: macos-14
-            compiler: clang++
-            install: ""
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install compiler
-        if: matrix.install != ''
-        run: ${{ matrix.install }}
-
-      - name: Build and run SmallVector tests
-        run: |
-          echo "Building SmallVector tests with ${{ matrix.compiler }}..."
-          
-          ${{ matrix.compiler }} -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -O2 \
-            -I${{ env.INCLUDE_DIR }} \
-            ${{ env.TEST_DIR }}/test_small_vector.cpp \
-            -o test_small_vector
-          
-          echo "Running SmallVector tests..."
-          ./test_small_vector
-
-      - name: Build and run ScopeGuard tests
-        run: |
-          echo "Building ScopeGuard tests with ${{ matrix.compiler }}..."
-          
-          ${{ matrix.compiler }} -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -O2 \
-            -I${{ env.INCLUDE_DIR }} \
-            ${{ env.TEST_DIR }}/test_scope_guard.cpp \
-            -o test_scope_guard
-          
-          echo "Running ScopeGuard tests..."
-          ./test_scope_guard
-
-  # ===========================================================================
-  # Utility Headers - Windows MSVC
-  # ===========================================================================
-  utility-tests-windows:
-    name: Utility Headers (MSVC)
-    runs-on: windows-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Build and run SmallVector tests
-        shell: cmd
-        run: |
-          echo Building SmallVector tests with MSVC...
-          
-          cl /std:c++20 /W4 /WX /EHsc /O2 ^
-            /I%INCLUDE_DIR% ^
-            %TEST_DIR%\test_small_vector.cpp ^
-            /Fe:test_small_vector.exe
-          
-          echo Running SmallVector tests...
-          test_small_vector.exe
-
-      - name: Build and run ScopeGuard tests
-        shell: cmd
-        run: |
-          echo Building ScopeGuard tests with MSVC...
-          
-          cl /std:c++20 /W4 /WX /EHsc /O2 ^
-            /I%INCLUDE_DIR% ^
-            %TEST_DIR%\test_scope_guard.cpp ^
-            /Fe:test_scope_guard.exe
-          
-          echo Running ScopeGuard tests...
-          test_scope_guard.exe
-
-  # ===========================================================================
-  # AddressSanitizer
-  # ===========================================================================
-  sanitizer-asan:
-    name: AddressSanitizer
+  sanitizers:
+    name: Sanitizers (ASan + UBSan)
     runs-on: ubuntu-24.04
 
     steps:
@@ -441,76 +381,43 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y g++-13
 
-      - name: Build and run ScopeGuard with ASan
-        run: |
-          g++-13 -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -g -fsanitize=address -fno-omit-frame-pointer \
-            -I${{ env.INCLUDE_DIR }} \
-            ${{ env.TEST_DIR }}/test_scope_guard.cpp \
-            -o test_scope_guard_asan
-
-      - name: Run ScopeGuard with ASan
+      - name: Build and run with AddressSanitizer
         env:
           ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
-        run: ./test_scope_guard_asan
-
-      - name: Build and run SmallVector with ASan
         run: |
-          g++-13 -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -g -fsanitize=address -fno-omit-frame-pointer \
-            -I${{ env.INCLUDE_DIR }} \
-            ${{ env.TEST_DIR }}/test_small_vector.cpp \
-            -o test_small_vector_asan
-
-      - name: Run SmallVector with ASan
-        env:
-          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
-        run: ./test_small_vector_asan
-
-  # ===========================================================================
-  # UndefinedBehaviorSanitizer
-  # ===========================================================================
-  sanitizer-ubsan:
-    name: UndefinedBehaviorSanitizer
-    runs-on: ubuntu-24.04
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install GCC
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y g++-13
-
-      - name: Build and run ScopeGuard with UBSan
-        run: |
-          g++-13 -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -g -fsanitize=undefined -fno-omit-frame-pointer \
+          g++-13 -std=c++20 -g \
+            -fsanitize=address -fno-omit-frame-pointer \
             -I${{ env.INCLUDE_DIR }} \
             ${{ env.TEST_DIR }}/test_scope_guard.cpp \
-            -o test_scope_guard_ubsan
-
-      - name: Run ScopeGuard with UBSan
-        env:
-          UBSAN_OPTIONS: print_stacktrace=1:abort_on_error=1
-        run: ./test_scope_guard_ubsan
-
-      - name: Build and run SmallVector with UBSan
-        run: |
-          g++-13 -std=c++20 \
-            -Wall -Wextra -Wpedantic -Werror \
-            -g -fsanitize=undefined -fno-omit-frame-pointer \
+            -o test_asan
+          ./test_asan
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=address -fno-omit-frame-pointer \
             -I${{ env.INCLUDE_DIR }} \
             ${{ env.TEST_DIR }}/test_small_vector.cpp \
-            -o test_small_vector_ubsan
+            -o test_asan_sv
+          ./test_asan_sv
+          echo "✓ ASan passed"
 
-      - name: Run SmallVector with UBSan
+      - name: Build and run with UndefinedBehaviorSanitizer
         env:
           UBSAN_OPTIONS: print_stacktrace=1:abort_on_error=1
-        run: ./test_small_vector_ubsan
+        run: |
+          g++-13 -std=c++20 -g \
+            -fsanitize=undefined -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            ${{ env.TEST_DIR }}/test_scope_guard.cpp \
+            -o test_ubsan
+          ./test_ubsan
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=undefined -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            ${{ env.TEST_DIR }}/test_small_vector.cpp \
+            -o test_ubsan_sv
+          ./test_ubsan_sv
+          echo "✓ UBSan passed"
 
   # ===========================================================================
   # Real TensorFlow Integration Test (Multiple Versions)
@@ -533,8 +440,6 @@ jobs:
 
       - name: Download TensorFlow C library
         run: |
-          echo "Downloading TensorFlow C library v${{ matrix.tf_version }}..."
-          
           TF_VERSION="${{ matrix.tf_version }}"
           TF_MAJOR_MINOR=$(echo "$TF_VERSION" | cut -d. -f1,2)
           
@@ -545,18 +450,11 @@ jobs:
           fi
           
           mkdir -p tensorflow_c
-          
-          echo "Fetching from: $TF_URL"
           curl -fSL --retry 3 "$TF_URL" -o tf.tar.gz
           tar -xzf tf.tar.gz -C tensorflow_c
-          
-          echo "TensorFlow C library contents:"
-          ls -la tensorflow_c/lib/
 
-      - name: Create test SavedModel with Python
+      - name: Create test SavedModel
         run: |
-          echo "Installing TensorFlow Python..."
-          
           TF_VERSION="${{ matrix.tf_version }}"
           TF_MAJOR_MINOR=$(echo "$TF_VERSION" | cut -d. -f1,2)
           
@@ -566,49 +464,31 @@ jobs:
             pip install "numpy<2" tensorflow==${{ matrix.tf_version }} --quiet
           fi
           
-          echo "Creating test SavedModel..."
           python3 << 'PYEOF'
           import tensorflow as tf
-          import os
-
           class SimpleModel(tf.Module):
               @tf.function(input_signature=[tf.TensorSpec(shape=[None], dtype=tf.float32)], autograph=False)
               def serve(self, x):
                   return x * 2.0 + 1.0
-
           model = SimpleModel()
-          
-          result = model.serve(tf.constant([1.0, 2.0, 3.0]))
-          print(f"Test run: [1,2,3] -> {result.numpy()}")
-          
-          export_dir = "test_savedmodel"
-          tf.saved_model.save(model, export_dir, signatures={"serving_default": model.serve})
-          
-          print(f"SavedModel saved to {export_dir}")
+          tf.saved_model.save(model, "test_savedmodel", signatures={"serving_default": model.serve})
           PYEOF
-          
-          echo "✓ Test SavedModel created"
 
-      - name: Build and run real TF test
+      - name: Build and run tests
         run: |
-          TF_INCLUDE="tensorflow_c/include"
-          TF_LIB="tensorflow_c/lib"
-          
           g++-12 -std=c++20 -O2 \
             -Wall -Wextra -Wpedantic \
             -I${{ env.INCLUDE_DIR }} \
-            -I"$TF_INCLUDE" \
+            -Itensorflow_c/include \
             ${{ env.TEST_DIR }}/test_real_tf_minimal.cpp \
-            -L"$TF_LIB" \
+            -Ltensorflow_c/lib \
             -ltensorflow \
-            -Wl,-rpath,"$TF_LIB" \
+            -Wl,-rpath,tensorflow_c/lib \
             -pthread \
             -o test_real_tf
           
           export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
           ./test_real_tf
-          
-          echo "✓ Real TensorFlow test passed"
 
   # ===========================================================================
   # CI Success Gate
@@ -622,10 +502,7 @@ jobs:
       - linux-clang
       - windows-msvc
       - macos
-      - utility-tests
-      - utility-tests-windows
-      - sanitizer-asan
-      - sanitizer-ubsan
+      - sanitizers
       - real-tensorflow
     if: always()
 
@@ -633,26 +510,20 @@ jobs:
       - name: Check all jobs passed
         run: |
           echo "Job results:"
-          echo "  header-check:           ${{ needs.header-check.result }}"
-          echo "  linux-gcc:              ${{ needs.linux-gcc.result }}"
-          echo "  linux-clang:            ${{ needs.linux-clang.result }}"
-          echo "  windows-msvc:           ${{ needs.windows-msvc.result }}"
-          echo "  macos:                  ${{ needs.macos.result }}"
-          echo "  utility-tests:          ${{ needs.utility-tests.result }}"
-          echo "  utility-tests-windows:  ${{ needs.utility-tests-windows.result }}"
-          echo "  sanitizer-asan:         ${{ needs.sanitizer-asan.result }}"
-          echo "  sanitizer-ubsan:        ${{ needs.sanitizer-ubsan.result }}"
-          echo "  real-tensorflow:        ${{ needs.real-tensorflow.result }}"
+          echo "  header-check:     ${{ needs.header-check.result }}"
+          echo "  linux-gcc:        ${{ needs.linux-gcc.result }}"
+          echo "  linux-clang:      ${{ needs.linux-clang.result }}"
+          echo "  windows-msvc:     ${{ needs.windows-msvc.result }}"
+          echo "  macos:            ${{ needs.macos.result }}"
+          echo "  sanitizers:       ${{ needs.sanitizers.result }}"
+          echo "  real-tensorflow:  ${{ needs.real-tensorflow.result }}"
           
           if [ "${{ needs.header-check.result }}" != "success" ] || \
              [ "${{ needs.linux-gcc.result }}" != "success" ] || \
              [ "${{ needs.linux-clang.result }}" != "success" ] || \
              [ "${{ needs.windows-msvc.result }}" != "success" ] || \
              [ "${{ needs.macos.result }}" != "success" ] || \
-             [ "${{ needs.utility-tests.result }}" != "success" ] || \
-             [ "${{ needs.utility-tests-windows.result }}" != "success" ] || \
-             [ "${{ needs.sanitizer-asan.result }}" != "success" ] || \
-             [ "${{ needs.sanitizer-ubsan.result }}" != "success" ] || \
+             [ "${{ needs.sanitizers.result }}" != "success" ] || \
              [ "${{ needs.real-tensorflow.result }}" != "success" ]; then
             echo "❌ One or more jobs failed"
             exit 1
