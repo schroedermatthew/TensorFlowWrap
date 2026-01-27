@@ -1065,6 +1065,74 @@ jobs:
           echo "✓ UBSan passed"
 
   # ===========================================================================
+  # Soak Tests (Memory Leak Detection with Real TensorFlow + ASan)
+  # ===========================================================================
+  soak-tests:
+    name: Soak Tests (ASan + Real TF)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-12 curl
+
+      - name: Download TensorFlow C library
+        run: |
+          # Use TF 2.18.1 for soak tests
+          TF_URL="https://storage.googleapis.com/tensorflow/versions/2.18.1/libtensorflow-cpu-linux-x86_64.tar.gz"
+          
+          mkdir -p tensorflow_c
+          curl -fSL --retry 3 "$TF_URL" -o tf.tar.gz
+          tar -xzf tf.tar.gz -C tensorflow_c
+
+      - name: Create test SavedModel
+        run: |
+          pip install tensorflow==2.18.1 --quiet
+          
+          python3 << 'PYEOF'
+          import tensorflow as tf
+          class SimpleModel(tf.Module):
+              @tf.function(input_signature=[tf.TensorSpec(shape=[None], dtype=tf.float32)], autograph=False)
+              def serve(self, x):
+                  return x * 2.0 + 1.0
+          model = SimpleModel()
+          tf.saved_model.save(model, "test_savedmodel", signatures={"serving_default": model.serve})
+          PYEOF
+
+      - name: Build and run soak tests with ASan
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:print_stats=1:check_initialization_order=1
+        run: |
+          export LD_LIBRARY_PATH="$(pwd)/tensorflow_c/lib:$LD_LIBRARY_PATH"
+          
+          echo "Building soak tests with AddressSanitizer..."
+          g++-12 -std=c++20 -O1 -g \
+            -fsanitize=address -fno-omit-frame-pointer \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -Itensorflow_c/include \
+            ${{ env.TEST_DIR }}/test_soak_tf.cpp \
+            -Ltensorflow_c/lib \
+            -ltensorflow \
+            -Wl,-rpath,tensorflow_c/lib \
+            -pthread \
+            -o test_soak_tf
+          
+          echo ""
+          echo "Running soak tests (this may take several minutes)..."
+          echo "ASan will detect memory leaks at process exit."
+          echo ""
+          
+          ./test_soak_tf
+          
+          echo ""
+          echo "✓ Soak tests passed - no memory leaks detected"
+
+  # ===========================================================================
   # Real TensorFlow Integration Test (Multiple Versions)
   # ===========================================================================
   real-tensorflow:
@@ -1220,6 +1288,7 @@ jobs:
       - windows-msvc
       - macos
       - sanitizers
+      - soak-tests
       - real-tensorflow
     if: always()
 
@@ -1233,6 +1302,7 @@ jobs:
           echo "  windows-msvc:     ${{ needs.windows-msvc.result }}"
           echo "  macos:            ${{ needs.macos.result }}"
           echo "  sanitizers:       ${{ needs.sanitizers.result }}"
+          echo "  soak-tests:       ${{ needs.soak-tests.result }}"
           echo "  real-tensorflow:  ${{ needs.real-tensorflow.result }}"
           
           if [ "${{ needs.header-check.result }}" != "success" ] || \
@@ -1241,6 +1311,7 @@ jobs:
              [ "${{ needs.windows-msvc.result }}" != "success" ] || \
              [ "${{ needs.macos.result }}" != "success" ] || \
              [ "${{ needs.sanitizers.result }}" != "success" ] || \
+             [ "${{ needs.soak-tests.result }}" != "success" ] || \
              [ "${{ needs.real-tensorflow.result }}" != "success" ]; then
             echo "❌ One or more jobs failed"
             exit 1
