@@ -1,0 +1,1515 @@
+#include <tensorflow/c/c_api.h>
+#include <tensorflow/c/tf_tstring.h>
+
+#include <algorithm>
+#include <cassert>
+#include <complex>
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <unordered_map>
+#include <string>
+#include <utility>
+#include <vector>
+
+// ============================================================================
+// Extremely small, behavior-lite stub of the TF C API.
+//
+// Goals:
+// - Allow this wrapper to compile + run unit tests without TensorFlow.
+// - Provide predictable, safe behavior for status/tensor/graph/session calls.
+// - Track dtype attributes so tests can verify correct dtype propagation.
+//
+// Non-goals:
+// - Any numerical correctness.
+// - ABI/API compatibility with real TensorFlow.
+// ============================================================================
+
+struct TF_Status {
+    TF_Code code{TF_OK};
+    std::string message;
+};
+
+struct TF_Tensor {
+    TF_DataType dtype{TF_FLOAT};
+    std::vector<int64_t> dims;
+    std::vector<std::byte> storage;
+    void* external_data{nullptr};
+    size_t external_len{0};
+    TF_TensorDeallocator deallocator{nullptr};
+    void* deallocator_arg{nullptr};
+
+    bool owns_storage{true};
+};
+
+struct TF_Graph {
+    std::vector<std::unique_ptr<TF_Operation>> ops;
+};
+
+struct TF_Operation {
+    std::string op_type;
+    std::string name;
+    std::string device;
+
+    std::vector<TF_Output> inputs;
+    int num_outputs{1};
+    TF_DataType output_type{TF_FLOAT};
+
+    // Minimal attribute storage needed by the wrapper/tests.
+    // Real TF supports many attr types; we only store tensor attrs.
+    std::unordered_map<std::string, std::unique_ptr<TF_Tensor>> tensor_attrs;
+    
+    // P0 FIX: Track dtype attributes for proper dtype propagation
+    // Keys: "T", "dtype", "DstT", "SrcT", "out_type", etc.
+    std::unordered_map<std::string, TF_DataType> type_attrs;
+};
+
+struct TF_OperationDescription {
+    TF_Graph* graph{nullptr};
+    std::unique_ptr<TF_Operation> op;
+
+    explicit TF_OperationDescription(TF_Graph* g) : graph(g), op(std::make_unique<TF_Operation>()) {}
+};
+
+struct TF_ImportGraphDefOptions {
+    std::string prefix;
+};
+
+struct TF_SessionOptions {
+    std::string target;
+    std::vector<std::byte> config;
+};
+
+struct TF_Session {
+    TF_Graph* graph{nullptr};
+    bool closed{false};
+};
+
+// Stub device info
+struct StubDevice {
+    std::string name;
+    std::string type;
+    int64_t memory_bytes;
+};
+
+struct TF_DeviceList {
+    std::vector<StubDevice> devices;
+};
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+static void set_status(TF_Status* st, TF_Code code, const char* msg)
+{
+    if (!st)
+    {
+        return;
+    }
+
+    st->code = code;
+    st->message = msg ? msg : "";
+}
+
+static size_t dtype_size(TF_DataType t)
+{
+    switch (t)
+    {
+        case TF_FLOAT:      return 4;
+        case TF_DOUBLE:     return 8;
+        case TF_INT32:      return 4;
+        case TF_UINT8:      return 1;
+        case TF_INT16:      return 2;
+        case TF_INT8:       return 1;
+        case TF_INT64:      return 8;
+        case TF_BOOL:       return 1;
+        case TF_UINT16:     return 2;
+        case TF_UINT32:     return 4;
+        case TF_UINT64:     return 8;
+        case TF_COMPLEX64:  return 8;
+        case TF_COMPLEX128: return 16;
+        case TF_HALF:       return 2;
+        case TF_BFLOAT16:   return 2;
+        default:            return 0;
+    }
+}
+
+static int64_t element_count(const std::vector<int64_t>& dims)
+{
+    if (dims.empty())
+    {
+        return 1;
+    }
+
+    int64_t prod = 1;
+    for (const int64_t d : dims)
+    {
+        if (d < 0)
+        {
+            return 0;
+        }
+        if (d == 0)
+        {
+            return 0;
+        }
+        prod *= d;
+    }
+    return prod;
+}
+
+static std::unique_ptr<TF_Tensor> clone_tensor(const TF_Tensor* t)
+{
+    if (!t)
+    {
+        return nullptr;
+    }
+
+    auto out = std::make_unique<TF_Tensor>();
+    out->dtype = t->dtype;
+    out->dims = t->dims;
+
+    const size_t bytes = t->owns_storage ? t->storage.size() : t->external_len;
+    out->storage.resize(bytes);
+    out->owns_storage = true;
+
+    const void* src = t->owns_storage ? static_cast<const void*>(t->storage.data()) : t->external_data;
+
+    if (out->dtype == TF_STRING)
+    {
+        const int64_t n = element_count(out->dims);
+        const size_t required = static_cast<size_t>(n > 0 ? n : 0) * sizeof(TF_TString);
+        if (n > 0 && src && bytes >= required)
+        {
+            auto* dst_str = reinterpret_cast<TF_TString*>(out->storage.data());
+            const auto* src_str = static_cast<const TF_TString*>(src);
+            for (int64_t i = 0; i < n; ++i)
+            {
+                TF_TString_Init(&dst_str[i]);
+                const char* p = TF_TString_GetDataPointer(&src_str[i]);
+                const size_t sz = p ? TF_TString_GetSize(&src_str[i]) : 0;
+                TF_TString_Copy(&dst_str[i], p ? p : "", sz);
+            }
+        }
+        return out;
+    }
+
+    if (bytes != 0 && src)
+    {
+        std::memcpy(out->storage.data(), src, bytes);
+    }
+    return out;
+}
+
+// ----------------------------------------------------------------------------
+// Status
+// ----------------------------------------------------------------------------
+
+TF_Status* TF_NewStatus(void)
+{
+    return new TF_Status{};
+}
+
+void TF_DeleteStatus(TF_Status* st)
+{
+    delete st;
+}
+
+TF_Code TF_GetCode(const TF_Status* st)
+{
+    return st ? st->code : TF_UNKNOWN;
+}
+
+const char* TF_Message(const TF_Status* st)
+{
+    if (!st)
+    {
+        return "TF_Status(null)";
+    }
+    return st->message.c_str();
+}
+
+void TF_SetStatus(TF_Status* st, TF_Code code, const char* msg)
+{
+    set_status(st, code, msg);
+}
+
+// ----------------------------------------------------------------------------
+// Buffer
+// ----------------------------------------------------------------------------
+
+TF_Buffer* TF_NewBuffer(void)
+{
+    auto* b = new TF_Buffer{};
+    b->data = nullptr;
+    b->length = 0;
+    b->data_deallocator = nullptr;
+    return b;
+}
+
+TF_Buffer* TF_NewBufferFromString(const void* proto, size_t proto_len)
+{
+    auto* b = new TF_Buffer{};
+    if (!proto || proto_len == 0)
+    {
+        b->data = nullptr;
+        b->length = 0;
+        b->data_deallocator = nullptr;
+        return b;
+    }
+
+    void* data = ::operator new(proto_len);
+    std::memcpy(data, proto, proto_len);
+
+    b->data = data;
+    b->length = proto_len;
+    b->data_deallocator = [](void* d, size_t) {
+        ::operator delete(d);
+    };
+
+    return b;
+}
+
+void TF_DeleteBuffer(TF_Buffer* b)
+{
+    if (!b)
+    {
+        return;
+    }
+
+    if (b->data && b->data_deallocator)
+    {
+        b->data_deallocator(b->data, b->length);
+    }
+
+    delete b;
+}
+
+// ----------------------------------------------------------------------------
+// Tensor
+// ----------------------------------------------------------------------------
+
+TF_Tensor* TF_AllocateTensor(TF_DataType dt, const int64_t* dims, int num_dims, size_t len)
+{
+    auto* t = new TF_Tensor{};
+    t->dtype = dt;
+    t->dims.assign(dims ? dims : nullptr, dims ? dims + num_dims : nullptr);
+    t->storage.resize(len);
+    t->owns_storage = true;
+
+    if (dt == TF_STRING)
+    {
+        const int64_t n = element_count(t->dims);
+        const size_t required = static_cast<size_t>(n > 0 ? n : 0) * sizeof(TF_TString);
+        if (n > 0 && len >= required)
+        {
+            auto* strs = reinterpret_cast<TF_TString*>(t->storage.data());
+            for (int64_t i = 0; i < n; ++i)
+            {
+                TF_TString_Init(&strs[i]);
+            }
+        }
+    }
+
+    return t;
+}
+
+TF_Tensor* TF_NewTensor(
+    TF_DataType dt,
+    const int64_t* dims,
+    int num_dims,
+    void* data,
+    size_t len,
+    TF_TensorDeallocator deallocator,
+    void* deallocator_arg)
+{
+    auto* t = new TF_Tensor{};
+    t->dtype = dt;
+    t->dims.assign(dims ? dims : nullptr, dims ? dims + num_dims : nullptr);
+
+    t->external_data = data;
+    t->external_len = len;
+    t->deallocator = deallocator;
+    t->deallocator_arg = deallocator_arg;
+    t->owns_storage = false;
+    return t;
+}
+
+void TF_DeleteTensor(TF_Tensor* t)
+{
+    if (!t)
+    {
+        return;
+    }
+
+    if (t->owns_storage && t->dtype == TF_STRING)
+    {
+        const int64_t n = element_count(t->dims);
+        const size_t required = static_cast<size_t>(n > 0 ? n : 0) * sizeof(TF_TString);
+        if (n > 0 && t->storage.size() >= required)
+        {
+            auto* strs = reinterpret_cast<TF_TString*>(t->storage.data());
+            for (int64_t i = 0; i < n; ++i)
+            {
+                if (strs[i].data)
+                {
+                    delete[] strs[i].data;
+                }
+                strs[i].data = nullptr;
+                strs[i].size = 0;
+                strs[i].capacity = 0;
+            }
+        }
+    }
+
+    if (!t->owns_storage && t->deallocator && t->external_data)
+    {
+        t->deallocator(t->external_data, t->external_len, t->deallocator_arg);
+    }
+
+    delete t;
+}
+
+TF_DataType TF_TensorType(const TF_Tensor* t)
+{
+    return t ? t->dtype : TF_FLOAT;
+}
+
+void* TF_TensorData(const TF_Tensor* t)
+{
+    if (!t)
+    {
+        return nullptr;
+    }
+
+    if (t->owns_storage)
+    {
+        return const_cast<std::byte*>(t->storage.data());
+    }
+
+    return t->external_data;
+}
+
+size_t TF_TensorByteSize(const TF_Tensor* t)
+{
+    if (!t)
+    {
+        return 0;
+    }
+
+    if (t->owns_storage)
+    {
+        return t->storage.size();
+    }
+
+    return t->external_len;
+}
+
+int TF_NumDims(const TF_Tensor* t)
+{
+    return t ? static_cast<int>(t->dims.size()) : 0;
+}
+
+int64_t TF_Dim(const TF_Tensor* t, int dim_index)
+{
+    if (!t)
+    {
+        return 0;
+    }
+
+    if (dim_index < 0 || static_cast<size_t>(dim_index) >= t->dims.size())
+    {
+        return 0;
+    }
+
+    return t->dims[static_cast<size_t>(dim_index)];
+}
+
+int64_t TF_TensorElementCount(const TF_Tensor* t)
+{
+    if (!t)
+    {
+        return 0;
+    }
+
+    return element_count(t->dims);
+}
+
+size_t TF_DataTypeSize(TF_DataType dt)
+{
+    return dtype_size(dt);
+}
+
+// ----------------------------------------------------------------------------
+// Graph / operations
+// ----------------------------------------------------------------------------
+
+TF_Graph* TF_NewGraph(void)
+{
+    return new TF_Graph{};
+}
+
+void TF_DeleteGraph(TF_Graph* g)
+{
+    delete g;
+}
+
+TF_OperationDescription* TF_NewOperation(TF_Graph* g, const char* op_type, const char* oper_name)
+{
+    if (!g)
+    {
+        return nullptr;
+    }
+
+    auto* d = new TF_OperationDescription(g);
+    d->op->op_type = op_type ? op_type : "";
+    d->op->name = oper_name ? oper_name : "";
+    return d;
+}
+
+void TF_SetDevice(TF_OperationDescription* desc, const char* device)
+{
+    if (desc && desc->op)
+    {
+        desc->op->device = device ? device : "";
+    }
+}
+
+void TF_AddInput(TF_OperationDescription* desc, TF_Output input)
+{
+    if (desc && desc->op)
+    {
+        desc->op->inputs.push_back(input);
+    }
+}
+
+void TF_AddInputList(TF_OperationDescription* desc, const TF_Output* inputs, int num_inputs)
+{
+    if (!desc || !desc->op || !inputs || num_inputs <= 0)
+    {
+        return;
+    }
+
+    desc->op->inputs.insert(desc->op->inputs.end(), inputs, inputs + num_inputs);
+}
+
+void TF_AddControlInput(TF_OperationDescription*, TF_Operation*)
+{
+}
+
+void TF_ColocateWith(TF_OperationDescription*, TF_Operation*)
+{
+}
+
+void TF_SetAttrBool(TF_OperationDescription*, const char*, unsigned char)
+{
+}
+
+void TF_SetAttrInt(TF_OperationDescription*, const char*, int64_t)
+{
+}
+
+void TF_SetAttrFloat(TF_OperationDescription*, const char*, float)
+{
+}
+
+// P0 FIX: Actually store type attributes for dtype tracking
+void TF_SetAttrType(TF_OperationDescription* desc, const char* attr_name, TF_DataType dtype)
+{
+    if (!desc || !desc->op || !attr_name || attr_name[0] == '\0')
+    {
+        return;
+    }
+    
+    // Store the type attribute
+    desc->op->type_attrs[std::string(attr_name)] = dtype;
+    
+    // Propagate to output_type based on attribute name priority:
+    // For most ops: T or dtype determines output type
+    // For Cast: DstT determines output type (not SrcT or T)
+    // For some ops: out_type determines output type
+    const std::string name(attr_name);
+    
+    if (name == "DstT")
+    {
+        // Cast op: DstT always wins
+        desc->op->output_type = dtype;
+    }
+    else if (name == "T" || name == "dtype")
+    {
+        // Only set if DstT not already set (Cast op case)
+        if (desc->op->type_attrs.find("DstT") == desc->op->type_attrs.end())
+        {
+            desc->op->output_type = dtype;
+        }
+    }
+    else if (name == "out_type")
+    {
+        // Some ops use out_type; set if no higher-priority attr
+        if (desc->op->type_attrs.find("DstT") == desc->op->type_attrs.end() &&
+            desc->op->type_attrs.find("T") == desc->op->type_attrs.end() &&
+            desc->op->type_attrs.find("dtype") == desc->op->type_attrs.end())
+        {
+            desc->op->output_type = dtype;
+        }
+    }
+}
+
+void TF_SetAttrShape(TF_OperationDescription*, const char*, const int64_t*, int)
+{
+}
+
+void TF_SetAttrString(TF_OperationDescription*, const char*, const void*, size_t)
+{
+}
+
+void TF_SetAttrFuncName(TF_OperationDescription*, const char*, const char*, size_t)
+{
+}
+
+void TF_SetAttrIntList(TF_OperationDescription*, const char*, const int64_t*, int)
+{
+}
+
+void TF_SetAttrFloatList(TF_OperationDescription*, const char*, const float*, int)
+{
+}
+
+void TF_SetAttrTypeList(TF_OperationDescription*, const char*, const TF_DataType*, int)
+{
+}
+
+void TF_SetAttrTensor(TF_OperationDescription* desc, const char* attr_name, TF_Tensor* value, TF_Status* status)
+{
+    if (!desc || !desc->op)
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_SetAttrTensor: invalid description");
+        return;
+    }
+
+    if (!attr_name || attr_name[0] == '\0')
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_SetAttrTensor: empty attr name");
+        return;
+    }
+
+    // OperationDescription must own/copy attributes; do not alias caller memory.
+    desc->op->tensor_attrs[std::string(attr_name)] = clone_tensor(value);
+    set_status(status, TF_OK, "");
+}
+
+TF_Operation* TF_FinishOperation(TF_OperationDescription* desc, TF_Status* status)
+{
+    if (!desc || !desc->graph || !desc->op)
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_FinishOperation: invalid description");
+        return nullptr;
+    }
+
+    TF_Operation* raw = desc->op.get();
+    desc->graph->ops.push_back(std::move(desc->op));
+    set_status(status, TF_OK, "");
+    delete desc;
+    return raw;
+}
+
+void TF_DeleteOperationDescription(TF_OperationDescription* desc)
+{
+    delete desc;
+}
+
+TF_Operation* TF_GraphOperationByName(TF_Graph* g, const char* oper_name)
+{
+    if (!g || !oper_name)
+    {
+        return nullptr;
+    }
+
+    for (auto& op : g->ops)
+    {
+        if (op && op->name == oper_name)
+        {
+            return op.get();
+        }
+    }
+
+    return nullptr;
+}
+
+TF_Operation* TF_GraphNextOperation(TF_Graph* g, size_t* pos)
+{
+    if (!g || !pos)
+    {
+        return nullptr;
+    }
+
+    if (*pos >= g->ops.size())
+    {
+        return nullptr;
+    }
+
+    TF_Operation* out = g->ops[*pos].get();
+    ++(*pos);
+    return out;
+}
+
+int TF_GraphGetTensorNumDims(TF_Graph*, TF_Output, TF_Status* status)
+{
+    set_status(status, TF_UNIMPLEMENTED, "TF_GraphGetTensorNumDims: stub");
+    return -1;
+}
+
+// P0 FIX: Return the actual tracked dtype, not always TF_FLOAT
+TF_DataType TF_OperationOutputType(TF_Output out)
+{
+    if (!out.oper)
+    {
+        return TF_FLOAT;
+    }
+
+    // Check type_attrs with priority: DstT > T > dtype > out_type
+    const auto& attrs = out.oper->type_attrs;
+    
+    auto it = attrs.find("DstT");
+    if (it != attrs.end())
+    {
+        return it->second;
+    }
+    
+    it = attrs.find("T");
+    if (it != attrs.end())
+    {
+        return it->second;
+    }
+    
+    it = attrs.find("dtype");
+    if (it != attrs.end())
+    {
+        return it->second;
+    }
+    
+    it = attrs.find("out_type");
+    if (it != attrs.end())
+    {
+        return it->second;
+    }
+
+    // Fallback to output_type (which may have been set during TF_SetAttrType)
+    return out.oper->output_type;
+}
+
+const char* TF_OperationName(TF_Operation* op)
+{
+    return op ? op->name.c_str() : "";
+}
+
+const char* TF_OperationOpType(TF_Operation* op)
+{
+    return op ? op->op_type.c_str() : "";
+}
+
+const char* TF_OperationDevice(TF_Operation* op)
+{
+    return op ? op->device.c_str() : "";
+}
+
+int TF_OperationNumInputs(TF_Operation* op)
+{
+    return op ? static_cast<int>(op->inputs.size()) : 0;
+}
+
+int TF_OperationNumOutputs(TF_Operation* op)
+{
+    return op ? op->num_outputs : 0;
+}
+
+int TF_OperationOutputNumConsumers(TF_Output output)
+{
+    // In the stub, we need to search the graph to find consumers
+    // Since we don't have direct access to the graph from TF_Output,
+    // we'll just return 0 for outputs with no operation, or check if
+    // any other op in the same graph uses this output as input.
+    // 
+    // For simplicity, this stub returns 0 for terminal ops (Const, Add, etc.)
+    // and 1 for intermediate ops. Real TF does proper graph traversal.
+    if (!output.oper)
+    {
+        return 0;
+    }
+    
+    // In our stub, we don't have easy access to the graph from an operation.
+    // Return 0 to indicate "no known consumers" - this is safe for GetOutputs()
+    // which looks for ops with zero consumers.
+    return 0;
+}
+
+void TF_GraphToGraphDef(TF_Graph* g, TF_Buffer* output_graph_def, TF_Status* status)
+{
+    if (!g)
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_GraphToGraphDef: null graph");
+        return;
+    }
+    
+    if (!output_graph_def)
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_GraphToGraphDef: null buffer");
+        return;
+    }
+    
+    // In the stub, we create a simple placeholder "GraphDef" that contains
+    // basic info about the graph. Real TensorFlow would serialize to protobuf.
+    // We'll create a simple text representation for debugging purposes.
+    std::string graph_info = "STUB_GRAPH_DEF\n";
+    graph_info += "num_operations: " + std::to_string(g->ops.size()) + "\n";
+    
+    for (const auto& op : g->ops)
+    {
+        graph_info += "op: " + op->name + " type: " + op->op_type + "\n";
+    }
+    
+    // Allocate and copy to buffer
+    size_t len = graph_info.size();
+    void* data = ::operator new(len);
+    std::memcpy(data, graph_info.data(), len);
+    
+    output_graph_def->data = data;
+    output_graph_def->length = len;
+    output_graph_def->data_deallocator = [](void* d, size_t) {
+        ::operator delete(d);
+    };
+    
+    set_status(status, TF_OK, "");
+}
+
+// ----------------------------------------------------------------------------
+// Import graph
+// ----------------------------------------------------------------------------
+
+TF_ImportGraphDefOptions* TF_NewImportGraphDefOptions(void)
+{
+    return new TF_ImportGraphDefOptions{};
+}
+
+void TF_DeleteImportGraphDefOptions(TF_ImportGraphDefOptions* o)
+{
+    delete o;
+}
+
+void TF_ImportGraphDefOptionsSetPrefix(TF_ImportGraphDefOptions* o, const char* prefix)
+{
+    if (o)
+    {
+        o->prefix = prefix ? prefix : "";
+    }
+}
+
+void TF_GraphImportGraphDef(TF_Graph*, const TF_Buffer*, const TF_ImportGraphDefOptions*, TF_Status* status)
+{
+    set_status(status, TF_UNIMPLEMENTED, "TF_GraphImportGraphDef: stub");
+}
+
+// ----------------------------------------------------------------------------
+// Session
+// ----------------------------------------------------------------------------
+
+TF_SessionOptions* TF_NewSessionOptions(void)
+{
+    return new TF_SessionOptions{};
+}
+
+void TF_DeleteSessionOptions(TF_SessionOptions* o)
+{
+    delete o;
+}
+
+void TF_SetTarget(TF_SessionOptions* o, const char* target)
+{
+    if (o)
+    {
+        o->target = target ? target : "";
+    }
+}
+
+void TF_SetConfig(TF_SessionOptions* o, const void* proto, size_t proto_len, TF_Status* status)
+{
+    if (!o)
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_SetConfig: null options");
+        return;
+    }
+
+    o->config.assign(
+        reinterpret_cast<const std::byte*>(proto),
+        reinterpret_cast<const std::byte*>(proto) + proto_len);
+
+    set_status(status, TF_OK, "");
+}
+
+TF_Session* TF_NewSession(TF_Graph* g, const TF_SessionOptions*, TF_Status* status)
+{
+    if (!g)
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_NewSession: null graph");
+        return nullptr;
+    }
+
+    auto* s = new TF_Session{};
+    s->graph = g;
+    s->closed = false;
+    set_status(status, TF_OK, "");
+    return s;
+}
+
+void TF_CloseSession(TF_Session* s, TF_Status* status)
+{
+    if (!s)
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_CloseSession: null session");
+        return;
+    }
+
+    s->closed = true;
+    set_status(status, TF_OK, "");
+}
+
+void TF_DeleteSession(TF_Session* s, TF_Status* status)
+{
+    if (!s)
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_DeleteSession: null session");
+        return;
+    }
+
+    delete s;
+    set_status(status, TF_OK, "");
+}
+
+void TF_SessionRun(
+    TF_Session* session,
+    const TF_Buffer*,
+    const TF_Output* input_ops,
+    TF_Tensor* const* input_values,
+    int ninputs,
+    const TF_Output* output_ops,
+    TF_Tensor** output_values,
+    int noutputs,
+    const TF_Operation* const*,
+    int,
+    TF_Buffer*,
+    TF_Status* status)
+{
+    if (!session)
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_SessionRun: null session");
+        return;
+    }
+
+    if (session->closed)
+    {
+        set_status(status, TF_FAILED_PRECONDITION, "TF_SessionRun: session closed");
+        return;
+    }
+
+    // Build feed dictionary: operation -> tensor
+    std::unordered_map<TF_Operation*, TF_Tensor*> feeds;
+    for (int i = 0; i < ninputs; ++i)
+    {
+        if (input_ops[i].oper && input_values[i])
+        {
+            feeds[input_ops[i].oper] = input_values[i];
+        }
+    }
+
+    auto eval_op = [&](auto&& self, TF_Operation* op,
+                       std::unordered_map<TF_Operation*, std::unique_ptr<TF_Tensor>>& cache)
+        -> TF_Tensor*
+    {
+        if (!op)
+        {
+            return nullptr;
+        }
+
+        if (auto it = cache.find(op); it != cache.end())
+        {
+            return it->second.get();
+        }
+
+        if (op->op_type == "Const")
+        {
+            auto it = op->tensor_attrs.find("value");
+            if (it == op->tensor_attrs.end() || !it->second)
+            {
+                return nullptr;
+            }
+            cache.emplace(op, clone_tensor(it->second.get()));
+            return cache[op].get();
+        }
+
+        // Identity just passes through
+        if (op->op_type == "Identity")
+        {
+            if (op->inputs.empty())
+            {
+                return nullptr;
+            }
+            TF_Tensor* input = self(self, op->inputs[0].oper, cache);
+            if (!input)
+            {
+                return nullptr;
+            }
+            cache.emplace(op, clone_tensor(input));
+            return cache[op].get();
+        }
+
+        // Placeholder looks up value from feeds
+        if (op->op_type == "Placeholder")
+        {
+            auto it = feeds.find(op);
+            if (it == feeds.end() || !it->second)
+            {
+                return nullptr;
+            }
+            cache.emplace(op, clone_tensor(it->second));
+            return cache[op].get();
+        }
+
+        // Binary ops: Add, Sub, Mul, Div, etc.
+        if (op->op_type == "Add" || op->op_type == "AddV2" ||
+            op->op_type == "Sub" || op->op_type == "Mul" ||
+            op->op_type == "Div" || op->op_type == "RealDiv")
+        {
+            if (op->inputs.size() < 2)
+            {
+                return nullptr;
+            }
+
+            TF_Tensor* a = self(self, op->inputs[0].oper, cache);
+            TF_Tensor* b = self(self, op->inputs[1].oper, cache);
+            if (!a || !b)
+            {
+                return nullptr;
+            }
+
+            const int64_t na = element_count(a->dims);
+            const int64_t nb = element_count(b->dims);
+            if (na != nb || na == 0)
+            {
+                return nullptr;
+            }
+
+            auto out = std::make_unique<TF_Tensor>();
+            out->dtype = a->dtype;
+            out->dims = a->dims;
+            out->owns_storage = true;
+
+            const void* pa = a->owns_storage ? a->storage.data() : a->external_data;
+            const void* pb = b->owns_storage ? b->storage.data() : b->external_data;
+
+            if (a->dtype == TF_FLOAT)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(float));
+                const float* fa = static_cast<const float*>(pa);
+                const float* fb = static_cast<const float*>(pb);
+                float* fo = reinterpret_cast<float*>(out->storage.data());
+
+                for (int64_t i = 0; i < na; ++i)
+                {
+                    if (op->op_type == "Add" || op->op_type == "AddV2")
+                        fo[i] = fa[i] + fb[i];
+                    else if (op->op_type == "Sub")
+                        fo[i] = fa[i] - fb[i];
+                    else if (op->op_type == "Mul")
+                        fo[i] = fa[i] * fb[i];
+                    else if (op->op_type == "Div" || op->op_type == "RealDiv")
+                        fo[i] = fa[i] / fb[i];
+                }
+            }
+            else if (a->dtype == TF_DOUBLE)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(double));
+                const double* da = static_cast<const double*>(pa);
+                const double* db = static_cast<const double*>(pb);
+                double* d_out = reinterpret_cast<double*>(out->storage.data());
+
+                for (int64_t i = 0; i < na; ++i)
+                {
+                    if (op->op_type == "Add" || op->op_type == "AddV2")
+                        d_out[i] = da[i] + db[i];
+                    else if (op->op_type == "Sub")
+                        d_out[i] = da[i] - db[i];
+                    else if (op->op_type == "Mul")
+                        d_out[i] = da[i] * db[i];
+                    else if (op->op_type == "Div" || op->op_type == "RealDiv")
+                        d_out[i] = da[i] / db[i];
+                }
+            }
+            else if (a->dtype == TF_INT32)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(int32_t));
+                const int32_t* ia = static_cast<const int32_t*>(pa);
+                const int32_t* ib = static_cast<const int32_t*>(pb);
+                int32_t* io = reinterpret_cast<int32_t*>(out->storage.data());
+
+                for (int64_t i = 0; i < na; ++i)
+                {
+                    if (op->op_type == "Add" || op->op_type == "AddV2")
+                        io[i] = ia[i] + ib[i];
+                    else if (op->op_type == "Sub")
+                        io[i] = ia[i] - ib[i];
+                    else if (op->op_type == "Mul")
+                        io[i] = ia[i] * ib[i];
+                    else if (op->op_type == "Div" || op->op_type == "RealDiv")
+                        io[i] = ia[i] / ib[i];
+                }
+            }
+            else if (a->dtype == TF_INT64)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(int64_t));
+                const int64_t* ia = static_cast<const int64_t*>(pa);
+                const int64_t* ib = static_cast<const int64_t*>(pb);
+                int64_t* io = reinterpret_cast<int64_t*>(out->storage.data());
+
+                for (int64_t i = 0; i < na; ++i)
+                {
+                    if (op->op_type == "Add" || op->op_type == "AddV2")
+                        io[i] = ia[i] + ib[i];
+                    else if (op->op_type == "Sub")
+                        io[i] = ia[i] - ib[i];
+                    else if (op->op_type == "Mul")
+                        io[i] = ia[i] * ib[i];
+                    else if (op->op_type == "Div" || op->op_type == "RealDiv")
+                        io[i] = ia[i] / ib[i];
+                }
+            }
+            else
+            {
+                return nullptr;
+            }
+
+            TF_Tensor* raw = out.get();
+            cache.emplace(op, std::move(out));
+            return raw;
+        }
+
+        // Square (unary: x * x)
+        if (op->op_type == "Square")
+        {
+            if (op->inputs.empty())
+            {
+                return nullptr;
+            }
+
+            TF_Tensor* a = self(self, op->inputs[0].oper, cache);
+            if (!a)
+            {
+                return nullptr;
+            }
+
+            int64_t na = 1;
+            for (auto d : a->dims)
+            {
+                na *= d;
+            }
+
+            auto out = std::make_unique<TF_Tensor>();
+            out->dims = a->dims;
+            out->dtype = a->dtype;
+
+            const void* pa = a->storage.empty() ? a->external_data : a->storage.data();
+
+            if (a->dtype == TF_FLOAT)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(float));
+                const float* ia = static_cast<const float*>(pa);
+                float* io = reinterpret_cast<float*>(out->storage.data());
+                for (int64_t i = 0; i < na; ++i)
+                {
+                    io[i] = ia[i] * ia[i];
+                }
+            }
+            else if (a->dtype == TF_DOUBLE)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(double));
+                const double* ia = static_cast<const double*>(pa);
+                double* io = reinterpret_cast<double*>(out->storage.data());
+                for (int64_t i = 0; i < na; ++i)
+                {
+                    io[i] = ia[i] * ia[i];
+                }
+            }
+            else if (a->dtype == TF_INT32)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(int32_t));
+                const int32_t* ia = static_cast<const int32_t*>(pa);
+                int32_t* io = reinterpret_cast<int32_t*>(out->storage.data());
+                for (int64_t i = 0; i < na; ++i)
+                {
+                    io[i] = ia[i] * ia[i];
+                }
+            }
+            else if (a->dtype == TF_INT64)
+            {
+                out->storage.resize(static_cast<size_t>(na) * sizeof(int64_t));
+                const int64_t* ia = static_cast<const int64_t*>(pa);
+                int64_t* io = reinterpret_cast<int64_t*>(out->storage.data());
+                for (int64_t i = 0; i < na; ++i)
+                {
+                    io[i] = ia[i] * ia[i];
+                }
+            }
+            else
+            {
+                return nullptr;
+            }
+
+            TF_Tensor* raw = out.get();
+            cache.emplace(op, std::move(out));
+            return raw;
+        }
+
+        // MatMul
+        if (op->op_type == "MatMul")
+        {
+            if (op->inputs.size() < 2)
+            {
+                return nullptr;
+            }
+
+            TF_Tensor* a = self(self, op->inputs[0].oper, cache);
+            TF_Tensor* b = self(self, op->inputs[1].oper, cache);
+            if (!a || !b)
+            {
+                return nullptr;
+            }
+
+            if (a->dims.size() != 2 || b->dims.size() != 2)
+            {
+                return nullptr;
+            }
+
+            const int64_t m = a->dims[0];
+            const int64_t k = a->dims[1];
+            const int64_t n = b->dims[1];
+
+            if (b->dims[0] != k)
+            {
+                return nullptr;
+            }
+
+            auto out = std::make_unique<TF_Tensor>();
+            out->dtype = a->dtype;
+            out->dims = {m, n};
+            out->owns_storage = true;
+
+            const void* pa = a->owns_storage ? a->storage.data() : a->external_data;
+            const void* pb = b->owns_storage ? b->storage.data() : b->external_data;
+
+            if (a->dtype == TF_FLOAT)
+            {
+                out->storage.resize(static_cast<size_t>(m * n) * sizeof(float));
+                const float* fa = static_cast<const float*>(pa);
+                const float* fb = static_cast<const float*>(pb);
+                float* fo = reinterpret_cast<float*>(out->storage.data());
+                
+                for (int64_t i = 0; i < m; ++i)
+                {
+                    for (int64_t j = 0; j < n; ++j)
+                    {
+                        float sum = 0.0f;
+                        for (int64_t kk = 0; kk < k; ++kk)
+                        {
+                            sum += fa[i * k + kk] * fb[kk * n + j];
+                        }
+                        fo[i * n + j] = sum;
+                    }
+                }
+            }
+            else if (a->dtype == TF_DOUBLE)
+            {
+                out->storage.resize(static_cast<size_t>(m * n) * sizeof(double));
+                const double* da = static_cast<const double*>(pa);
+                const double* db = static_cast<const double*>(pb);
+                double* d_out = reinterpret_cast<double*>(out->storage.data());
+                
+                for (int64_t i = 0; i < m; ++i)
+                {
+                    for (int64_t j = 0; j < n; ++j)
+                    {
+                        double sum = 0.0;
+                        for (int64_t kk = 0; kk < k; ++kk)
+                        {
+                            sum += da[i * k + kk] * db[kk * n + j];
+                        }
+                        d_out[i * n + j] = sum;
+                    }
+                }
+            }
+            else if (a->dtype == TF_INT32)
+            {
+                out->storage.resize(static_cast<size_t>(m * n) * sizeof(int32_t));
+                const int32_t* ia = static_cast<const int32_t*>(pa);
+                const int32_t* ib = static_cast<const int32_t*>(pb);
+                int32_t* io = reinterpret_cast<int32_t*>(out->storage.data());
+                
+                for (int64_t i = 0; i < m; ++i)
+                {
+                    for (int64_t j = 0; j < n; ++j)
+                    {
+                        int32_t sum = 0;
+                        for (int64_t kk = 0; kk < k; ++kk)
+                        {
+                            sum += ia[i * k + kk] * ib[kk * n + j];
+                        }
+                        io[i * n + j] = sum;
+                    }
+                }
+            }
+            else
+            {
+                return nullptr;
+            }
+
+            TF_Tensor* raw = out.get();
+            cache.emplace(op, std::move(out));
+            return raw;
+        }
+
+        return nullptr;
+    };
+
+    if (output_values && noutputs > 0)
+    {
+        std::unordered_map<TF_Operation*, std::unique_ptr<TF_Tensor>> cache;
+        for (int i = 0; i < noutputs; ++i)
+        {
+            const TF_Output out = output_ops[i];
+            TF_Tensor* t = eval_op(eval_op, out.oper, cache);
+            if (!t)
+            {
+                set_status(status, TF_UNIMPLEMENTED, "TF_SessionRun: stub cannot evaluate graph");
+                return;
+            }
+
+            output_values[i] = clone_tensor(t).release();
+        }
+    }
+
+    set_status(status, TF_OK, "");
+}
+
+// ----------------------------------------------------------------------------
+// Device list
+// ----------------------------------------------------------------------------
+
+TF_DeviceList* TF_SessionListDevices(TF_Session* session, TF_Status* status)
+{
+    if (!session)
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_SessionListDevices: null session");
+        return nullptr;
+    }
+
+    // Return a fake device list with one CPU
+    auto* list = new TF_DeviceList{};
+    list->devices.push_back({"/device:CPU:0", "CPU", 0});
+    
+    set_status(status, TF_OK, "");
+    return list;
+}
+
+void TF_DeleteDeviceList(TF_DeviceList* list)
+{
+    delete list;
+}
+
+int TF_DeviceListCount(const TF_DeviceList* list)
+{
+    return list ? static_cast<int>(list->devices.size()) : 0;
+}
+
+const char* TF_DeviceListName(const TF_DeviceList* list, int index, TF_Status* status)
+{
+    if (!list || index < 0 || static_cast<size_t>(index) >= list->devices.size())
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_DeviceListName: invalid index");
+        return "";
+    }
+    
+    set_status(status, TF_OK, "");
+    return list->devices[static_cast<size_t>(index)].name.c_str();
+}
+
+const char* TF_DeviceListType(const TF_DeviceList* list, int index, TF_Status* status)
+{
+    if (!list || index < 0 || static_cast<size_t>(index) >= list->devices.size())
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_DeviceListType: invalid index");
+        return "";
+    }
+    
+    set_status(status, TF_OK, "");
+    return list->devices[static_cast<size_t>(index)].type.c_str();
+}
+
+int64_t TF_DeviceListMemoryBytes(const TF_DeviceList* list, int index, TF_Status* status)
+{
+    if (!list || index < 0 || static_cast<size_t>(index) >= list->devices.size())
+    {
+        set_status(status, TF_INVALID_ARGUMENT, "TF_DeviceListMemoryBytes: invalid index");
+        return 0;
+    }
+    
+    set_status(status, TF_OK, "");
+    return list->devices[static_cast<size_t>(index)].memory_bytes;
+}
+
+// ----------------------------------------------------------------------------
+// SavedModel loading (stub - returns error since we can't actually load models)
+// ----------------------------------------------------------------------------
+
+TF_Session* TF_LoadSessionFromSavedModel(
+    const TF_SessionOptions*,
+    const TF_Buffer*,
+    const char* export_dir,
+    const char* const*,
+    int,
+    TF_Graph*,
+    TF_Buffer*,
+    TF_Status* status)
+{
+    // In stub mode, we can't actually load a SavedModel
+    std::string msg = "TF_LoadSessionFromSavedModel: stub cannot load '";
+    msg += export_dir ? export_dir : "(null)";
+    msg += "'";
+    set_status(status, TF_UNIMPLEMENTED, msg.c_str());
+    return nullptr;
+}
+
+// ----------------------------------------------------------------------------
+// TF_TString functions
+// ----------------------------------------------------------------------------
+
+void TF_TString_Init(TF_TString* tstr) {
+    if (tstr) {
+        tstr->data = nullptr;
+        tstr->size = 0;
+        tstr->capacity = 0;
+    }
+}
+
+void TF_TString_Copy(TF_TString* dst, const char* src, size_t size) {
+    if (!dst) return;
+    
+    // Free existing data
+    if (dst->data) {
+        delete[] dst->data;
+    }
+    
+    // Allocate and copy
+    dst->data = new char[size + 1];
+    std::memcpy(dst->data, src, size);
+    dst->data[size] = '\0';  // Null-terminate for safety
+    dst->size = size;
+    dst->capacity = size + 1;
+}
+
+const char* TF_TString_GetDataPointer(const TF_TString* tstr) {
+    return tstr ? tstr->data : nullptr;
+}
+
+size_t TF_TString_GetSize(const TF_TString* tstr) {
+    return tstr ? tstr->size : 0;
+}
+
+// ----------------------------------------------------------------------------
+// Partial run stubs
+// ----------------------------------------------------------------------------
+
+static int g_prun_handle_counter = 0;
+
+void TF_SessionPRunSetup(
+    TF_Session*,
+    const TF_Output*, int,
+    const TF_Output*, int,
+    const TF_Operation* const*, int,
+    const char** handle,
+    TF_Status* status)
+{
+    // Allocate a unique handle string (will be freed by TF_DeletePRunHandle)
+    std::string handle_str = "prun_handle_" + std::to_string(++g_prun_handle_counter);
+    char* allocated = new char[handle_str.size() + 1];
+    std::memcpy(allocated, handle_str.c_str(), handle_str.size() + 1);
+    *handle = allocated;
+    set_status(status, TF_OK, "");
+}
+
+void TF_SessionPRun(
+    TF_Session*,
+    const char*,
+    const TF_Output*, TF_Tensor* const*, int,
+    const TF_Output*, TF_Tensor** output_values, int noutputs,
+    const TF_Operation* const*, int,
+    TF_Status* status)
+{
+    // In stub mode, just return scalar 0.0f for each output
+    for (int i = 0; i < noutputs; ++i) {
+        output_values[i] = TF_AllocateTensor(TF_FLOAT, nullptr, 0, sizeof(float));
+        if (output_values[i]) {
+            *static_cast<float*>(TF_TensorData(output_values[i])) = 0.0f;
+        }
+    }
+    set_status(status, TF_OK, "");
+}
+
+void TF_DeletePRunHandle(const char* handle) {
+    // Free the handle allocated by TF_SessionPRunSetup
+    delete[] handle;
+}
+
+// ----------------------------------------------------------------------------
+// Graph function stubs
+// ----------------------------------------------------------------------------
+
+struct TF_Function {
+    std::string name;
+};
+
+struct TF_FunctionOptions {
+    // Empty for stub
+};
+
+TF_Function* TF_GraphToFunction(
+    const TF_Graph*,
+    const char* fn_name,
+    unsigned char,
+    int,
+    const TF_Operation* const*,
+    int, const TF_Output*,
+    int, const TF_Output*,
+    const char* const*,
+    const TF_FunctionOptions*,
+    const char*,
+    TF_Status* status)
+{
+    auto* func = new TF_Function();
+    func->name = fn_name ? fn_name : "anonymous_function";
+    set_status(status, TF_OK, "");
+    return func;
+}
+
+void TF_GraphCopyFunction(
+    TF_Graph*,
+    const TF_Function*,
+    const TF_Function*,
+    TF_Status* status)
+{
+    set_status(status, TF_OK, "");
+}
+
+void TF_DeleteFunction(TF_Function* func) {
+    delete func;
+}
+
+const char* TF_FunctionName(const TF_Function* func) {
+    return func ? func->name.c_str() : nullptr;
+}
