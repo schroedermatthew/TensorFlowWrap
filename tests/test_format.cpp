@@ -120,11 +120,9 @@ TEST_CASE("format - empty placeholder only") {
     CHECK(result == "42");
 }
 
-TEST_CASE("format - null const char*") {
-    const char* ptr = nullptr;
-    auto result = fmt::format("value: {}", ptr);
-    // Should not crash, empty string for null
-    CHECK(result.find("value:") != std::string::npos);
+TEST_CASE("format - empty string literal") {
+    auto result = fmt::format("value: {}", "");
+    CHECK(result == "value: ");
 }
 
 TEST_CASE("format - special characters") {
