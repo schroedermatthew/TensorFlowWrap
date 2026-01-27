@@ -179,6 +179,42 @@ jobs:
             -o test_facade
           ./test_facade
 
+      - name: Build and run Graph tests (stub)
+        run: |
+          g++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_graph.cpp \
+            -o test_graph
+          ./test_graph
+
+      - name: Build and run Status tests (stub)
+        run: |
+          g++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_status.cpp \
+            -o test_status
+          ./test_status
+
+      - name: Build and run Error tests (stub)
+        run: |
+          g++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_error.cpp \
+            -o test_error
+          ./test_error
+
       - name: Build and verify library compilation
         run: |
           g++-${{ matrix.version }} -std=c++20 \
@@ -290,6 +326,45 @@ jobs:
             -o test_facade
           ./test_facade
 
+      - name: Build and run Graph tests (stub)
+        run: |
+          clang++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -Wno-gnu-zero-variadic-macro-arguments \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_graph.cpp \
+            -o test_graph
+          ./test_graph
+
+      - name: Build and run Status tests (stub)
+        run: |
+          clang++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -Wno-gnu-zero-variadic-macro-arguments \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_status.cpp \
+            -o test_status
+          ./test_status
+
+      - name: Build and run Error tests (stub)
+        run: |
+          clang++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -Wno-gnu-zero-variadic-macro-arguments \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_error.cpp \
+            -o test_error
+          ./test_error
+
       - name: Build and verify library compilation
         run: |
           clang++-${{ matrix.version }} -std=c++20 \
@@ -390,6 +465,42 @@ jobs:
             /Fe:test_facade.exe
           test_facade.exe
 
+      - name: Build and run Graph tests (stub)
+        shell: cmd
+        run: |
+          cl /std:c++20 /W4 /WX /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            /I%STUB_DIR% ^
+            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
+            %STUB_DIR%\tf_c_stub.cpp ^
+            %TEST_DIR%\test_graph.cpp ^
+            /Fe:test_graph.exe
+          test_graph.exe
+
+      - name: Build and run Status tests (stub)
+        shell: cmd
+        run: |
+          cl /std:c++20 /W4 /WX /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            /I%STUB_DIR% ^
+            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
+            %STUB_DIR%\tf_c_stub.cpp ^
+            %TEST_DIR%\test_status.cpp ^
+            /Fe:test_status.exe
+          test_status.exe
+
+      - name: Build and run Error tests (stub)
+        shell: cmd
+        run: |
+          cl /std:c++20 /W4 /WX /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            /I%STUB_DIR% ^
+            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
+            %STUB_DIR%\tf_c_stub.cpp ^
+            %TEST_DIR%\test_error.cpp ^
+            /Fe:test_error.exe
+          test_error.exe
+
       - name: Build and verify library compilation
         shell: cmd
         run: |
@@ -481,6 +592,42 @@ jobs:
             ${{ env.TEST_DIR }}/test_facade.cpp \
             -o test_facade
           ./test_facade
+
+      - name: Build and run Graph tests (stub)
+        run: |
+          clang++ -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_graph.cpp \
+            -o test_graph
+          ./test_graph
+
+      - name: Build and run Status tests (stub)
+        run: |
+          clang++ -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_status.cpp \
+            -o test_status
+          ./test_status
+
+      - name: Build and run Error tests (stub)
+        run: |
+          clang++ -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_error.cpp \
+            -o test_error
+          ./test_error
 
       - name: Build and verify library compilation
         run: |
@@ -575,6 +722,36 @@ jobs:
             ${{ env.TEST_DIR }}/test_facade.cpp \
             -o test_asan_facade
           ./test_asan_facade
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=address -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_graph.cpp \
+            -o test_asan_graph
+          ./test_asan_graph
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=address -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_status.cpp \
+            -o test_asan_status
+          ./test_asan_status
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=address -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_error.cpp \
+            -o test_asan_error
+          ./test_asan_error
           echo "✓ ASan passed"
 
       - name: Build and run with UndefinedBehaviorSanitizer
@@ -624,6 +801,36 @@ jobs:
             ${{ env.TEST_DIR }}/test_facade.cpp \
             -o test_ubsan_facade
           ./test_ubsan_facade
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=undefined -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_graph.cpp \
+            -o test_ubsan_graph
+          ./test_ubsan_graph
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=undefined -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_status.cpp \
+            -o test_ubsan_status
+          ./test_ubsan_status
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=undefined -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_error.cpp \
+            -o test_ubsan_error
+          ./test_ubsan_error
           echo "✓ UBSan passed"
 
   # ===========================================================================
@@ -726,6 +933,20 @@ jobs:
             -o test_facade_tf
           
           ./test_facade_tf
+          
+          # Graph tests with real TF
+          g++-12 -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -Itensorflow_c/include \
+            ${{ env.TEST_DIR }}/test_graph_tf.cpp \
+            -Ltensorflow_c/lib \
+            -ltensorflow \
+            -Wl,-rpath,tensorflow_c/lib \
+            -pthread \
+            -o test_graph_tf
+          
+          ./test_graph_tf
           
           # SavedModel inference tests
           g++-12 -std=c++20 -O2 \
