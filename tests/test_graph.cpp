@@ -305,18 +305,18 @@ TEST_CASE("Graph - DebugString on moved-from throws") {
 // OperationInfo Struct Tests
 // ============================================================================
 
-TEST_CASE("OperationInfo - default values") {
-    OperationInfo info;
-    CHECK(info.op_name.empty());
-    CHECK(info.op_type.empty());
-    CHECK(info.num_inputs == 0);
-    CHECK(info.num_outputs == 0);
-}
-
 TEST_CASE("OperationInfo - initialized values") {
     OperationInfo info{"my_op", "MatMul", 2, 1};
     CHECK(info.op_name == "my_op");
     CHECK(info.op_type == "MatMul");
     CHECK(info.num_inputs == 2);
     CHECK(info.num_outputs == 1);
+}
+
+TEST_CASE("OperationInfo - empty strings") {
+    OperationInfo info{"", "", 0, 0};
+    CHECK(info.op_name.empty());
+    CHECK(info.op_type.empty());
+    CHECK(info.num_inputs == 0);
+    CHECK(info.num_outputs == 0);
 }
