@@ -215,6 +215,30 @@ jobs:
             -o test_error
           ./test_error
 
+      - name: Build and run Format tests (stub)
+        run: |
+          g++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_format.cpp \
+            -o test_format
+          ./test_format
+
+      - name: Build and run Operation tests (stub)
+        run: |
+          g++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_operation.cpp \
+            -o test_operation
+          ./test_operation
+
       - name: Build and verify library compilation
         run: |
           g++-${{ matrix.version }} -std=c++20 \
@@ -365,6 +389,32 @@ jobs:
             -o test_error
           ./test_error
 
+      - name: Build and run Format tests (stub)
+        run: |
+          clang++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -Wno-gnu-zero-variadic-macro-arguments \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_format.cpp \
+            -o test_format
+          ./test_format
+
+      - name: Build and run Operation tests (stub)
+        run: |
+          clang++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -Wno-gnu-zero-variadic-macro-arguments \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_operation.cpp \
+            -o test_operation
+          ./test_operation
+
       - name: Build and verify library compilation
         run: |
           clang++-${{ matrix.version }} -std=c++20 \
@@ -501,6 +551,30 @@ jobs:
             /Fe:test_error.exe
           test_error.exe
 
+      - name: Build and run Format tests (stub)
+        shell: cmd
+        run: |
+          cl /std:c++20 /W4 /WX /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            /I%STUB_DIR% ^
+            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
+            %STUB_DIR%\tf_c_stub.cpp ^
+            %TEST_DIR%\test_format.cpp ^
+            /Fe:test_format.exe
+          test_format.exe
+
+      - name: Build and run Operation tests (stub)
+        shell: cmd
+        run: |
+          cl /std:c++20 /W4 /WX /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            /I%STUB_DIR% ^
+            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
+            %STUB_DIR%\tf_c_stub.cpp ^
+            %TEST_DIR%\test_operation.cpp ^
+            /Fe:test_operation.exe
+          test_operation.exe
+
       - name: Build and verify library compilation
         shell: cmd
         run: |
@@ -629,6 +703,30 @@ jobs:
             -o test_error
           ./test_error
 
+      - name: Build and run Format tests (stub)
+        run: |
+          clang++ -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_format.cpp \
+            -o test_format
+          ./test_format
+
+      - name: Build and run Operation tests (stub)
+        run: |
+          clang++ -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic -Werror \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_operation.cpp \
+            -o test_operation
+          ./test_operation
+
       - name: Build and verify library compilation
         run: |
           clang++ -std=c++20 \
@@ -752,6 +850,26 @@ jobs:
             ${{ env.TEST_DIR }}/test_error.cpp \
             -o test_asan_error
           ./test_asan_error
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=address -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_format.cpp \
+            -o test_asan_format
+          ./test_asan_format
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=address -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_operation.cpp \
+            -o test_asan_operation
+          ./test_asan_operation
           echo "✓ ASan passed"
 
       - name: Build and run with UndefinedBehaviorSanitizer
@@ -831,6 +949,26 @@ jobs:
             ${{ env.TEST_DIR }}/test_error.cpp \
             -o test_ubsan_error
           ./test_ubsan_error
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=undefined -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_format.cpp \
+            -o test_ubsan_format
+          ./test_ubsan_format
+          
+          g++-13 -std=c++20 -g \
+            -fsanitize=undefined -fno-omit-frame-pointer \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_operation.cpp \
+            -o test_ubsan_operation
+          ./test_ubsan_operation
           echo "✓ UBSan passed"
 
   # ===========================================================================
@@ -947,6 +1085,20 @@ jobs:
             -o test_graph_tf
           
           ./test_graph_tf
+          
+          # Operation tests with real TF
+          g++-12 -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -Itensorflow_c/include \
+            ${{ env.TEST_DIR }}/test_operation_tf.cpp \
+            -Ltensorflow_c/lib \
+            -ltensorflow \
+            -Wl,-rpath,tensorflow_c/lib \
+            -pthread \
+            -o test_operation_tf
+          
+          ./test_operation_tf
           
           # SavedModel inference tests
           g++-12 -std=c++20 -O2 \
