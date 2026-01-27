@@ -472,15 +472,16 @@ TEST_CASE("Session::Run - empty feeds/fetches") {
     Session session(graph);
     
     // Empty run should succeed
-    auto results = session.Run({}, {}, {});
+    std::vector<Feed> feeds;
+    std::vector<Fetch> fetches;
+    auto results = session.Run(feeds, fetches);
     CHECK(results.empty());
 }
 
-TEST_CASE("Session::Run - with initializer lists") {
+TEST_CASE("Session::Run - with vectors") {
     Graph graph;
     Session session(graph);
     
-    // Using initializer_list variant
     std::vector<Feed> feeds;
     std::vector<Fetch> fetches;
     std::vector<Target> targets;
@@ -501,7 +502,9 @@ TEST_CASE("Session - Run on moved-from session") {
     // s1 is now invalid
     bool threw = false;
     try {
-        auto results = s1.Run({}, {});
+        std::vector<Feed> feeds;
+        std::vector<Fetch> fetches;
+        auto results = s1.Run(feeds, fetches);
         (void)results;
     } catch (const Error&) {
         threw = true;
