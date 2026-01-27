@@ -1,37 +1,26 @@
-// tf/graph.hpp
-// RAII wrapper for TF_Graph
+// tf_wrap/graph.hpp
+// RAII wrapper for TF_Graph - Production Inference Edition (read-only)
 //
-// v5 - Thread safety policies REMOVED (simplification):
-// - Single Graph class (no policy templates)
-// - No mutex/locking machinery
-//
-// Thread safety contract:
-// - Graph mutation is NOT thread-safe
-// - Don't modify graph from multiple threads
-// - Graph is frozen after Session creation (this wrapper's policy choice)
-// - Session::Run() is thread-safe (TensorFlow's guarantee)
+// This is a read-only graph wrapper for inference. Graphs are loaded from
+// SavedModel, not built programmatically. Build graphs in Python, export
+// as SavedModel, load and run inference in C++.
 
 #pragma once
 
-#include <cstdio>
 #include <memory>
 #include <optional>
-#include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 extern "C" {
 #include <tensorflow/c/c_api.h>
 }
 
+#include "tf_wrap/error.hpp"
 #include "tf_wrap/format.hpp"
-#include "tf_wrap/operation.hpp"
 #include "tf_wrap/scope_guard.hpp"
 #include "tf_wrap/status.hpp"
-#include "tf_wrap/tensor.hpp"
 
 namespace tf_wrap {
 
@@ -47,7 +36,8 @@ struct GraphState {
 
     GraphState() : graph(TF_NewGraph()) {
         if (!graph) {
-            throw std::runtime_error("TF_NewGraph: failed to create graph");
+            throw Error::Wrapper(TF_INTERNAL, "GraphState",
+                "TF_NewGraph failed", "", -1);
         }
     }
 
@@ -64,274 +54,18 @@ struct GraphState {
 } // namespace detail
 
 // ============================================================================
-// OperationBuilder - Fluent builder for graph operations
+// OperationInfo - Information about an operation (for introspection)
 // ============================================================================
 
-class OperationBuilder {
-public:
-    OperationBuilder(std::shared_ptr<detail::GraphState> graph_state,
-                     const std::string& op_type,
-                     const std::string& name)
-        : graph_state_(std::move(graph_state))
-        , desc_(TF_NewOperation(graph_state_->graph, op_type.c_str(), name.c_str()))
-        , finished_(false)
-    {
-        if (!desc_) {
-            throw std::runtime_error(tf_wrap::detail::format(
-                "TF_NewOperation failed: type='{}', name='{}'", op_type, name));
-        }
-    }
-    
-    ~OperationBuilder() noexcept { cleanup_desc_(); }
-    
-    OperationBuilder(const OperationBuilder&) = delete;
-    OperationBuilder& operator=(const OperationBuilder&) = delete;
-    
-    OperationBuilder(OperationBuilder&& other) noexcept
-        : graph_state_(std::move(other.graph_state_))
-        , desc_(other.desc_)
-        , finished_(other.finished_)
-    {
-        other.desc_ = nullptr;
-        other.finished_ = true;
-    }
-
-    OperationBuilder& operator=(OperationBuilder&&) = delete;
-    
-    // ─────────────────────────────────────────────────────────────────
-    // Attribute setters (fluent interface)
-    // ─────────────────────────────────────────────────────────────────
-    
-    OperationBuilder& SetAttrTensor(const char* name, TF_Tensor* tensor) & {
-        Status st;
-        TF_SetAttrTensor(desc_, name, tensor, st.get());
-        st.throw_if_error(tf_wrap::detail::format("SetAttrTensor('{}')", name));
-        return *this;
-    }
-    OperationBuilder&& SetAttrTensor(const char* name, TF_Tensor* tensor) && {
-        return std::move(SetAttrTensor(name, tensor));
-    }
-    
-    OperationBuilder& SetAttrType(const char* name, TF_DataType dtype) & {
-        TF_SetAttrType(desc_, name, dtype);
-        return *this;
-    }
-    OperationBuilder&& SetAttrType(const char* name, TF_DataType dtype) && {
-        return std::move(SetAttrType(name, dtype));
-    }
-    
-    OperationBuilder& SetAttrTypeList(const char* name, std::span<const TF_DataType> types) & {
-        TF_SetAttrTypeList(desc_, name, types.data(),
-            detail::checked_int(types.size(), "OperationBuilder::SetAttrTypeList"));
-        return *this;
-    }
-    OperationBuilder&& SetAttrTypeList(const char* name, std::span<const TF_DataType> types) && {
-        return std::move(SetAttrTypeList(name, types));
-    }
-    
-    OperationBuilder& SetAttrShape(const char* name, std::span<const std::int64_t> dims) & {
-        TF_SetAttrShape(desc_, name, dims.data(),
-            detail::checked_int(dims.size(), "OperationBuilder::SetAttrShape(span)"));
-        return *this;
-    }
-    OperationBuilder&& SetAttrShape(const char* name, std::span<const std::int64_t> dims) && {
-        return std::move(SetAttrShape(name, dims));
-    }
-    OperationBuilder& SetAttrShape(const char* name, std::initializer_list<std::int64_t> dims) & {
-        TF_SetAttrShape(desc_, name, dims.begin(),
-            detail::checked_int(dims.size(), "OperationBuilder::SetAttrShape(init_list)"));
-        return *this;
-    }
-    OperationBuilder&& SetAttrShape(const char* name, std::initializer_list<std::int64_t> dims) && {
-        return std::move(SetAttrShape(name, dims));
-    }
-    
-    OperationBuilder& SetAttrInt(const char* name, std::int64_t value) & {
-        TF_SetAttrInt(desc_, name, value);
-        return *this;
-    }
-    OperationBuilder&& SetAttrInt(const char* name, std::int64_t value) && {
-        return std::move(SetAttrInt(name, value));
-    }
-    
-    OperationBuilder& SetAttrIntList(const char* name, std::span<const std::int64_t> values) & {
-        TF_SetAttrIntList(desc_, name, values.data(),
-            detail::checked_int(values.size(), "OperationBuilder::SetAttrIntList"));
-        return *this;
-    }
-    OperationBuilder&& SetAttrIntList(const char* name, std::span<const std::int64_t> values) && {
-        return std::move(SetAttrIntList(name, values));
-    }
-    
-    OperationBuilder& SetAttrFloat(const char* name, float value) & {
-        TF_SetAttrFloat(desc_, name, value);
-        return *this;
-    }
-    OperationBuilder&& SetAttrFloat(const char* name, float value) && {
-        return std::move(SetAttrFloat(name, value));
-    }
-    
-    OperationBuilder& SetAttrFloatList(const char* name, std::span<const float> values) & {
-        TF_SetAttrFloatList(desc_, name, values.data(),
-            detail::checked_int(values.size(), "OperationBuilder::SetAttrFloatList"));
-        return *this;
-    }
-    OperationBuilder&& SetAttrFloatList(const char* name, std::span<const float> values) && {
-        return std::move(SetAttrFloatList(name, values));
-    }
-    
-    OperationBuilder& SetAttrBool(const char* name, bool value) & {
-        TF_SetAttrBool(desc_, name, value ? 1 : 0);
-        return *this;
-    }
-    OperationBuilder&& SetAttrBool(const char* name, bool value) && {
-        return std::move(SetAttrBool(name, value));
-    }
-    
-    OperationBuilder& SetAttrString(const char* name, std::string_view value) & {
-        TF_SetAttrString(desc_, name, value.data(), value.size());
-        return *this;
-    }
-    OperationBuilder&& SetAttrString(const char* name, std::string_view value) && {
-        return std::move(SetAttrString(name, value));
-    }
-    
-    OperationBuilder& SetAttrFuncName(const char* name, std::string_view func_name) & {
-        TF_SetAttrFuncName(desc_, name, func_name.data(), func_name.size());
-        return *this;
-    }
-    OperationBuilder&& SetAttrFuncName(const char* name, std::string_view func_name) && {
-        return std::move(SetAttrFuncName(name, func_name));
-    }
-    
-    OperationBuilder& SetDevice(const char* device) & {
-        TF_SetDevice(desc_, device);
-        return *this;
-    }
-    OperationBuilder&& SetDevice(const char* device) && {
-        return std::move(SetDevice(device));
-    }
-    
-    // ─────────────────────────────────────────────────────────────────
-    // Input setters
-    // ─────────────────────────────────────────────────────────────────
-    
-    OperationBuilder& AddInput(TF_Output input) & {
-        TF_AddInput(desc_, input);
-        return *this;
-    }
-    OperationBuilder&& AddInput(TF_Output input) && {
-        return std::move(AddInput(input));
-    }
-    
-    OperationBuilder& AddInput(TF_Operation* op, int index = 0) & {
-        return AddInput(TF_Output{op, index});
-    }
-    OperationBuilder&& AddInput(TF_Operation* op, int index = 0) && {
-        return std::move(AddInput(op, index));
-    }
-    
-    OperationBuilder& AddInputList(std::span<const TF_Output> inputs) & {
-        TF_AddInputList(desc_, inputs.data(),
-            detail::checked_int(inputs.size(), "OperationBuilder::AddInputList"));
-        return *this;
-    }
-    OperationBuilder&& AddInputList(std::span<const TF_Output> inputs) && {
-        return std::move(AddInputList(inputs));
-    }
-    
-    OperationBuilder& AddControlInput(TF_Operation* op) & {
-        TF_AddControlInput(desc_, op);
-        return *this;
-    }
-    OperationBuilder&& AddControlInput(TF_Operation* op) && {
-        return std::move(AddControlInput(op));
-    }
-    
-    // ─────────────────────────────────────────────────────────────────
-    // Finish building
-    // ─────────────────────────────────────────────────────────────────
-    
-    [[nodiscard]] TF_Operation* Finish() {
-        if (finished_) {
-            throw std::runtime_error("OperationBuilder::Finish() called twice");
-        }
-        
-        Status st;
-        TF_Operation* op = TF_FinishOperation(desc_, st.get());
-        finished_ = true;
-        desc_ = nullptr;
-        
-        st.throw_if_error("TF_FinishOperation");
-        return op;
-    }
-    
-    // Explicitly abandon an operation builder without finishing.
-    //
-    // Use this when you intentionally don't want to complete an operation.
-    // Without this call, destroying an unfinished builder triggers a debug warning.
-    //
-    // Note:
-    //   * TF_WRAPPER_TF_STUB_ENABLED: the underlying TF_OperationDescription is freed.
-    //   * Real TensorFlow: the public C API does not expose a way to delete a
-    //     TF_OperationDescription without calling TF_FinishOperation(). To guarantee
-    //     the graph is not mutated, Abandon() intentionally leaks the description.
-    void Abandon() noexcept {
-        if (finished_) {
-            return;
-        }
-
-        discard_desc_no_graph_mod_();
-        finished_ = true;
-        abandoned_ = true;
-    }
-
-    [[nodiscard]] bool valid() const noexcept { return desc_ != nullptr && !finished_; }
-
-private:
-    std::shared_ptr<detail::GraphState> graph_state_;
-    TF_OperationDescription* desc_;
-    bool finished_;
-    bool abandoned_{false};
-
-    void discard_desc_no_graph_mod_() noexcept {
-        if (!desc_) {
-            return;
-        }
-
-#ifdef TF_WRAPPER_TF_STUB_ENABLED
-        // Stub can delete without affecting the graph.
-        TF_DeleteOperationDescription(desc_);
-#else
-        // Real TensorFlow: there is no public API to delete TF_OperationDescription
-        // without calling TF_FinishOperation(). We avoid TF_FinishOperation() here
-        // to guarantee the graph is not mutated (this intentionally leaks).
-#endif
-        desc_ = nullptr;
-    }
-
-
-    void cleanup_desc_() noexcept {
-        if (!finished_ && desc_) {
-#ifndef NDEBUG
-#ifdef TF_WRAPPER_TF_STUB_ENABLED
-            std::fprintf(stderr,
-                "[TensorFlowWrap WARNING] OperationBuilder destroyed without Finish() or Abandon() - "
-                "discarding operation description (graph not modified)\n");
-#else
-            std::fprintf(stderr,
-                "[TensorFlowWrap WARNING] OperationBuilder destroyed without Finish() or Abandon() - "
-                "graph not modified, but OperationDescription may leak (real TensorFlow C API)\n");
-#endif
-#endif
-            discard_desc_no_graph_mod_();
-            finished_ = true;
-        }
-    }
+struct OperationInfo {
+    std::string op_name;
+    std::string op_type;
+    int num_inputs;
+    int num_outputs;
 };
 
 // ============================================================================
-// Graph - RAII wrapper for TF_Graph
+// Graph - RAII wrapper for TF_Graph (read-only for inference)
 // ============================================================================
 
 class Graph {
@@ -353,42 +87,8 @@ public:
         return *this;
     }
     
-    [[nodiscard]] bool valid() const noexcept { return state_ && state_->graph != nullptr; }
-    
-    // ─────────────────────────────────────────────────────────────────
-    // Import GraphDef
-    // ─────────────────────────────────────────────────────────────────
-    
-    void ImportGraphDef(const void* proto, std::size_t proto_len, const char* prefix = "") {
-        ensure_valid_("ImportGraphDef");
-        ensure_not_frozen_("ImportGraphDef");
-        
-        TF_Buffer* buf = TF_NewBufferFromString(proto, proto_len);
-        if (!buf) {
-            throw std::runtime_error("ImportGraphDef: TF_NewBufferFromString failed");
-        }
-        TF_SCOPE_EXIT { TF_DeleteBuffer(buf); };
-        
-        TF_ImportGraphDefOptions* opts = TF_NewImportGraphDefOptions();
-        if (!opts) {
-            throw std::runtime_error("ImportGraphDef: TF_NewImportGraphDefOptions failed");
-        }
-        TF_SCOPE_EXIT { TF_DeleteImportGraphDefOptions(opts); };
-        
-        if (prefix && prefix[0] != '\0') {
-            TF_ImportGraphDefOptionsSetPrefix(opts, prefix);
-        }
-        
-        Status st;
-        TF_GraphImportGraphDef(state_->graph, buf, opts, st.get());
-        st.throw_if_error("TF_GraphImportGraphDef");
-    }
-    
-    void ImportGraphDef(const TF_Buffer* buf, const char* prefix = "") {
-        if (!buf || !buf->data) {
-            throw std::invalid_argument("ImportGraphDef: null buffer");
-        }
-        ImportGraphDef(buf->data, buf->length, prefix);
+    [[nodiscard]] bool valid() const noexcept { 
+        return state_ && state_->graph != nullptr; 
     }
     
     // ─────────────────────────────────────────────────────────────────
@@ -404,8 +104,8 @@ public:
     [[nodiscard]] TF_Operation* GetOperationOrThrow(const std::string& name) const {
         auto opt = GetOperation(name);
         if (!opt) {
-            throw std::runtime_error(tf_wrap::detail::format(
-                "Operation '{}' not found in graph", name));
+            throw Error::Wrapper(TF_NOT_FOUND, "Graph::GetOperationOrThrow",
+                "operation not found in graph", name, -1);
         }
         return *opt;
     }
@@ -415,17 +115,7 @@ public:
     }
     
     // ─────────────────────────────────────────────────────────────────
-    // Create new operations
-    // ─────────────────────────────────────────────────────────────────
-    
-    [[nodiscard]] OperationBuilder NewOperation(const std::string& op_type, const std::string& name) {
-        ensure_valid_("NewOperation");
-        ensure_not_frozen_("NewOperation");
-        return OperationBuilder(state_, op_type, name);
-    }
-    
-    // ─────────────────────────────────────────────────────────────────
-    // Graph info
+    // Graph introspection
     // ─────────────────────────────────────────────────────────────────
     
     [[nodiscard]] std::vector<TF_Operation*> GetAllOperations() const {
@@ -453,31 +143,6 @@ public:
         return count;
     }
     
-    [[nodiscard]] std::vector<std::uint8_t> ToGraphDef() const {
-        ensure_valid_("ToGraphDef");
-        
-        TF_Buffer* buf = TF_NewBuffer();
-        if (!buf) {
-            throw std::runtime_error("ToGraphDef: TF_NewBuffer failed");
-        }
-        TF_SCOPE_EXIT { TF_DeleteBuffer(buf); };
-        
-        Status st;
-        TF_GraphToGraphDef(state_->graph, buf, st.get());
-        st.throw_if_error("TF_GraphToGraphDef");
-        
-        if (buf->length == 0) {
-            return {};
-        }
-        if (!buf->data) {
-            throw std::runtime_error(
-                "ToGraphDef: TF_GraphToGraphDef returned null data with non-zero length");
-        }
-
-        const auto* p = static_cast<const std::uint8_t*>(buf->data);
-        return std::vector<std::uint8_t>(p, p + buf->length);
-    }
-    
     [[nodiscard]] std::vector<TF_Operation*> GetOperationsByType(const std::string& op_type) const {
         ensure_valid_("GetOperationsByType");
         
@@ -494,19 +159,68 @@ public:
         return ops;
     }
     
+    [[nodiscard]] std::vector<OperationInfo> GetOperationInfoByType(const std::string& op_type) const {
+        ensure_valid_("GetOperationInfoByType");
+        
+        std::vector<OperationInfo> result;
+        std::size_t pos = 0;
+        TF_Operation* op;
+        
+        while ((op = TF_GraphNextOperation(state_->graph, &pos)) != nullptr) {
+            if (std::string_view(TF_OperationOpType(op)) == op_type) {
+                result.push_back({
+                    TF_OperationName(op),
+                    TF_OperationOpType(op),
+                    TF_OperationNumInputs(op),
+                    TF_OperationNumOutputs(op)
+                });
+            }
+        }
+        
+        return result;
+    }
+    
+    [[nodiscard]] std::vector<OperationInfo> GetPlaceholders() const {
+        return GetOperationInfoByType("Placeholder");
+    }
+    
+    // ─────────────────────────────────────────────────────────────────
+    // Serialization (for debugging)
+    // ─────────────────────────────────────────────────────────────────
+    
+    [[nodiscard]] std::vector<std::uint8_t> ToGraphDef() const {
+        ensure_valid_("ToGraphDef");
+        
+        TF_Buffer* buf = TF_NewBuffer();
+        if (!buf) {
+            throw Error::Wrapper(TF_INTERNAL, "Graph::ToGraphDef",
+                "TF_NewBuffer failed", "", -1);
+        }
+        TF_SCOPE_EXIT { TF_DeleteBuffer(buf); };
+        
+        Status st;
+        TF_GraphToGraphDef(state_->graph, buf, st.get());
+        st.throw_if_error("TF_GraphToGraphDef");
+        
+        if (buf->length == 0) {
+            return {};
+        }
+        if (!buf->data) {
+            throw Error::Wrapper(TF_INTERNAL, "Graph::ToGraphDef",
+                "TF_GraphToGraphDef returned null data", "", -1);
+        }
+
+        const auto* p = static_cast<const std::uint8_t*>(buf->data);
+        return std::vector<std::uint8_t>(p, p + buf->length);
+    }
+    
     [[nodiscard]] std::string DebugString() const {
         ensure_valid_("DebugString");
         
-        std::size_t count = 0;
-        std::size_t pos = 0;
-        while (TF_GraphNextOperation(state_->graph, &pos) != nullptr) {
-            ++count;
-        }
-        pos = 0;
-        
         std::string result;
-        result += "Graph with " + std::to_string(count) + " operations:\n";
+        result += "Graph with " + std::to_string(num_operations()) + " operations:\n";
         
+        std::size_t pos = 0;
         TF_Operation* op;
         while ((op = TF_GraphNextOperation(state_->graph, &pos)) != nullptr) {
             const char* name = TF_OperationName(op);
@@ -515,9 +229,9 @@ public:
             const int num_outputs = TF_OperationNumOutputs(op);
             
             result += "  ";
-            result += name;
+            result += name ? name : "(null)";
             result += " (";
-            result += type;
+            result += type ? type : "(null)";
             result += ") inputs=";
             result += std::to_string(num_inputs);
             result += " outputs=";
@@ -529,164 +243,35 @@ public:
     }
     
     // ─────────────────────────────────────────────────────────────────
-    // Raw handle and freeze
+    // Handle access and freeze state
     // ─────────────────────────────────────────────────────────────────
     
-    [[nodiscard]] TF_Graph* handle() const noexcept { return state_ ? state_->graph : nullptr; }
+    [[nodiscard]] TF_Graph* handle() const noexcept { 
+        return state_ ? state_->graph : nullptr; 
+    }
     
-    void freeze() noexcept { if (state_) state_->frozen = true; }
-    [[nodiscard]] bool is_frozen() const noexcept { return state_ && state_->frozen; }
+    void freeze() noexcept { 
+        if (state_) state_->frozen = true; 
+    }
+    
+    [[nodiscard]] bool is_frozen() const noexcept { 
+        return state_ && state_->frozen; 
+    }
 
-    [[nodiscard]] std::shared_ptr<detail::GraphState> share_state() const noexcept { return state_; }
-    
-    // Methods defined after OperationInfo struct
-    [[nodiscard]] std::vector<OperationInfo> GetPlaceholders() const;
-    [[nodiscard]] std::vector<OperationInfo> GetOperationInfoByType(const std::string& op_type) const;
+    [[nodiscard]] std::shared_ptr<detail::GraphState> share_state() const noexcept { 
+        return state_; 
+    }
 
 private:
     std::shared_ptr<detail::GraphState> state_{};
     
     void ensure_valid_(const char* fn) const {
         if (!state_ || !state_->graph) {
-            throw std::runtime_error(std::string(fn) + ": Graph is in moved-from state");
-        }
-    }
-    
-    void ensure_not_frozen_(const char* fn) const {
-        if (state_ && state_->frozen) {
-            throw std::runtime_error(std::string(fn) + 
-                ": Graph is frozen (a Session has been created from it). "
-                "This wrapper requires graphs to be immutable after Session creation.");
+            throw Error::Wrapper(TF_FAILED_PRECONDITION, 
+                detail::format("Graph::{}", fn),
+                "graph is in moved-from state", "", -1);
         }
     }
 };
-
-// ============================================================================
-// GraphFunction - RAII wrapper for TF_Function
-// ============================================================================
-
-class GraphFunction {
-public:
-    GraphFunction() = default;
-    
-    ~GraphFunction() {
-        if (func_) TF_DeleteFunction(func_);
-    }
-    
-    GraphFunction(const GraphFunction&) = delete;
-    GraphFunction& operator=(const GraphFunction&) = delete;
-    
-    GraphFunction(GraphFunction&& other) noexcept : func_(other.func_) {
-        other.func_ = nullptr;
-    }
-    
-    GraphFunction& operator=(GraphFunction&& other) noexcept {
-        if (this != &other) {
-            if (func_) TF_DeleteFunction(func_);
-            func_ = other.func_;
-            other.func_ = nullptr;
-        }
-        return *this;
-    }
-    
-    [[nodiscard]] static GraphFunction FromGraph(
-        const Graph& graph,
-        const std::string& name,
-        std::span<const TF_Output> inputs,
-        std::span<const TF_Output> outputs,
-        const std::string& description = "")
-    {
-        Status st;
-        
-        TF_Function* func = TF_GraphToFunction(
-            graph.handle(),
-            name.c_str(),
-            0,
-            -1,
-            nullptr,
-            detail::checked_int(inputs.size(), "GraphFunction::FromGraph inputs"),
-            inputs.data(),
-            detail::checked_int(outputs.size(), "GraphFunction::FromGraph outputs"),
-            outputs.data(),
-            nullptr,
-            nullptr,
-            description.empty() ? nullptr : description.c_str(),
-            st.get());
-        
-        st.throw_if_error("TF_GraphToFunction");
-        
-        GraphFunction result;
-        result.func_ = func;
-        return result;
-    }
-    
-    [[nodiscard]] bool valid() const noexcept { return func_ != nullptr; }
-    [[nodiscard]] TF_Function* handle() const noexcept { return func_; }
-    
-    [[nodiscard]] const char* name() const {
-        if (!func_) return "";
-        return TF_FunctionName(func_);
-    }
-    
-    void CopyTo(Graph& graph, const GraphFunction* grad = nullptr) const {
-        if (!func_) {
-            throw std::runtime_error("GraphFunction::CopyTo: function is null");
-        }
-        
-        Status st;
-        TF_GraphCopyFunction(
-            graph.handle(),
-            func_,
-            grad ? grad->handle() : nullptr,
-            st.get());
-        
-        st.throw_if_error("TF_GraphCopyFunction");
-    }
-    
-private:
-    TF_Function* func_{nullptr};
-};
-
-// ============================================================================
-// OperationInfo - Information about an operation
-// ============================================================================
-
-struct OperationInfo {
-    std::string op_name;
-    std::string op_type;
-    int num_inputs;
-    int num_outputs;
-};
-
-// ============================================================================
-// Graph member: GetPlaceholders
-// ============================================================================
-
-inline std::vector<OperationInfo> Graph::GetPlaceholders() const {
-    return GetOperationInfoByType("Placeholder");
-}
-
-inline std::vector<OperationInfo> Graph::GetOperationInfoByType(const std::string& op_type) const {
-    ensure_valid_("GetOperationInfoByType");
-    
-    std::vector<OperationInfo> result;
-    std::size_t pos = 0;
-    TF_Operation* op;
-    
-    while ((op = TF_GraphNextOperation(state_->graph, &pos)) != nullptr) {
-        if (std::string_view(TF_OperationOpType(op)) == op_type) {
-            result.push_back({
-                TF_OperationName(op),
-                TF_OperationOpType(op),
-                TF_OperationNumInputs(op),
-                TF_OperationNumOutputs(op)
-            });
-        }
-    }
-    
-    return result;
-}
-
-// Backward compatibility alias
 
 } // namespace tf_wrap

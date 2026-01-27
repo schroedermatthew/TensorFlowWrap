@@ -9,8 +9,6 @@
 #pragma once
 
 #include <algorithm>
-#include <cctype>
-#include <charconv>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -35,77 +33,6 @@ extern "C" {
 #include "tf_wrap/detail/raw_tensor_ptr.hpp"
 
 namespace tf_wrap {
-namespace detail {
-
-/// Internal helper: call TF_SessionRun and throw on error.
-/// Also validates that all fetched outputs are non-null.
-///
-/// This exists so Session and higher-level runners share a single, consistent
-/// TF_SessionRun call path (avoids drift).
-inline void session_run_checked(
-    TF_Session* session,
-    const TF_Buffer* run_options,
-    const TF_Output* input_ops,
-    TF_Tensor* const* input_vals,
-    int num_inputs,
-    const TF_Output* output_ops,
-    TF_Tensor** output_vals,
-    int num_outputs,
-    TF_Operation* const* target_ops,
-    int num_targets,
-    TF_Buffer* run_metadata,
-    std::string_view context,
-    std::source_location loc)
-{
-    Status st;
-    TF_SessionRun(
-        session,
-        run_options,
-        input_ops, input_vals, num_inputs,
-        output_ops, output_vals, num_outputs,
-        target_ops, num_targets,
-        run_metadata,
-        st.get());
-
-    // If TF_SessionRun failed, TensorFlow may still have allocated some output
-    // tensors. Since we throw on error, ensure we don't leak them.
-    if (!st.ok()) {
-        for (int i = 0; i < num_outputs; ++i) {
-            if (output_vals[i]) {
-                TF_DeleteTensor(output_vals[i]);
-                output_vals[i] = nullptr;
-            }
-        }
-        st.throw_if_error(context, loc);
-    }
-
-    // Verify all requested outputs are non-null.
-    for (int i = 0; i < num_outputs; ++i) {
-        if (output_vals[i] != nullptr) continue;
-
-        // Defensive cleanup: if any requested fetch is null, free all outputs
-        // before throwing.
-        for (int j = 0; j < num_outputs; ++j) {
-            if (output_vals[j]) {
-                TF_DeleteTensor(output_vals[j]);
-                output_vals[j] = nullptr;
-            }
-        }
-
-        const TF_Output out = output_ops[i];
-        const char* op_name = out.oper ? TF_OperationName(out.oper) : "";
-        throw Error::Wrapper(
-            TF_INTERNAL,
-            context,
-            "fetch returned null tensor",
-            op_name ? op_name : "",
-            out.index,
-            loc);
-    }
-}
-
-} // namespace detail
-
 
 // ============================================================================
 // SessionOptions - RAII wrapper for TF_SessionOptions
@@ -464,11 +391,9 @@ public:
             
             if (all_digits) {
                 op_name = std::string(name.substr(0, colon_pos));
-                // Use std::from_chars for safe parsing (no overflow UB)
-                auto [ptr, ec] = std::from_chars(suffix.data(), suffix.data() + suffix.size(), index);
-                if (ec != std::errc{} || ptr != suffix.data() + suffix.size()) {
-                    throw Error::Wrapper(TF_INVALID_ARGUMENT, "Session::resolve",
-                        "invalid output index (overflow or parse error)", op_name, -1, loc);
+                index = 0;
+                for (char c : suffix) {
+                    index = index * 10 + (c - '0');
                 }
             } else {
                 op_name = std::string(name);
@@ -492,98 +417,6 @@ public:
         }
         
         return TF_Output{op, index};
-    }
-
-    // ─────────────────────────────────────────────────────────────────
-    // Validation helpers (production safety)
-    // ─────────────────────────────────────────────────────────────────
-
-    /// Validate that a TF_Output is usable with this session (belongs to this graph,
-    /// index is in range, and oper is non-null). Useful to fail fast at startup.
-    void validate_output(
-        TF_Output out,
-        std::source_location loc = std::source_location::current()) const
-    {
-        if (!graph_state_ || !graph_state_->graph) {
-            throw Error::Wrapper(
-                TF_FAILED_PRECONDITION,
-                "Session::validate_output",
-                "session has no graph",
-                "",
-                -1,
-                loc);
-        }
-        if (!out.oper) {
-            throw Error::Wrapper(
-                TF_INVALID_ARGUMENT,
-                "Session::validate_output",
-                "null TF_Output.oper",
-                "",
-                out.index,
-                loc);
-        }
-
-        const int n = TF_OperationNumOutputs(out.oper);
-        if (out.index < 0 || out.index >= n) {
-            const char* op_name = TF_OperationName(out.oper);
-            throw Error::Wrapper(
-                TF_OUT_OF_RANGE,
-                "Session::validate_output",
-                detail::format("output index {} out of range (operation has {} outputs)", out.index, n),
-                op_name ? op_name : "",
-                out.index,
-                loc);
-        }
-
-        // Defensive: ensure the operation pointer belongs to this graph.
-        const char* op_name = TF_OperationName(out.oper);
-        TF_Operation* by_name = TF_GraphOperationByName(graph_state_->graph, op_name ? op_name : "");
-        if (by_name != out.oper) {
-            throw Error::Wrapper(
-                TF_INVALID_ARGUMENT,
-                "Session::validate_output",
-                "TF_Output does not belong to this session's graph",
-                op_name ? op_name : "",
-                out.index,
-                loc);
-        }
-    }
-
-    /// Validate that a TF_Operation belongs to this session's graph.
-    void validate_operation(
-        TF_Operation* op,
-        std::source_location loc = std::source_location::current()) const
-    {
-        if (!graph_state_ || !graph_state_->graph) {
-            throw Error::Wrapper(
-                TF_FAILED_PRECONDITION,
-                "Session::validate_operation",
-                "session has no graph",
-                "",
-                -1,
-                loc);
-        }
-        if (!op) {
-            throw Error::Wrapper(
-                TF_INVALID_ARGUMENT,
-                "Session::validate_operation",
-                "null TF_Operation*",
-                "",
-                -1,
-                loc);
-        }
-
-        const char* op_name = TF_OperationName(op);
-        TF_Operation* by_name = TF_GraphOperationByName(graph_state_->graph, op_name ? op_name : "");
-        if (by_name != op) {
-            throw Error::Wrapper(
-                TF_INVALID_ARGUMENT,
-                "Session::validate_operation",
-                "TF_Operation does not belong to this session's graph",
-                op_name ? op_name : "",
-                -1,
-                loc);
-        }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -634,20 +467,15 @@ public:
         const int num_outputs = detail::checked_int(fetches.size(), "Session::Run fetches");
         const int num_targets = detail::checked_int(targets.size(), "Session::Run targets");
         
-        detail::session_run_checked(
+        Status st;
+        TF_SessionRun(
             session_,
             run_options,
-            input_ops.data(),
-            input_vals.data(),
-            num_inputs,
-            output_ops.data(),
-            output_vals.data(),
-            num_outputs,
-            target_ops.data(),
-            num_targets,
+            input_ops.data(), input_vals.data(), num_inputs,
+            output_ops.data(), output_vals.data(), num_outputs,
+            target_ops.data(), num_targets,
             run_metadata,
-            "Session::Run",
-            loc);
+            st.get());
 
         // Take ownership immediately for exception safety
         using RawTensorPtr = detail::RawTensorPtr;
@@ -655,6 +483,19 @@ public:
         owned.reserve(output_vals.size());
         for (auto* t : output_vals) {
             owned.emplace_back(t);
+        }
+
+        st.throw_if_error("TF_SessionRun", loc);
+
+        // Verify all outputs are valid
+        for (std::size_t i = 0; i < owned.size(); ++i) {
+            if (!owned[i]) {
+                const TF_Output& out = fetches[i].output;
+                const char* op_name = out.oper ? TF_OperationName(out.oper) : "";
+                throw Error::Wrapper(TF_INTERNAL, "TF_SessionRun",
+                    "fetch returned null tensor",
+                    op_name ? op_name : "", out.index, loc);
+            }
         }
 
         std::vector<Tensor> results;
@@ -700,20 +541,15 @@ public:
         const int num_outputs = detail::checked_int(ctx.output_ops_.size(), "fetches");
         const int num_targets = detail::checked_int(ctx.target_ops_.size(), "targets");
         
-        detail::session_run_checked(
+        Status st;
+        TF_SessionRun(
             session_,
             run_options,
-            ctx.input_ops_.data(),
-            ctx.input_vals_.data(),
-            num_inputs,
-            ctx.output_ops_.data(),
-            ctx.output_vals_.data(),
-            num_outputs,
-            ctx.target_ops_.data(),
-            num_targets,
+            ctx.input_ops_.data(), ctx.input_vals_.data(), num_inputs,
+            ctx.output_ops_.data(), ctx.output_vals_.data(), num_outputs,
+            ctx.target_ops_.data(), num_targets,
             run_metadata,
-            "Session::Run",
-            loc);
+            st.get());
 
         // Take ownership
         using RawTensorPtr = detail::RawTensorPtr;
@@ -723,9 +559,15 @@ public:
             owned.emplace_back(t);
         }
 
+        st.throw_if_error("TF_SessionRun", loc);
+
         std::vector<Tensor> results;
         results.reserve(owned.size());
         for (auto& p : owned) {
+            if (!p) {
+                throw Error::Wrapper(TF_INTERNAL, "TF_SessionRun",
+                    "fetch returned null tensor", "", -1, loc);
+            }
             results.push_back(Tensor::FromRaw(p.release()));
         }
 
@@ -758,7 +600,7 @@ public:
         for (const Tensor& t : inputs) {
             if (!t.handle()) {
                 throw Error::Wrapper(TF_INVALID_ARGUMENT, "Session::BatchRun",
-                    "null tensor handle", "", -1, loc);
+                    "input tensor is null", "", -1, loc);
             }
 
             TF_Tensor* input_vals[1] = {t.handle()};
@@ -774,13 +616,12 @@ public:
                 nullptr,
                 st.get());
 
-            // Check TF status before accessing output tensor
-            st.throw_if_error("Session::BatchRun", loc);
-
             detail::RawTensorPtr owned(output_vals[0]);
+            st.throw_if_error("TF_SessionRun", loc);
+
             if (!owned) {
                 const char* out_name = TF_OperationName(output.oper);
-                throw Error::Wrapper(TF_INTERNAL, "Session::BatchRun",
+                throw Error::Wrapper(TF_INTERNAL, "TF_SessionRun",
                     "fetch returned null tensor",
                     out_name ? out_name : "", output.index, loc);
             }
@@ -822,7 +663,7 @@ public:
         const Tensor& first = inputs.front();
         if (!first.handle()) {
             throw Error::Wrapper(TF_INVALID_ARGUMENT, "Session::BatchRunStacked",
-                "null tensor handle (first input)", "", -1, loc);
+                "first input tensor is null", "", -1, loc);
         }
         
         const TF_DataType dtype = first.dtype();
@@ -866,7 +707,7 @@ public:
             const Tensor& t = inputs[i];
             if (!t.handle()) {
                 throw Error::Wrapper(TF_INVALID_ARGUMENT, "Session::BatchRunStacked",
-                    "null tensor handle", "", static_cast<int>(i), loc);
+                    "input tensor is null", "", static_cast<int>(i), loc);
             }
             if (t.dtype() != dtype || t.shape() != item_shape) {
                 throw Error::Wrapper(TF_INVALID_ARGUMENT, "Session::BatchRunStacked",
@@ -893,10 +734,9 @@ public:
             nullptr,
             st.get());
 
-        // Check TF status before accessing output tensor
-        st.throw_if_error("Session::BatchRunStacked", loc);
-
         detail::RawTensorPtr out_owned(output_vals[0]);
+        st.throw_if_error("TF_SessionRun", loc);
+
         if (!out_owned) {
             throw Error::Wrapper(TF_INTERNAL, "Session::BatchRunStacked",
                 "fetch returned null tensor", "", -1, loc);

@@ -74,13 +74,19 @@ endif()
 if(TF_WRAPPER_BUILD_TESTS)
     enable_testing()
 
-    add_executable(test_improvements
-        tests/test_improvements.cpp
+    # ScopeGuard tests (no TF dependency)
+    add_executable(test_scope_guard
+        tests/test_scope_guard.cpp
     )
-    target_link_libraries(test_improvements PRIVATE tf_wrap)
-    target_include_directories(test_improvements PRIVATE tests)
+    target_include_directories(test_scope_guard PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    add_test(NAME test_scope_guard COMMAND test_scope_guard)
 
-    add_test(NAME test_improvements COMMAND test_improvements)
+    # SmallVector tests (no TF dependency)
+    add_executable(test_small_vector
+        tests/test_small_vector.cpp
+    )
+    target_include_directories(test_small_vector PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    add_test(NAME test_small_vector COMMAND test_small_vector)
 endif()
 
 # -----------------------------------------------------------------------------

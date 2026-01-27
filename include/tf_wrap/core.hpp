@@ -15,7 +15,7 @@
 #include "tf_wrap/operation.hpp"
 #include "tf_wrap/graph.hpp"
 #include "tf_wrap/session.hpp"
-#include "tf_wrap/facade.hpp"        // RunnerBuilder, Runner, Model
+#include "tf_wrap/facade.hpp"        // Runner, Model
 
 // ============================================================================
 // TensorFlow C++20 Wrapper - Production Inference Quick Reference
@@ -35,8 +35,7 @@
 //
 // ERGONOMIC LAYER:
 // ─────────────────────────────────────────────────────────────────────────────
-//   tf_wrap::RunnerBuilder  - Fluent builder used at startup
-//   tf_wrap::Runner         - Compiled inference signature (fast hot path)
+//   tf_wrap::Runner         - Fluent API for session execution
 //   tf_wrap::Model          - High-level SavedModel facade with production features
 //
 // THREAD SAFETY:
@@ -44,8 +43,7 @@
 //   Session::Run() is thread-safe (TensorFlow's guarantee)
 //   Graph is frozen after Session creation (immutable)
 //   Tensors are NOT thread-safe - don't share mutably across threads
-//   Runner is thread-safe (immutable) once compiled
-//   Runner::Context is NOT thread-safe - use one Context per thread for zero-allocation hot path
+//   Runner is NOT thread-safe - create per request
 //   For multi-threaded serving, each request should have its own input tensors
 //
 // PRODUCTION USAGE (RECOMMENDED):
@@ -62,17 +60,13 @@
 //   model.warmup(input, dummy, output);
 //
 //   // 4. Hot path - use handles, no string parsing
-//   // 3. Compile a fast inference signature ONCE at startup
-//   auto run = model.runner()
-//       .feed(input)
-//       .fetch(output)
-//       .compile();
-//
-//   // 4. Hot path - treat the signature like a function
 //   while (serving) {
 //       auto input_tensor = get_request_tensor();
-//       auto result = run(input_tensor);   // "wow this is easy"
-//       send_response(std::move(result));
+//       auto result = model.runner()
+//           .feed(input, input_tensor)
+//           .fetch(output)
+//           .run_one();
+//       send_response(result);
 //   }
 //
 // ZERO-ALLOCATION HOT PATH (OPTIONAL):

@@ -397,9 +397,7 @@ public:
 
         t.state_->tensor = view;
         t.state_->shape = std::move(shape_vec);
-        // Flatten keepalive chain: point directly to root data owner.
-        // This ensures O(1) memory overhead regardless of reshape depth.
-        t.state_->keepalive = state_->keepalive ? state_->keepalive : state_;
+        t.state_->keepalive = state_;
         return t;
     }
 
