@@ -191,10 +191,14 @@ TEST_CASE("Tensor::FromVector - bool array") {
 }
 
 TEST_CASE("Tensor::FromVector - shape mismatch throws") {
-    CHECK_THROWS_AS(
-        Tensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f}),  // 4 expected, 3 given
-        std::invalid_argument
-    );
+    bool threw = false;
+    try {
+        auto t = Tensor::FromVector<float>({2, 2}, {1.0f, 2.0f, 3.0f});  // 4 expected, 3 given
+        (void)t;
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    CHECK(threw);
 }
 
 TEST_CASE("Tensor::FromVector - empty tensor") {
@@ -302,7 +306,14 @@ TEST_CASE("Tensor::FromString - unicode") {
 TEST_CASE("Tensor::ToString - wrong dtype throws") {
     auto t = Tensor::FromScalar<float>(1.0f);
     
-    CHECK_THROWS_AS(t.ToString(), std::runtime_error);
+    bool threw = false;
+    try {
+        auto s = t.ToString();
+        (void)s;
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(threw);
 }
 
 // ============================================================================
@@ -376,7 +387,14 @@ TEST_CASE("Tensor::reshape - to scalar") {
 TEST_CASE("Tensor::reshape - element count mismatch throws") {
     auto t = Tensor::FromVector<float>({6}, {1, 2, 3, 4, 5, 6});
     
-    CHECK_THROWS_AS(t.reshape({2, 2}), std::invalid_argument);  // 4 != 6
+    bool threw = false;
+    try {
+        auto r = t.reshape({2, 2});  // 4 != 6
+        (void)r;
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    CHECK(threw);
 }
 
 TEST_CASE("Tensor::reshape - shares data (zero-copy)") {
@@ -433,7 +451,15 @@ TEST_CASE("TensorView - at() bounds checking") {
     
     CHECK(view.at(0) == doctest::Approx(1.0f));
     CHECK(view.at(2) == doctest::Approx(3.0f));
-    CHECK_THROWS_AS(view.at(3), std::out_of_range);
+    
+    bool threw = false;
+    try {
+        auto v = view.at(3);
+        (void)v;
+    } catch (const std::out_of_range&) {
+        threw = true;
+    }
+    CHECK(threw);
 }
 
 TEST_CASE("TensorView - front/back") {
@@ -516,25 +542,53 @@ TEST_CASE("Tensor::with_write") {
 TEST_CASE("Tensor - dtype mismatch on read throws") {
     auto t = Tensor::FromScalar<float>(1.0f);
     
-    CHECK_THROWS_AS(t.read<std::int32_t>(), std::runtime_error);
+    bool threw = false;
+    try {
+        auto v = t.read<std::int32_t>();
+        (void)v;
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(threw);
 }
 
 TEST_CASE("Tensor - dtype mismatch on write throws") {
     auto t = Tensor::FromScalar<float>(1.0f);
     
-    CHECK_THROWS_AS(t.write<double>(), std::runtime_error);
+    bool threw = false;
+    try {
+        auto v = t.write<double>();
+        (void)v;
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(threw);
 }
 
 TEST_CASE("Tensor - dtype mismatch on ToScalar throws") {
     auto t = Tensor::FromScalar<std::int32_t>(42);
     
-    CHECK_THROWS_AS(t.ToScalar<float>(), std::runtime_error);
+    bool threw = false;
+    try {
+        auto v = t.ToScalar<float>();
+        (void)v;
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(threw);
 }
 
 TEST_CASE("Tensor - dtype mismatch on ToVector throws") {
     auto t = Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f});
     
-    CHECK_THROWS_AS(t.ToVector<std::int32_t>(), std::runtime_error);
+    bool threw = false;
+    try {
+        auto v = t.ToVector<std::int32_t>();
+        (void)v;
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(threw);
 }
 
 // ============================================================================
@@ -573,7 +627,14 @@ TEST_CASE("Tensor - moved-from state is safe") {
     CHECK(t1.handle() == nullptr);
     
     // dtype() on moved-from should throw
-    CHECK_THROWS(t1.dtype());
+    bool threw = false;
+    try {
+        auto d = t1.dtype();
+        (void)d;
+    } catch (...) {
+        threw = true;
+    }
+    CHECK(threw);
 }
 
 // ============================================================================
@@ -593,11 +654,17 @@ TEST_CASE("Tensor - default constructed") {
 TEST_CASE("Tensor - operations on empty tensor throw") {
     Tensor t;
     
-    CHECK_THROWS(t.dtype());
-    CHECK_THROWS(t.read<float>());
-    CHECK_THROWS(t.write<float>());
-    CHECK_THROWS(t.ToScalar<float>());
-    CHECK_THROWS(t.reshape({1}));
+    auto throws_on = [&](auto fn) {
+        bool threw = false;
+        try { fn(); } catch (...) { threw = true; }
+        return threw;
+    };
+    
+    CHECK(throws_on([&]{ return t.dtype(); }));
+    CHECK(throws_on([&]{ return t.read<float>(); }));
+    CHECK(throws_on([&]{ return t.write<float>(); }));
+    CHECK(throws_on([&]{ return t.ToScalar<float>(); }));
+    CHECK(throws_on([&]{ return t.reshape({1}); }));
 }
 
 // ============================================================================
@@ -634,10 +701,14 @@ TEST_CASE("Tensor - high rank tensor") {
 }
 
 TEST_CASE("Tensor - negative dimension throws") {
-    CHECK_THROWS_AS(
-        Tensor::Zeros<float>({2, -1, 3}),
-        std::invalid_argument
-    );
+    bool threw = false;
+    try {
+        auto t = Tensor::Zeros<float>({2, -1, 3});
+        (void)t;
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    CHECK(threw);
 }
 
 // ============================================================================
@@ -686,11 +757,9 @@ TEST_CASE("tf_dtype_v - compile time mapping") {
 
 TEST_CASE("Tensor::keepalive - extends lifetime") {
     std::shared_ptr<const void> keepalive;
-    TF_Tensor* raw_handle = nullptr;
     
     {
         auto t = Tensor::FromScalar<float>(42.0f);
-        raw_handle = t.handle();
         keepalive = t.keepalive();
     }
     // Tensor t is destroyed, but keepalive holds the state
@@ -709,12 +778,15 @@ TEST_CASE("Tensor::AdoptMalloc - basic") {
     data[1] = 2.0f;
     data[2] = 3.0f;
     
-    auto t = Tensor::AdoptMalloc<float>({3}, data, 3 * sizeof(float));
+    std::vector<std::int64_t> shape = {3};
+    auto t = Tensor::AdoptMalloc<float>(shape, data, 3 * sizeof(float));
     
     CHECK(t.valid());
     CHECK(t.dtype() == TF_FLOAT);
     CHECK(t.num_elements() == 3);
-    CHECK(t.ToVector<float>() == std::vector<float>{1.0f, 2.0f, 3.0f});
+    
+    auto vec = t.ToVector<float>();
+    CHECK(vec == std::vector<float>{1.0f, 2.0f, 3.0f});
     
     // data is freed when tensor is destroyed
 }
@@ -722,24 +794,35 @@ TEST_CASE("Tensor::AdoptMalloc - basic") {
 TEST_CASE("Tensor::AdoptMalloc - byte_len mismatch throws") {
     float* data = static_cast<float*>(std::malloc(3 * sizeof(float)));
     
-    CHECK_THROWS_AS(
-        Tensor::AdoptMalloc<float>({3}, data, 2 * sizeof(float)),  // Wrong size
-        std::invalid_argument
-    );
+    std::vector<std::int64_t> shape = {3};
+    bool threw = false;
+    try {
+        auto t = Tensor::AdoptMalloc<float>(shape, data, 2 * sizeof(float));  // Wrong size
+        (void)t;
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    CHECK(threw);
     
     std::free(data);  // Clean up since AdoptMalloc didn't take ownership
 }
 
 TEST_CASE("Tensor::AdoptMalloc - null data with zero size ok") {
-    auto t = Tensor::AdoptMalloc<float>({0}, nullptr, 0);
+    std::vector<std::int64_t> shape = {0};
+    auto t = Tensor::AdoptMalloc<float>(shape, nullptr, 0);
     
     CHECK(t.valid());
     CHECK(t.num_elements() == 0);
 }
 
 TEST_CASE("Tensor::AdoptMalloc - null data with non-zero size throws") {
-    CHECK_THROWS_AS(
-        Tensor::AdoptMalloc<float>({3}, nullptr, 12),
-        std::invalid_argument
-    );
+    std::vector<std::int64_t> shape = {3};
+    bool threw = false;
+    try {
+        auto t = Tensor::AdoptMalloc<float>(shape, nullptr, 12);
+        (void)t;
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    CHECK(threw);
 }
