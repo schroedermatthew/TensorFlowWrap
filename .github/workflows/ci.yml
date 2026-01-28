@@ -1381,6 +1381,68 @@ jobs:
           echo "✓ All fuzz tests passed"
 
   # ===========================================================================
+  # Benchmarks
+  # ===========================================================================
+  benchmarks:
+    name: Benchmarks
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build benchmarks
+        run: |
+          g++ -std=c++20 -O3 -DNDEBUG \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/benchmark/benchmark.cpp \
+            -o benchmark
+
+      - name: Run benchmarks
+        run: |
+          ./benchmark --iterations 10000 --warmup 1000
+          ./benchmark --json > benchmark_results.json
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark_results.json
+
+  # ===========================================================================
+  # Code Coverage
+  # ===========================================================================
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install lcov
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lcov
+
+      - name: Generate coverage
+        run: |
+          chmod +x ${{ env.TEST_DIR }}/coverage/coverage.sh
+          ${{ env.TEST_DIR }}/coverage/coverage.sh coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+      - name: Coverage summary
+        run: |
+          echo "=== Coverage Summary ==="
+          lcov --summary build/coverage/coverage_final.info 2>&1 | grep -E "lines|functions"
+
+  # ===========================================================================
   # CI Success Gate
   # ===========================================================================
   ci-success:
@@ -1397,6 +1459,8 @@ jobs:
       - thread-safety
       - real-tensorflow
       - fuzz-tests
+      - benchmarks
+      - coverage
     if: always()
 
     steps:
@@ -1413,6 +1477,8 @@ jobs:
           echo "  thread-safety:    ${{ needs.thread-safety.result }}"
           echo "  real-tensorflow:  ${{ needs.real-tensorflow.result }}"
           echo "  fuzz-tests:       ${{ needs.fuzz-tests.result }}"
+          echo "  benchmarks:       ${{ needs.benchmarks.result }}"
+          echo "  coverage:         ${{ needs.coverage.result }}"
           
           if [ "${{ needs.header-check.result }}" != "success" ] || \
              [ "${{ needs.linux-gcc.result }}" != "success" ] || \
@@ -1423,7 +1489,9 @@ jobs:
              [ "${{ needs.soak-tests.result }}" != "success" ] || \
              [ "${{ needs.thread-safety.result }}" != "success" ] || \
              [ "${{ needs.real-tensorflow.result }}" != "success" ] || \
-             [ "${{ needs.fuzz-tests.result }}" != "success" ]; then
+             [ "${{ needs.fuzz-tests.result }}" != "success" ] || \
+             [ "${{ needs.benchmarks.result }}" != "success" ] || \
+             [ "${{ needs.coverage.result }}" != "success" ]; then
             echo "❌ One or more jobs failed"
             exit 1
           fi
