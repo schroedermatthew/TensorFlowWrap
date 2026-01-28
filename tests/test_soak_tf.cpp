@@ -7,6 +7,7 @@
 // Run with: ASAN_OPTIONS=detect_leaks=1 ./test_soak_tf
 
 #include "tf_wrap/core.hpp"
+#include "tf_wrap/facade.hpp"
 
 #include <chrono>
 #include <cstdlib>
@@ -16,6 +17,7 @@
 #include <vector>
 
 using namespace tf_wrap;
+using namespace tf_wrap::facade;
 
 // ============================================================================
 // Test Framework
@@ -46,13 +48,6 @@ static int tests_passed = 0;
 #define REQUIRE(cond) \
     do { if (!(cond)) throw std::runtime_error("REQUIRE failed: " #cond); } while (0)
 
-#define REQUIRE_THROWS(expr) \
-    do { \
-        bool threw = false; \
-        try { (void)(expr); } catch (...) { threw = true; } \
-        if (!threw) throw std::runtime_error("REQUIRE_THROWS failed: " #expr); \
-    } while (0)
-
 // Progress reporter for long-running tests
 class ProgressReporter {
 public:
@@ -79,6 +74,24 @@ private:
 // Global savedmodel path
 static std::string g_savedmodel_path = "test_savedmodel";
 
+// Helper: Find output operation (handles TF version differences)
+static TF_Output find_output_op(const Graph& graph) {
+    if (auto op = graph.GetOperation("PartitionedCall")) {
+        return TF_Output{*op, 0};
+    }
+    if (auto op = graph.GetOperation("StatefulPartitionedCall")) {
+        return TF_Output{*op, 0};
+    }
+    throw std::runtime_error("Could not find output operation");
+}
+
+static TF_Output find_input_op(const Graph& graph) {
+    if (auto op = graph.GetOperation("serving_default_x")) {
+        return TF_Output{*op, 0};
+    }
+    throw std::runtime_error("Could not find input operation");
+}
+
 // ============================================================================
 // Soak Test: Model reload stress test
 // ============================================================================
@@ -91,14 +104,18 @@ TEST(soak_model_reload_100) {
         progress.update(i);
         
         // Load model
-        Model model(g_savedmodel_path);
+        auto model = Model::Load(g_savedmodel_path);
         REQUIRE(model.valid());
+        
+        auto input_op = find_input_op(model.graph());
+        auto output_op = find_output_op(model.graph());
         
         // Run a simple inference
         auto input = Tensor::FromScalar<float>(static_cast<float>(i));
-        auto runner = model.runner();
-        runner.feed("input", input).fetch("output");
-        auto outputs = runner.run();
+        auto outputs = model.runner()
+            .feed(input_op, input)
+            .fetch(output_op)
+            .run();
         REQUIRE(outputs.size() == 1);
         REQUIRE(outputs[0].valid());
         
@@ -126,7 +143,7 @@ TEST(soak_tensor_churn_100k) {
         int size = dist(rng);
         std::vector<float> data(size, static_cast<float>(i));
         
-        auto tensor = Tensor::FromVector<float>(data, {static_cast<std::int64_t>(size)});
+        auto tensor = Tensor::FromVector<float>({static_cast<std::int64_t>(size)}, data);
         REQUIRE(tensor.valid());
         REQUIRE(tensor.num_elements() == size);
         
@@ -152,12 +169,12 @@ TEST(soak_large_tensors_1k) {
         progress.update(i);
         
         // Create a reasonably large tensor (1MB)
-        const int size = 256 * 1024;  // 256K floats = 1MB
+        const std::int64_t size = 256 * 1024;  // 256K floats = 1MB
         std::vector<float> data(size, 1.0f);
         
-        auto tensor = Tensor::FromVector<float>(data, {size});
+        auto tensor = Tensor::FromVector<float>({size}, data);
         REQUIRE(tensor.valid());
-        REQUIRE(tensor.byte_size() == size * sizeof(float));
+        REQUIRE(tensor.byte_size() == static_cast<std::size_t>(size) * sizeof(float));
         
         // Tensor destroyed here - should free 1MB
     }
@@ -173,16 +190,20 @@ TEST(soak_runner_reuse_5k) {
     const int iterations = 5000;
     ProgressReporter progress(iterations);
     
-    Model model(g_savedmodel_path);
+    auto model = Model::Load(g_savedmodel_path);
     REQUIRE(model.valid());
+    
+    auto input_op = find_input_op(model.graph());
+    auto output_op = find_output_op(model.graph());
     
     for (int i = 0; i < iterations; ++i) {
         progress.update(i);
         
         auto input = Tensor::FromScalar<float>(static_cast<float>(i));
-        auto runner = model.runner();
-        runner.feed("input", input).fetch("output");
-        auto outputs = runner.run();
+        auto outputs = model.runner()
+            .feed(input_op, input)
+            .fetch(output_op)
+            .run();
         
         REQUIRE(outputs.size() == 1);
         REQUIRE(outputs[0].valid());
@@ -223,7 +244,9 @@ TEST(soak_mixed_operations_2k) {
     const int iterations = 2000;
     ProgressReporter progress(iterations);
     
-    Model model(g_savedmodel_path);
+    auto model = Model::Load(g_savedmodel_path);
+    auto input_op = find_input_op(model.graph());
+    auto output_op = find_output_op(model.graph());
     
     for (int i = 0; i < iterations; ++i) {
         progress.update(i);
@@ -248,9 +271,10 @@ TEST(soak_mixed_operations_2k) {
             case 3: {
                 // Run inference
                 auto input = Tensor::FromScalar<float>(static_cast<float>(i));
-                auto runner = model.runner();
-                runner.feed("input", input).fetch("output");
-                auto outputs = runner.run();
+                auto outputs = model.runner()
+                    .feed(input_op, input)
+                    .fetch(output_op)
+                    .run();
                 REQUIRE(outputs.size() == 1);
                 break;
             }
@@ -275,11 +299,9 @@ TEST(soak_graph_operations_10k) {
         Graph graph;
         REQUIRE(graph.handle() != nullptr);
         
-        // Test freeze/unfreeze
+        // Test freeze
         graph.freeze();
         REQUIRE(graph.is_frozen());
-        graph.unfreeze();
-        REQUIRE(!graph.is_frozen());
         
         // Graph destroyed here
     }
@@ -295,11 +317,10 @@ TEST(soak_rapid_sessions_50) {
     const int iterations = 50;
     ProgressReporter progress(iterations);
     
-    Graph graph;
-    
     for (int i = 0; i < iterations; ++i) {
         progress.update(i);
         
+        Graph graph;
         SessionOptions opts;
         Session session(graph, opts);
         REQUIRE(session.handle() != nullptr);
@@ -327,22 +348,22 @@ TEST(soak_tensor_reshape_10k) {
         // Create with different shapes that have same total size
         switch (i % 4) {
             case 0: {
-                auto t = Tensor::FromVector<float>(data, {24});
+                auto t = Tensor::FromVector<float>({24}, data);
                 REQUIRE(t.num_elements() == 24);
                 break;
             }
             case 1: {
-                auto t = Tensor::FromVector<float>(data, {2, 12});
+                auto t = Tensor::FromVector<float>({2, 12}, data);
                 REQUIRE(t.num_elements() == 24);
                 break;
             }
             case 2: {
-                auto t = Tensor::FromVector<float>(data, {3, 8});
+                auto t = Tensor::FromVector<float>({3, 8}, data);
                 REQUIRE(t.num_elements() == 24);
                 break;
             }
             case 3: {
-                auto t = Tensor::FromVector<float>(data, {2, 3, 4});
+                auto t = Tensor::FromVector<float>({2, 3, 4}, data);
                 REQUIRE(t.num_elements() == 24);
                 break;
             }
@@ -365,12 +386,40 @@ TEST(soak_tensor_copy_5k) {
         
         // Create source tensor
         std::vector<float> data(100, static_cast<float>(i));
-        auto src = Tensor::FromVector<float>(data, {100});
+        auto src = Tensor::FromVector<float>({100}, data);
         
         // Copy to vector
         auto copy = src.ToVector<float>();
         REQUIRE(copy.size() == 100);
         REQUIRE(copy[0] == static_cast<float>(i));
+    }
+    
+    progress.complete(iterations);
+}
+
+// ============================================================================
+// Soak Test: Status operations
+// ============================================================================
+
+TEST(soak_status_operations_50k) {
+    const int iterations = 50000;
+    ProgressReporter progress(iterations);
+    
+    for (int i = 0; i < iterations; ++i) {
+        progress.update(i);
+        
+        // Create and destroy status objects
+        Status st;
+        REQUIRE(st.ok());
+        
+        // Set error and check
+        st.set(TF_INVALID_ARGUMENT, "test error");
+        REQUIRE(!st.ok());
+        REQUIRE(st.code() == TF_INVALID_ARGUMENT);
+        
+        // Reset
+        st.reset();
+        REQUIRE(st.ok());
     }
     
     progress.complete(iterations);
