@@ -251,6 +251,32 @@ jobs:
             -o test_lifecycle
           ./test_lifecycle
 
+      - name: Build and run Corner Cases tests (stub)
+        run: |
+          g++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -I${{ env.TEST_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_corner_cases.cpp \
+            -o test_corner_cases
+          ./test_corner_cases
+
+      - name: Build and run Comprehensive tests (stub)
+        run: |
+          g++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -I${{ env.TEST_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_comprehensive.cpp \
+            -o test_comprehensive
+          ./test_comprehensive
+
       - name: Run compile-fail tests
         run: |
           chmod +x ${{ env.TEST_DIR }}/run_compile_fail_tests.sh
@@ -447,6 +473,20 @@ jobs:
             ${{ env.TEST_DIR }}/test_lifecycle.cpp \
             -o test_lifecycle
           ./test_lifecycle
+
+      - name: Build and run Corner Cases tests (stub)
+        run: |
+          clang++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -Wno-gnu-zero-variadic-macro-arguments \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -I${{ env.TEST_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_corner_cases.cpp \
+            -o test_corner_cases
+          ./test_corner_cases
 
       - name: Run compile-fail tests
         run: |
@@ -1192,6 +1232,20 @@ jobs:
             -o test_operation_tf
           
           ./test_operation_tf
+          
+          # Comprehensive tests with real TF
+          g++-12 -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -Itensorflow_c/include \
+            ${{ env.TEST_DIR }}/test_comprehensive_tf.cpp \
+            -Ltensorflow_c/lib \
+            -ltensorflow \
+            -Wl,-rpath,tensorflow_c/lib \
+            -pthread \
+            -o test_comprehensive_tf
+          
+          ./test_comprehensive_tf
 
   # ===========================================================================
   # Soak Tests (ASan + Real TF)
