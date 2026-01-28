@@ -1,3 +1,4 @@
+**UNCLASSIFIED** 
 **Migration Checklist — C → Modern C++**  
 *(Combined original steps and detailed architectural analysis)*  
 
