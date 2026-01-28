@@ -89,9 +89,8 @@ TEST(batch_run_single_input) {
     auto input_op = find_input_op(model.graph());
     auto output_op = find_output_op(model.graph());
     
-    std::vector<Tensor> inputs = {
-        Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f})
-    };
+    std::vector<Tensor> inputs;
+    inputs.push_back(Tensor::FromVector<float>({3}, {1.0f, 2.0f, 3.0f}));
     
     auto results = model.BatchRun(input_op, inputs, output_op);
     
