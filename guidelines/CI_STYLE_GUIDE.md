@@ -62,15 +62,16 @@ Every CI run MUST include these jobs:
 
 | Job | Purpose | Required |
 |-----|---------|----------|
+| `header-check` | Verify headers compile standalone | ✅ |
+| `cmake-test` | CMake build, install, find_package test | ✅ |
 | `linux-gcc` | GCC 13/14 (C++20) build + all stub tests | ✅ |
 | `linux-clang` | Clang 17/18 (C++20) build + all stub tests | ✅ |
 | `windows-msvc` | MSVC (C++20) build + all stub tests | ✅ |
 | `macos` | Apple Clang (C++20) build + all stub tests | ✅ |
 | `sanitizers` | ASan + UBSan | ✅ |
-| `header-check` | Verify headers compile standalone | ✅ |
-| `real-tensorflow` | Real TF 2.13-2.18 integration tests | ✅ |
 | `soak-tests` | Long-running stress tests with ASan | ✅ |
 | `thread-safety` | Concurrent inference tests | ✅ |
+| `real-tensorflow` | Real TF 2.13-2.18 integration tests | ✅ |
 | `fuzz-tests` | Fuzz testing with libFuzzer | ✅ |
 | `benchmarks` | Performance benchmarks | ✅ |
 | `coverage` | Code coverage reporting | ✅ |
@@ -328,6 +329,7 @@ ci-success:
 Before modifying the CI workflow:
 
 - [ ] All environment variables defined in `env:` block
+- [ ] CMake build, install, and find_package test included
 - [ ] Stub tests run on all platforms (GCC, Clang, MSVC, macOS)
 - [ ] Real TF tests run on Linux only
 - [ ] Header standalone check included
@@ -338,7 +340,7 @@ Before modifying the CI workflow:
 - [ ] Benchmarks included
 - [ ] Coverage reporting included
 - [ ] All TF versions 2.13-2.18 tested
-- [ ] `ci-success` gate job checks all 12 required jobs
+- [ ] `ci-success` gate job checks all 13 required jobs
 - [ ] Warning flags include `-Werror` / `/WX`
 - [ ] New tests added to all platforms (Corner Cases, Comprehensive, Adversarial)
 - [ ] Tested locally before pushing
@@ -348,11 +350,12 @@ Before modifying the CI workflow:
 ## Changelog
 
 ### v2.0 (January 2026)
+- Added cmake-test job for CMake build/install/find_package validation
 - Added soak-tests, thread-safety, fuzz-tests, benchmarks, coverage jobs
 - Added corner cases, comprehensive, adversarial test files
 - Updated test file references (removed deleted test_real_tf_minimal.cpp)
 - Compile-fail tests now implemented
-- Total CI jobs: 12
+- Total CI jobs: 13
 
 ### v1.0 (January 2026)
 - Initial CI Workflow Style Guide for TensorFlowWrap

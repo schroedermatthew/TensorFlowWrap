@@ -10,12 +10,18 @@
 #
 # Jobs:
 #   - header-check: Verify all headers compile standalone
+#   - cmake-test: CMake build, install, find_package test
 #   - linux-gcc: GCC 13/14 build + tests
 #   - linux-clang: Clang 17/18 build + tests
 #   - macos: Apple Clang (ARM) build + tests
 #   - windows-msvc: MSVC build + tests
 #   - sanitizers: ASan + UBSan
+#   - soak-tests: Long-running stress tests with ASan
+#   - thread-safety: Concurrent inference tests
 #   - real-tensorflow: Real TF library tests (6 versions)
+#   - fuzz-tests: Fuzz testing with libFuzzer
+#   - benchmarks: Performance benchmarks
+#   - coverage: Code coverage reporting
 #   - ci-success: Gate job
 # =============================================================================
 
@@ -28,6 +34,7 @@ on:
       - 'include/**'
       - 'tests/**'
       - 'third_party/**'
+      - 'cmake/**'
       - 'CMakeLists.txt'
       - '.github/workflows/ci.yml'
   pull_request:
@@ -36,6 +43,7 @@ on:
       - 'include/**'
       - 'tests/**'
       - 'third_party/**'
+      - 'cmake/**'
       - 'CMakeLists.txt'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
@@ -105,6 +113,64 @@ jobs:
           fi
           
           echo "✓ All headers compile standalone"
+
+  # ===========================================================================
+  # CMake Build and Install Test
+  # ===========================================================================
+  cmake-test:
+    name: CMake Build + Install
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++-13
+
+      - name: Configure with CMake
+        run: |
+          cmake -B build \
+            -DCMAKE_CXX_COMPILER=g++-13 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTF_WRAPPER_TF_STUB=ON \
+            -DTF_WRAPPER_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run CTest
+        run: |
+          cd build
+          ctest --output-on-failure
+
+      - name: Install to prefix
+        run: |
+          cmake --install build --prefix /tmp/tf_install
+
+      - name: Verify installation structure
+        run: |
+          echo "=== Installed files ==="
+          find /tmp/tf_install -type f | sort
+          
+          echo ""
+          echo "=== Checking required files ==="
+          test -f /tmp/tf_install/include/tf_wrap/core.hpp || { echo "MISSING: core.hpp"; exit 1; }
+          test -f /tmp/tf_install/include/tf_wrap/tensor.hpp || { echo "MISSING: tensor.hpp"; exit 1; }
+          test -f /tmp/tf_install/lib/cmake/TensorFlowWrap/TensorFlowWrapConfig.cmake || { echo "MISSING: TensorFlowWrapConfig.cmake"; exit 1; }
+          test -f /tmp/tf_install/lib/cmake/TensorFlowWrap/TensorFlowWrap-targets.cmake || { echo "MISSING: TensorFlowWrap-targets.cmake"; exit 1; }
+          
+          echo "✓ All required files installed"
+
+      - name: Test find_package integration
+        run: |
+          cd tests/cmake_integration_test
+          cmake -B build \
+            -DCMAKE_CXX_COMPILER=g++-13 \
+            -DCMAKE_PREFIX_PATH=/tmp/tf_install
+          cmake --build build
+          ./build/integration_test
 
   # ===========================================================================
   # Linux GCC
@@ -1640,6 +1706,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - header-check
+      - cmake-test
       - linux-gcc
       - linux-clang
       - windows-msvc
@@ -1658,6 +1725,7 @@ jobs:
         run: |
           echo "Job results:"
           echo "  header-check:     ${{ needs.header-check.result }}"
+          echo "  cmake-test:       ${{ needs.cmake-test.result }}"
           echo "  linux-gcc:        ${{ needs.linux-gcc.result }}"
           echo "  linux-clang:      ${{ needs.linux-clang.result }}"
           echo "  windows-msvc:     ${{ needs.windows-msvc.result }}"
@@ -1671,6 +1739,7 @@ jobs:
           echo "  coverage:         ${{ needs.coverage.result }}"
           
           if [ "${{ needs.header-check.result }}" != "success" ] || \
+             [ "${{ needs.cmake-test.result }}" != "success" ] || \
              [ "${{ needs.linux-gcc.result }}" != "success" ] || \
              [ "${{ needs.linux-clang.result }}" != "success" ] || \
              [ "${{ needs.windows-msvc.result }}" != "success" ] || \
