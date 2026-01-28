@@ -502,6 +502,35 @@ jobs:
             -o test_corner_cases
           ./test_corner_cases
 
+      - name: Build and run Comprehensive tests (stub)
+        run: |
+          clang++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -Wno-gnu-zero-variadic-macro-arguments \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -I${{ env.TEST_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_comprehensive.cpp \
+            -o test_comprehensive
+          ./test_comprehensive
+
+      - name: Build and run Adversarial tests (stub)
+        run: |
+          clang++-${{ matrix.version }} -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -Wno-gnu-zero-variadic-macro-arguments \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -I${{ env.TEST_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_adversarial.cpp \
+            -pthread \
+            -o test_adversarial
+          ./test_adversarial
+
       - name: Run compile-fail tests
         run: |
           chmod +x ${{ env.TEST_DIR }}/run_compile_fail_tests.sh
@@ -682,6 +711,45 @@ jobs:
             /Fe:test_lifecycle.exe
           test_lifecycle.exe
 
+      - name: Build and run Corner Cases tests (stub)
+        shell: cmd
+        run: |
+          cl /std:c++20 /W4 /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            /I%STUB_DIR% ^
+            /I%TEST_DIR% ^
+            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
+            %STUB_DIR%\tf_c_stub.cpp ^
+            %TEST_DIR%\test_corner_cases.cpp ^
+            /Fe:test_corner_cases.exe
+          test_corner_cases.exe
+
+      - name: Build and run Comprehensive tests (stub)
+        shell: cmd
+        run: |
+          cl /std:c++20 /W4 /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            /I%STUB_DIR% ^
+            /I%TEST_DIR% ^
+            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
+            %STUB_DIR%\tf_c_stub.cpp ^
+            %TEST_DIR%\test_comprehensive.cpp ^
+            /Fe:test_comprehensive.exe
+          test_comprehensive.exe
+
+      - name: Build and run Adversarial tests (stub)
+        shell: cmd
+        run: |
+          cl /std:c++20 /W4 /EHsc /O2 ^
+            /I%INCLUDE_DIR% ^
+            /I%STUB_DIR% ^
+            /I%TEST_DIR% ^
+            /DTF_WRAPPER_TF_STUB_ENABLED=1 ^
+            %STUB_DIR%\tf_c_stub.cpp ^
+            %TEST_DIR%\test_adversarial.cpp ^
+            /Fe:test_adversarial.exe
+          test_adversarial.exe
+
       - name: Build and verify library compilation
         shell: cmd
         run: |
@@ -845,6 +913,46 @@ jobs:
             ${{ env.TEST_DIR }}/test_lifecycle.cpp \
             -o test_lifecycle
           ./test_lifecycle
+
+      - name: Build and run Corner Cases tests (stub)
+        run: |
+          clang++ -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -I${{ env.TEST_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_corner_cases.cpp \
+            -o test_corner_cases
+          ./test_corner_cases
+
+      - name: Build and run Comprehensive tests (stub)
+        run: |
+          clang++ -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -I${{ env.TEST_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_comprehensive.cpp \
+            -o test_comprehensive
+          ./test_comprehensive
+
+      - name: Build and run Adversarial tests (stub)
+        run: |
+          clang++ -std=c++20 -O2 \
+            -Wall -Wextra -Wpedantic \
+            -I${{ env.INCLUDE_DIR }} \
+            -I${{ env.STUB_DIR }} \
+            -I${{ env.TEST_DIR }} \
+            -DTF_WRAPPER_TF_STUB_ENABLED=1 \
+            ${{ env.STUB_DIR }}/tf_c_stub.cpp \
+            ${{ env.TEST_DIR }}/test_adversarial.cpp \
+            -pthread \
+            -o test_adversarial
+          ./test_adversarial
 
       - name: Run compile-fail tests
         run: |

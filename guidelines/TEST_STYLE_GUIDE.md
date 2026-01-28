@@ -32,16 +32,44 @@ TensorFlowWrap has a unique testing challenge: the library wraps TensorFlow's C 
 ```
 tests/
 ├── doctest.h                    # Test framework (header-only)
-├── test_small_vector.cpp        # Utility: SmallVector (stub-only)
-├── test_scope_guard.cpp         # Utility: ScopeGuard (stub-only)
+├── test_small_vector.cpp        # Utility: SmallVector (stub, doctest)
+├── test_scope_guard.cpp         # Utility: ScopeGuard (stub, doctest)
 ├── test_tensor.cpp              # Tensor API (stub, doctest)
 ├── test_session.cpp             # Session API (stub, doctest)
+├── test_facade.cpp              # Facade API (stub, doctest)
+├── test_graph.cpp               # Graph API (stub, doctest)
+├── test_operation.cpp           # Operation API (stub, doctest)
+├── test_status.cpp              # Status API (stub, doctest)
+├── test_error.cpp               # Error API (stub, doctest)
+├── test_format.cpp              # Format utilities (stub, doctest)
+├── test_lifecycle.cpp           # RAII lifecycle tracking (stub, doctest)
+├── test_corner_cases.cpp        # Boundary/edge case tests (stub, doctest)
+├── test_comprehensive.cpp       # API coverage tests (stub, doctest)
+├── test_adversarial.cpp         # Stress/attack tests (stub, doctest)
 ├── test_tensor_tf.cpp           # Tensor API (real TF)
 ├── test_session_tf.cpp          # Session API (real TF)
-├── test_real_tf_minimal.cpp     # SavedModel inference (real TF)
-└── compile_fail/                # Expected-fail compilation tests
-    ├── compile_fail_tensor_invalid_dtype.cpp
-    └── ...
+├── test_facade_tf.cpp           # Facade API (real TF)
+├── test_graph_tf.cpp            # Graph API (real TF)
+├── test_operation_tf.cpp        # Operation API (real TF)
+├── test_soak_tf.cpp             # Soak/stress tests (real TF + ASan)
+├── test_thread_safety_tf.cpp    # Concurrent inference (real TF)
+├── test_comprehensive_tf.cpp    # BatchRun, RunContext (real TF)
+├── test_adversarial_tf.cpp      # Stress/attack tests (real TF)
+├── compile_fail/                # Expected-fail compilation tests
+│   ├── compile_fail_tensor_invalid_dtype.cpp
+│   └── ...
+├── fuzz/                        # Fuzz testing
+│   ├── fuzz_tensor.cpp
+│   ├── fuzz_small_vector.cpp
+│   ├── fuzz_session.cpp
+│   └── README.md
+├── benchmark/                   # Performance benchmarks
+│   ├── benchmark.cpp
+│   ├── compare.py
+│   └── README.md
+└── coverage/                    # Code coverage
+    ├── coverage.sh
+    └── README.md
 ```
 
 ### File Naming Conventions
@@ -507,23 +535,28 @@ Compile-fail tests are built with a script that **expects failure**:
 
 | Job | Tests Run | Platform |
 |-----|-----------|----------|
-| `linux-gcc` | `test_*.cpp` (stub) | Ubuntu, GCC 13/14 |
-| `linux-clang` | `test_*.cpp` (stub) | Ubuntu, Clang 17/18 |
-| `windows-msvc` | `test_*.cpp` (stub) | Windows, MSVC |
-| `macos` | `test_*.cpp` (stub) | macOS, Apple Clang |
-| `sanitizers` | `test_*.cpp` (stub) | Ubuntu, ASan + UBSan |
-| `real-tensorflow` | `test_*_tf.cpp` | Ubuntu, TF 2.13-2.18 |
+| `linux-gcc` | All stub tests (doctest) | Ubuntu, GCC 13/14 |
+| `linux-clang` | All stub tests (doctest) | Ubuntu, Clang 17/18 |
+| `windows-msvc` | All stub tests (doctest) | Windows, MSVC |
+| `macos` | All stub tests (doctest) | macOS, Apple Clang |
+| `sanitizers` | Stub tests with ASan + UBSan | Ubuntu, GCC |
+| `real-tensorflow` | All `*_tf.cpp` tests | Ubuntu, TF 2.13-2.18 |
+| `soak-tests` | `test_soak_tf.cpp` with ASan | Ubuntu, TF 2.18 |
+| `thread-safety` | `test_thread_safety_tf.cpp` | Ubuntu, TF 2.18 |
+| `fuzz-tests` | Fuzz targets (30s each) | Ubuntu, Clang + libFuzzer |
+| `benchmarks` | Performance benchmarks | Ubuntu |
+| `coverage` | Code coverage report | Ubuntu |
 | `header-check` | Header standalone compile | Ubuntu |
 
 ### Stub vs Real TF Tests
 
-**Stub tests** (`test_tensor.cpp`, `test_session.cpp`):
+**Stub tests** (`test_*.cpp` without `_tf` suffix):
 - Use doctest framework
-- Run on all platforms
+- Run on all platforms (Linux, Windows, macOS)
 - Test API surface, error handling, edge cases
 - Cannot test actual TF execution
 
-**Real TF tests** (`test_tensor_tf.cpp`, `test_session_tf.cpp`, `test_real_tf_minimal.cpp`):
+**Real TF tests** (`test_*_tf.cpp`):
 - Use minimal custom framework
 - Run only on Linux with real TensorFlow C library
 - Test actual tensor operations, session execution, SavedModel loading
@@ -631,14 +664,20 @@ CHECK(t.shape()[0] == std::int64_t(3));
 
 ---
 
-## Future Improvements
+## Completed Improvements
 
-### Planned Additions
-- [ ] Benchmark infrastructure (compare against baseline)
-- [ ] Memory leak detection with ASan
-- [ ] Thread safety tests for Session::Run
-- [ ] Property-based / fuzz testing
-- [ ] Code coverage reporting
+All planned test infrastructure improvements have been implemented:
+
+| Feature | Status | Location |
+|---------|--------|----------|
+| Benchmark infrastructure | ✅ Done | `tests/benchmark/` |
+| Memory leak detection (ASan) | ✅ Done | `sanitizers` + `soak-tests` jobs |
+| Thread safety tests | ✅ Done | `test_thread_safety_tf.cpp` |
+| Property-based / fuzz testing | ✅ Done | `tests/fuzz/` |
+| Code coverage reporting | ✅ Done | `tests/coverage/` |
+| Corner case tests | ✅ Done | `test_corner_cases.cpp` |
+| Adversarial tests | ✅ Done | `test_adversarial.cpp`, `test_adversarial_tf.cpp` |
+| Comprehensive API tests | ✅ Done | `test_comprehensive.cpp`, `test_comprehensive_tf.cpp` |
 
 ### Deferred
 - Exception safety tests (complex, requires careful design)
@@ -646,4 +685,4 @@ CHECK(t.shape()[0] == std::int64_t(3));
 
 ---
 
-*TensorFlowWrap Test Suite Style Guide v1.0 -- January 2026*
+*TensorFlowWrap Test Suite Style Guide v2.0 -- January 2026*

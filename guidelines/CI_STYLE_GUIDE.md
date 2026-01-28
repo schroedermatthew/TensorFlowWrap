@@ -3,7 +3,7 @@
 **Status:** Active  
 **Applies to:** `.github/workflows/ci.yml`  
 **Authority:** Subordinate to the *TensorFlowWrap Development Guidelines*  
-**Version:** 1.0 (January 2026)
+**Version:** 2.0 (January 2026)
 
 ---
 
@@ -26,9 +26,12 @@ TensorFlowWrap/
 ├── tests/                     # Test files
 │   ├── test_*.cpp             # Stub tests (doctest)
 │   ├── test_*_tf.cpp          # Real TF tests
-│   └── compile_fail/          # Expected-fail tests
+│   ├── compile_fail/          # Expected-fail tests
+│   ├── fuzz/                  # Fuzz testing targets
+│   ├── benchmark/             # Performance benchmarks
+│   └── coverage/              # Coverage scripts
 ├── third_party/tf_stub/       # TensorFlow C API stub
-├── docs/                      # Documentation
+├── guidelines/                # Style guides
 └── .github/workflows/ci.yml   # CI workflow
 ```
 
@@ -44,7 +47,11 @@ TensorFlowWrap/
 | Multi-compiler version | GCC 13/14, Clang 17/18 |
 | Stub testing | All platforms with TF stub |
 | Real TF testing | Linux with TF 2.13-2.18 |
-| Memory safety | ASan + UBSan |
+| Memory safety | ASan + UBSan + soak tests |
+| Thread safety | Concurrent inference tests |
+| Fuzzing | libFuzzer targets |
+| Performance | Benchmark suite |
+| Coverage | lcov reporting |
 | Header hygiene | Standalone compile check |
 
 ---
@@ -55,13 +62,18 @@ Every CI run MUST include these jobs:
 
 | Job | Purpose | Required |
 |-----|---------|----------|
-| `linux-gcc` | GCC 13/14 (C++20) build + stub tests | ✅ |
-| `linux-clang` | Clang 17/18 (C++20) build + stub tests | ✅ |
-| `windows-msvc` | MSVC (C++20) build + stub tests | ✅ |
-| `macos` | Apple Clang (C++20) build + stub tests | ✅ |
+| `linux-gcc` | GCC 13/14 (C++20) build + all stub tests | ✅ |
+| `linux-clang` | Clang 17/18 (C++20) build + all stub tests | ✅ |
+| `windows-msvc` | MSVC (C++20) build + all stub tests | ✅ |
+| `macos` | Apple Clang (C++20) build + all stub tests | ✅ |
 | `sanitizers` | ASan + UBSan | ✅ |
 | `header-check` | Verify headers compile standalone | ✅ |
 | `real-tensorflow` | Real TF 2.13-2.18 integration tests | ✅ |
+| `soak-tests` | Long-running stress tests with ASan | ✅ |
+| `thread-safety` | Concurrent inference tests | ✅ |
+| `fuzz-tests` | Fuzz testing with libFuzzer | ✅ |
+| `benchmarks` | Performance benchmarks | ✅ |
+| `coverage` | Code coverage reporting | ✅ |
 | `ci-success` | Gate job aggregating all results | ✅ |
 
 ---
@@ -92,7 +104,7 @@ Stub tests use doctest and run with the TF stub on all platforms.
 
 Real TF tests use a custom framework and run only on Linux with real TensorFlow.
 
-**Files:** `tests/test_*_tf.cpp`, `tests/test_real_tf_minimal.cpp`
+**Files:** `tests/test_*_tf.cpp`
 
 ```yaml
 - name: Build and run tests
@@ -129,9 +141,9 @@ Every public header must compile standalone.
     done
 ```
 
-### 5.4 Compile-Fail Tests (Future)
+### 5.4 Compile-Fail Tests
 
-Tests that are expected to fail compilation.
+Tests that are expected to fail compilation, validating type safety.
 
 ```yaml
 - name: Compile-fail tests
@@ -246,7 +258,12 @@ ci-success:
           "${{ needs.windows-msvc.result }}"
           "${{ needs.macos.result }}"
           "${{ needs.sanitizers.result }}"
+          "${{ needs.soak-tests.result }}"
+          "${{ needs.thread-safety.result }}"
           "${{ needs.real-tensorflow.result }}"
+          "${{ needs.fuzz-tests.result }}"
+          "${{ needs.benchmarks.result }}"
+          "${{ needs.coverage.result }}"
         )
         
         for result in "${results[@]}"; do
@@ -315,18 +332,31 @@ Before modifying the CI workflow:
 - [ ] Real TF tests run on Linux only
 - [ ] Header standalone check included
 - [ ] Sanitizers (ASan + UBSan) included
+- [ ] Soak tests with ASan included
+- [ ] Thread safety tests included
+- [ ] Fuzz tests included
+- [ ] Benchmarks included
+- [ ] Coverage reporting included
 - [ ] All TF versions 2.13-2.18 tested
-- [ ] `ci-success` gate job checks all required jobs
+- [ ] `ci-success` gate job checks all 12 required jobs
 - [ ] Warning flags include `-Werror` / `/WX`
+- [ ] New tests added to all platforms (Corner Cases, Comprehensive, Adversarial)
 - [ ] Tested locally before pushing
 
 ---
 
 ## Changelog
 
+### v2.0 (January 2026)
+- Added soak-tests, thread-safety, fuzz-tests, benchmarks, coverage jobs
+- Added corner cases, comprehensive, adversarial test files
+- Updated test file references (removed deleted test_real_tf_minimal.cpp)
+- Compile-fail tests now implemented
+- Total CI jobs: 12
+
 ### v1.0 (January 2026)
 - Initial CI Workflow Style Guide for TensorFlowWrap
 
 ---
 
-*TensorFlowWrap CI Workflow Style Guide v1.0 -- January 2026*
+*TensorFlowWrap CI Workflow Style Guide v2.0 -- January 2026*
