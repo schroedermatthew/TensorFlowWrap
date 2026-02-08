@@ -181,7 +181,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: [13, 14]
+        version: [12, 13, 14]
 
     steps:
       - uses: actions/checkout@v4
